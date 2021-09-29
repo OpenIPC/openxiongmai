@@ -2,6 +2,7 @@
 Module.symvers
 *.ko
 *.o
+*.a
 modules.order
 .tmp_versions/
 compile_flags.txt

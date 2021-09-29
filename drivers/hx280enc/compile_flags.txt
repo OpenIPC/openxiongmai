@@ -1,2 +1,0 @@
--I/home/dima/projects/cameras/sdk/XM510/os/kernel/linux-xm510/include
--I/home/dima/projects/cameras/sdk/XM510/os/kernel/linux-xm510/arch/arm/include
