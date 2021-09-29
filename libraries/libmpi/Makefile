@@ -4,7 +4,7 @@ CC=$(CROSS_COMPILE)gcc
 AR=$(CROSS_COMPILE)ar
 CFLAGS=-I../include -Werror -Wall -std=c99
 
-libopenmpi.a: mpi_sys.o mpi_vi.o mpi_venc.o
+libopenmpi.a: mpi_sys.o mpi_vi.o mpi_venc.o mpi_region.o
 	$(AR) rcs $@ $^
 
 clean:
