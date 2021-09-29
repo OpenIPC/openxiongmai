@@ -1,0 +1,7 @@
+.*.cmd
+Module.symvers
+*.ko
+*.o
+modules.order
+.tmp_versions/
+compile_flags.txt
