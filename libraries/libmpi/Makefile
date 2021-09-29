@@ -1,4 +1,4 @@
-PATH=/opt/vtcs_toolchain/arm-eabi-uclibc/usr/bin
+PATH=/opt/vtcs_toolchain/arm-eabi-uclibc/usr/bin:/usr/bin
 CROSS_COMPILE=arm-linux-
 CC=$(CROSS_COMPILE)gcc
 AR=$(CROSS_COMPILE)ar
