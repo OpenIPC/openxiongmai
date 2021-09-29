@@ -1,5 +1,8 @@
+#define _POSIX_C_SOURCE 199506L
 #include <signal.h>
+
 #include <stdio.h>
+#include <pthread.h>
 #include <string.h>
 
 #include "re_comm_venc.h"
