@@ -60,10 +60,8 @@ const char *LC0 asm("LC0") = "<3>i2c_write timeout %#x\n";
 const char *LC1 asm("LC1") = "<3>i2c_read timeout %#x\n";
 
 unsigned int i2c_read(unsigned int I2cNum, u8 I2cDevAddr,
-			     unsigned int I2cRegAddr,
-			     unsigned int I2cRegAddrByteNum,
-			     unsigned int DataLen)
-;
+		      unsigned int I2cRegAddr, unsigned int I2cRegAddrByteNum,
+		      unsigned int DataLen);
 #if 0
 {
 	asm volatile(
@@ -201,12 +199,9 @@ unsigned int i2c_read(unsigned int I2cNum, u8 I2cDevAddr,
 }
 #endif
 
-static ssize_t i2c_write(struct file *filp, const char *buff, size_t len,
-			 loff_t *off)
-{
-	printk("<1>Sorry, this operation isn't supported.\n");
-	return 0;
-}
+int i2c_write(unsigned int I2cNum, u8 I2cDevAddr, unsigned int I2cRegAddr,
+	      unsigned int I2cRegAddrByteNum, unsigned int Data,
+	      unsigned int DataLen);
 
 static long i2c_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -229,33 +224,31 @@ static long i2c_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case CMD_I2C_WRITE: {
-	printk("<1>Sorry, this operation isn't supported.\n");
-	return 0;
-#if 0
 		devAdd = argp->dev_addr;
 		RegAddr = argp->reg_addr;
 		Reg_Len = argp->addr_byte_num;
 		Wdata = argp->data;
 		DataLen = argp->data_byte_num;
-		//Ret = I2C_DRV_Write(I2cData.I2cNum, I2cData.I2cDevAddr, I2cData.I2cRegAddr, I2cData.I2cRegCount, pData, I2cData.DataLen);
-		ret = I2C_DRV_Write(1, devAdd, RegAddr, Reg_Len, Wdata,
-				    DataLen);
+#if 0
+		printk("i2c_write(%d, %#x, %#x, %#x, %#x, %#x) invoke\n", 0,
+		       devAdd, RegAddr, Reg_Len, Wdata, DataLen);
 #endif
+		ret = i2c_write(0, devAdd, RegAddr, Reg_Len, Wdata, DataLen);
 		break;
 	}
 
 	case CMD_I2C_READ: {
-#if 1
 		devAdd = argp->dev_addr;
 		RegAddr = argp->reg_addr;
 		Reg_Len = argp->addr_byte_num;
-		//Wdata  = argp->RWData    ;
 		DataLen = argp->data_byte_num;
 
-		printk("i2c_read(%d, %#x, %#x, %#x, %#x) invoke\n", 0, devAdd, RegAddr, Reg_Len, DataLen);
+#if 0
+		printk("i2c_read(%d, %#x, %#x, %#x, %#x) invoke\n", 0, devAdd,
+		       RegAddr, Reg_Len, DataLen);
+#endif
 		ret = i2c_read(0, devAdd, RegAddr, Reg_Len, DataLen);
 		argp->data = ret;
-#endif
 
 		break;
 	}
@@ -350,7 +343,7 @@ static int __init xm_i2c_init(void)
 		     "L_100:	dsb	sy\n");
 #else
 	reg = readl(0xFE020004);
-	// TODO: check corretness of parenthesis
+	// TODO: check correctness of parenthesis
 	writel(reg & (0xFFFFCFCA | 0x300500), 0xFE020004);
 
 	writel(0xA8, 0xFE000020);
