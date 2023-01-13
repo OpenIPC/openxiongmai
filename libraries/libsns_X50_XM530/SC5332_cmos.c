@@ -197,15 +197,21 @@ static XM_VOID cmos_slow_framerate_set(XM_U16 u16FullLines,
 // TODO
 static XM_VOID cmos_inttime_update(XM_U32 u32IntTime) {
   static XM_U32 su32IntTime = 0xFFFFFFFF;
-  XM_U32 u32Tmp;
   gu32ShutNow = u32IntTime;
   u32IntTime = u32IntTime * 2;
 
   if (su32IntTime == u32IntTime)
     return;
   su32IntTime = u32IntTime;
-  u32Tmp = ((u32IntTime & 0x0ff0) >> 4);
-  (void)u32Tmp;
+
+  sensor_write_register(0x3E02, 0x80);
+  sensor_write_register(0x3E01, 0x49);
+  sensor_write_register(0x3E00, 1);
+
+  //sensor_write_register(0x3E02, 32 * (unsigned char)u32IntTime & 0xE0);
+  //sensor_write_register(0x3E01, (u32IntTime >> 4) & 0xFF);
+  //sensor_write_register(0x3E00, (unsigned short)u32IntTime >> 12);
+
 #if 0
   sensor_write_register(0x3e00, (u32IntTime >> 12) & 0x0F);
   sensor_write_register(0x3e01, u32Tmp);
@@ -277,7 +283,10 @@ static XM_VOID cmos_gains_update(XM_U32 u32Again, XM_U32 u32Dgain) {
 static XM_VOID cmos_fps_set(XM_U8 u8Fps, AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
   XM_U32 u32TotalSizeV;
 
-  u32TotalSizeV = HD5MP_25P_LINES;
+  // only for 5M
+  u32TotalSizeV = 2640;
+  u8Fps = 15;
+#if 0
   switch (u8Fps) {
   // CVBS_PAL   CVBS_NTSC
   case 50:
@@ -305,15 +314,17 @@ static XM_VOID cmos_fps_set(XM_U8 u8Fps, AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
     DEBUG("cmos_fps_set 5M 20fps\n");
     break;
   }
+#endif
   // Change the frame rate via changing the vertical blanking
   if (pstAeSnsDft != NULL) {
     pstAeSnsDft->u32FullLinesStd = u32TotalSizeV;
-    pstAeSnsDft->u32MaxIntTime = pstAeSnsDft->u32FullLinesStd - 2;
+    pstAeSnsDft->u32MaxIntTime = pstAeSnsDft->u32FullLinesStd - 4;
     pstAeSnsDft->u32LinesPer500ms = pstAeSnsDft->u32FullLinesStd * u8Fps / 2;
   }
-  sensor_write_register(0x320e, (u32TotalSizeV >> 8) & 0xFF);
-  sensor_write_register(0x320f, u32TotalSizeV & 0xFF);
-  return;
+
+  sensor_write_register(0x320E, u32TotalSizeV >> 8);
+  sensor_write_register(0x320F, u32TotalSizeV & 0xFC);
+  XM_MPI_MIPI_RefreshFV(0, u32TotalSizeV);
 }
 
 /****************************************************************************
