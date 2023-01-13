@@ -1,5 +1,4 @@
-PATH=/opt/vtcs_toolchain/arm-eabi-uclibc/usr/bin:/usr/bin
-CROSS_COMPILE=arm-linux-
+CROSS_COMPILE=arm-xm-linux-
 CC=$(CROSS_COMPILE)gcc
 AR=$(CROSS_COMPILE)ar
 STRIP=$(CROSS_COMPILE)strip
@@ -7,7 +6,7 @@ CFLAGS=-I../isp/include/isp \
 	   -I../isp/include/xm \
 	   -I../isp/include/mpi \
 	   -D_GNU_SOURCE \
-	   -Werror -Wall -std=c99
+	   -Werror -Wall -std=c99 -fPIC
 
 ##############################################
 # CHIP_ID:	XM530
