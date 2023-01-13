@@ -3,7 +3,9 @@ CROSS_COMPILE=arm-linux-
 CC=$(CROSS_COMPILE)gcc
 AR=$(CROSS_COMPILE)ar
 STRIP=$(CROSS_COMPILE)strip
-CFLAGS=-I../isp/include/isp -I$(HOME)/git/majestic/thirdparty/nda/xm530/include/xm -Werror -Wall -std=c99
+CFLAGS=-I../isp/include/isp \
+	   -I../isp/include/xm \
+	   -Werror -Wall -std=c99
 
 ##############################################
 # CHIP_ID:	XM530
@@ -30,8 +32,7 @@ OBJECTS = \
 
 libsns_X50_XM530.so: $(OBJECTS)
 	$(CC) -shared -o $@ $^
-	sudo cp $@ /mnt/noc/sdk/majestic.xm530
-	#$(STRIP) $@
+	$(STRIP) $@
 
 clean:
 	-rm *.o *.so
