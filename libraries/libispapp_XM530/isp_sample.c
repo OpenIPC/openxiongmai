@@ -875,13 +875,13 @@ XM_S32 VI_WinSet(XM_U8 u8Mode, XM_U8 u8Mirror, XM_U8 u8Flip, XM_U16 u16ValH,
   XM_S32 s32Ret;
   ISP_PUB_ATTR_S stPubAttr;
 #if 0
-	DEBUG("VI_WinSet:\n", u8Mode, u8Mirror, u8Flip, u16ValH, u16ValV);
-	PrintInt(8,u8Mode);
-	PrintInt(8,u8Mirror);
-	PrintInt(8,u8Flip);
-	PrintInt(8,u16ValH);
-	PrintInt(8,u16ValV);	
-	ENTER();
+  DEBUG("VI_WinSet:\n");
+  PrintInt(8, u8Mode);
+  PrintInt(8, u8Mirror);
+  PrintInt(8, u8Flip);
+  PrintInt(8, u16ValH);
+  PrintInt(8, u16ValV);
+  ENTER();
 #endif
   // 1. PCLK
   if (su8FlipMirrorMode == 0xFF) // first
@@ -911,12 +911,12 @@ XM_S32 VI_WinSet(XM_U8 u8Mode, XM_U8 u8Mirror, XM_U8 u8Flip, XM_U16 u16ValH,
   s32StartH = stPubAttr.stWndRect.s32X;
   s32StartV = stPubAttr.stWndRect.s32Y;
 #if 0
-	DEBUG("Get Normal: \n");
-	PrintInt(8, s32StartH);
-	PrintInt(8, s32StartV);
-	PrintInt(8, stPubAttr.stWndRect.u32Width);
-	PrintInt(8, stPubAttr.stWndRect.u32Height);
-	ENTER();
+  DEBUG("Get Normal: \n");
+  PrintInt(8, s32StartH);
+  PrintInt(8, s32StartV);
+  PrintInt(8, stPubAttr.stWndRect.u32Width);
+  PrintInt(8, stPubAttr.stWndRect.u32Height);
+  ENTER();
 #endif
 
   if (u8Mode == 0) {
@@ -926,10 +926,10 @@ XM_S32 VI_WinSet(XM_U8 u8Mode, XM_U8 u8Mirror, XM_U8 u8Flip, XM_U16 u16ValH,
     if (u16ValV != 0xFFFF)
       s32StartV = (XM_S32)u16ValV;
 #if 0
-		DEBUG("Mode0: \n");
-		PrintInt(8, s32StartH);
-		PrintInt(8, s32StartV);
-		ENTER();
+    DEBUG("Mode0: \n");
+    PrintInt(8, s32StartH);
+    PrintInt(8, s32StartV);
+    ENTER();
 #endif
   } else {
     if (u16ValH & 0x8000)
@@ -948,10 +948,10 @@ XM_S32 VI_WinSet(XM_U8 u8Mode, XM_U8 u8Mirror, XM_U8 u8Flip, XM_U16 u16ValH,
       s32StartV = 0;
 
 #if 0
-		DEBUG("Mode1: \n");
-		PrintInt(8, s32StartH);
-		PrintInt(8, s32StartV);
-		ENTER();
+    DEBUG("Mode1: \n");
+    PrintInt(8, s32StartH);
+    PrintInt(8, s32StartV);
+    ENTER();
 #endif
   }
 
