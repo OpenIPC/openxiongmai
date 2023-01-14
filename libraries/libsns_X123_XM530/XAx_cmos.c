@@ -535,6 +535,13 @@ int sensor_register_callback(ISP_DEV IspDev) {
     pfn_sensor_getlist = sensor_getlist_sc3035;
     gu8MaxShutterOfst = 4;
     break;
+  case SENSOR_CHIP_SC3335:
+    cmos_init_sensor_exp_function_sc3335(&(stIspRegister.stSnsExp));
+    cmos_init_ae_exp_function_sc3335(&(stAeRegister.stSnsExp));
+    cmos_init_awb_exp_function_sc3335(&(stAwbRegister.stSnsExp));
+    pfn_sensor_getlist = sensor_getlist_sc3335;
+    gu8MaxShutterOfst = 4;
+    break;
 
   default:
 #ifdef DEBUG_ON
@@ -750,6 +757,7 @@ START_TAB:
   case SENSOR_CHIP_AUGE:
   case SENSOR_CHIP_SC2335:
   case SENSOR_CHIP_SC3035:
+  case SENSOR_CHIP_SC3335:
     if ((u32SnsChipFilt != SENSOR_CHIP_SC1235) &&
         (u32SnsChipFilt != SENSOR_CHIP_SC2235E) &&
         (u32SnsChipFilt != SENSOR_CHIP_SC2235P) &&
@@ -760,6 +768,7 @@ START_TAB:
         (u32SnsChipFilt != SENSOR_CHIP_SC2145) &&
         (u32SnsChipFilt != SENSOR_CHIP_AUGE) &&
         (u32SnsChipFilt != SENSOR_CHIP_SC3035) &&
+        (u32SnsChipFilt != SENSOR_CHIP_SC3335) &&
         (u32SnsChipFilt != SENSOR_CHIP_SC2335)) {
       gSnsDevAddr = 0x30;
       gSnsRegAddrByte = 0x2;
@@ -813,6 +822,10 @@ START_TAB:
       } else if (s32Id == 0x3035) {
         gSensorChip = SENSOR_CHIP_SC3035;
         DEBUG("SC3035!\n");
+        goto RET_TAB;
+      } else if (s32Id == 0xcc1a) {
+        gSensorChip = SENSOR_CHIP_SC3335;
+        DEBUG("SC3335!\n");
         goto RET_TAB;
       } else if (s32Id == 0xCB14) {
         gSensorChip = SENSOR_CHIP_SC2335;

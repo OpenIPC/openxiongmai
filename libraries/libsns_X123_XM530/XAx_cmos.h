@@ -74,6 +74,11 @@ cmos_init_sensor_exp_function_sc3035(ISP_SENSOR_EXP_FUNC_S *pstSensorExpFunc);
 XM_S32 cmos_init_ae_exp_function_sc3035(AE_SENSOR_EXP_FUNC_S *pstExpFuncs);
 XM_S32 cmos_init_awb_exp_function_sc3035(AWB_SENSOR_EXP_FUNC_S *pstExpFuncs);
 
+XM_S32
+cmos_init_sensor_exp_function_sc3335(ISP_SENSOR_EXP_FUNC_S *pstSensorExpFunc);
+XM_S32 cmos_init_ae_exp_function_sc3335(AE_SENSOR_EXP_FUNC_S *pstExpFuncs);
+XM_S32 cmos_init_awb_exp_function_sc3335(AWB_SENSOR_EXP_FUNC_S *pstExpFuncs);
+
 extern const ISP_COLORMATRIX_AUTO_S g_stAwbCcm_sc4236;
 extern const ISP_AWB_CALIBRATION_V2_S gstAwbCal_sc4236;
 extern const ISP_CMOS_AGC_TABLE_S g_stIspAgcTable_sc4236;
@@ -193,3 +198,4 @@ XM_S32 cmos_init_ae_exp_function_sc2335(AE_SENSOR_EXP_FUNC_S *pstExpFuncs);
 XM_S32 cmos_init_awb_exp_function_sc2335(AWB_SENSOR_EXP_FUNC_S *pstExpFuncs);
 
 XM_U32 sensor_getlist_sc3035(XM_U16 *pu16Num);
+XM_U32 sensor_getlist_sc3335(XM_U16 *pu16Num);

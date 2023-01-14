@@ -30,6 +30,8 @@ OBJECTS = \
 	sc2335_cmos.o \
 	sc3035_cmos.o \
 	sc3035_sensor_ctl.o \
+	sc3335_cmos.o \
+	sc3335_sensor_ctl.o \
 	sc307E_cmos.o \
 	sc4236_cmos.o \
 	soif37_cmos.o \

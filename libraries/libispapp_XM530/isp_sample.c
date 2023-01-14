@@ -1102,7 +1102,7 @@ static void GetProductInfo() {
   SysPLL_Init(1, &gstProductInfo);
   gstProductInfo.u32ProductType = 0x00;
   sensorType_get();
-  gstProductInfo.u32DSPType = DSP_XM550;
+  gstProductInfo.u32DSPType = DSP_XM530;
   gstProductInfo.bHsyncRecEn = XM_FALSE;
   gstProductInfo.u8SnsCommMode = 0; // I2C
   gstProductInfo.stSnsIO.SsDovdd = SNSIO_18V;
@@ -1790,6 +1790,32 @@ static void GetProductInfo() {
 
     stComboDevAttr.input_mode = SENSCONT_DVP;
     break;
+  case SENSOR_CHIP_SC3335:
+    gstProductInfo.u8StdType =
+        (gstParamIn.u8Vstd == VSTDNULL) ? PALS : gstParamIn.u8Vstd;
+    gstProductInfo.u8RsltType = P1536_;
+    gstProductInfo.u8SensorClk = SENSORCLK_27M;
+    gstProductInfo.SnsBwide = SENSBWIDE_10BIT;
+    gstProductInfo.bHsyncRecEn = XM_TRUE;
+    stComboDevAttr.input_mode = SENSCONT_MIPI;
+    stComboDevAttr.mipi_attr.lane = MIPI_2LANE;  // mipi的lane数
+    stComboDevAttr.mipi_attr.depth = MIPI_10BIT; // sensor点深度
+    gu8PclkEdge = 0;
+    stComboDevAttr.mipi_attr.MipiCtrl = 0x001400b8;
+    // gstProductInfo.u8StdType = PALS;//XM530的3M实际帧率最高25帧
+    stComboDevAttr.mipi_attr.snsAllPixs = 2880; // sensor输出总点数
+
+    stComboDevAttr.mipi_attr.snsAllLine = 1350;    // sensor输出总行数
+    stComboDevAttr.mipi_attr.snsActiveLine = 1304; // sensor输出总行数
+    stComboDevAttr.mipi_attr.snsActivePixs = 2312; // sensor输出总点数
+    stComboDevAttr.mipi_attr.bMpDvpclk = 97200000; //芯片内部并行取点时钟
+    stComboDevAttr.mipi_attr.bAllPixs =
+        stComboDevAttr.mipi_attr.snsAllPixs; //芯片内部并行取点总点数
+    stComboDevAttr.mipi_attr.snsMpOutclk =
+        stComboDevAttr.mipi_attr.bMpDvpclk * 10 /
+        (1 << stComboDevAttr.mipi_attr.lane) / 2; // sensor输出的mipi
+    stComboDevAttr.mipi_attr.delay = 0x01010101;  // mipi内部delay
+    break;
   case SENSOR_CHIP_APOLLO:
     gstProductInfo.u8StdType =
         (gstParamIn.u8Vstd == VSTDNULL) ? PALS : gstParamIn.u8Vstd;
@@ -2311,6 +2337,12 @@ static XM_S32 GetIspWndRect(XM_U8 u8Fps, RECT_S *pstRect) {
     pstRect->s32Y = 0x11;
     pstRect->u32Width = 2048 + 8;
     pstRect->u32Height = 1536 + 8;
+    break;
+  case SENSOR_CHIP_SC3335:
+    pstRect->s32X = 0x8;
+    pstRect->s32Y = 0x4;
+    pstRect->u32Width = 2280 + 8;
+    pstRect->u32Height = 1280 + 8;
     break;
   case SENSOR_CHIP_APOLLO:
     pstRect->s32X = 0x01;
