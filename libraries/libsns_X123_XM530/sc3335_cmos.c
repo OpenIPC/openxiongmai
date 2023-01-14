@@ -22,7 +22,7 @@ extern XM_U32 gu32AGainNow;
 
 static const ISP_CMOS_AGC_TABLE_S g_stIspAgcTable = {
     /* bvalid */
-    1,
+    0,
     /* 100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600, 51200, 102400,
        204800, 409600, 819200, 1638400, 3276800 */
     /* sharpen_D	H	*/
@@ -111,15 +111,15 @@ static XM_VOID cmos_again_calc_table(XM_U32 u32InTimes,
   u32InTimes = u32InTimes < 32 ? 32 : u32InTimes;
 
   for (i = 0; i < 4; i++) {
-    if (u32InTimes < 64) {
+    if (u32InTimes < 128) {
       break;
     }
     u32InTimes >>= 1;
-    pstAeSnsGainInfo->u32GainDb = (pstAeSnsGainInfo->u32GainDb << 1) | 1;
+    pstAeSnsGainInfo->u32GainDb = (2 * pstAeSnsGainInfo->u32GainDb) | 1;
   }
   pstAeSnsGainInfo->u32GainDb = (pstAeSnsGainInfo->u32GainDb << 8) + u32InTimes;
   u32InTimes = u32InTimes << i;
-  pstAeSnsGainInfo->u32SnsTimes = u32InTimes * 32;
+  pstAeSnsGainInfo->u32SnsTimes = u32InTimes * 16;
   gu32AGainNow = pstAeSnsGainInfo->u32SnsTimes;
   return;
 }
@@ -137,7 +137,7 @@ static XM_VOID cmos_dgain_calc_table(XM_U32 u32InTimes,
       break;
     }
     u32InTimes >>= 1;
-    pstAeSnsGainInfo->u32GainDb = (pstAeSnsGainInfo->u32GainDb << 1) | 1;
+    pstAeSnsGainInfo->u32GainDb = (2 * pstAeSnsGainInfo->u32GainDb) | 1;
   }
   pstAeSnsGainInfo->u32SnsTimes = u32InTimes << i;
   pstAeSnsGainInfo->u32GainDb = (pstAeSnsGainInfo->u32GainDb << 8) + u32InTimes;
@@ -197,53 +197,98 @@ STATIC XM_VOID cmos_inttime_update(XM_U32 u32IntTime) {
   return;
 }
 
-const static XM_U8 gau8Logic_sc3335[3][3] = {
-    //  0x3632,0x3306,0x330b
-    {0x18, 0x50, 0xd0},
-    {0x58, 0x58, 0xd8},
-    {0xd8, 0x5c, 0xdb}};
-const static XM_U16 gau16LogicAddr_Mipi[3] = {0x3632, 0x3306, 0x330b};
+const static XM_U8 gau8Logic_sc3335[3][1] = {
+    // 0x363c
+    {0x0e},
+    {0x07},
+    {0x0f},
+};
+
+const static XM_U16 gau16LogicAddr_Mipi[1] = {0x363c};
+
+const static XM_U8 TempLogic_sc3335[5][3] = {
+
+    {0x00, 0x10, 0x10}, // 0x5787
+    {0x00, 0x06, 0x06}, // 0x5788
+    {0x00, 0x10, 0x10}, // 0x5790
+    {0x00, 0x10, 0x10}, // 0x5791
+    {0x07, 0x07, 0x00}  // 0x5799
+};
+
+const static XM_U16 TempLogicAddr_Mipi[5] = {0x5787, 0x5788, 0x5790, 0x5791,
+                                             0x5799};
 
 static void gainLogic_sc3335(XM_U32 u32AllGain) {
-  static XM_U8 su8Idx = 0xFF; //[bit0~bit3]:Vstd   [bit4~bit7]:Agc
-  XM_U8 u8Idx2, u8i;
+  static XM_U8 su8Idx = 0xFF; //[bit0~bit3]:Temp   [bit4~bit7]:Agc
+  XM_U32 u32Temp = 0xffff;
+  XM_U8 u8Idx2, u8i, u8flag;
   u32AllGain = u32AllGain / 64; // *1024->*16
-  if (u32AllGain < 32)
-    u8Idx2 = 0;
-  else if (u32AllGain < 128)
+  u32Temp = sensor_read_register(0x3974) & 0xff;
+  u32Temp = (u32Temp << 4) | (sensor_read_register(0x3975) & 0xff);
+  // gain
+  if (0x40 == sensor_read_register(0x3034)) {
+    if (u32AllGain < 2)
+      u8Idx2 = 0;
+    else
+      u8Idx2 = 1;
+  } else if (0x41 == sensor_read_register(0x3034)) {
+    if (u32AllGain < 2)
+      u8Idx2 = 2;
+    else
+      u8Idx2 = 1;
+  } else {
     u8Idx2 = 1;
-  else
-    u8Idx2 = 2;
-  if (((su8Idx >> 4) & 0x0F) != u8Idx2) {
-    su8Idx = ((u8Idx2 & 0x0F) << 4);
+  }
+  // Temp
+  if ((u32Temp > 0x1040) || (u32AllGain >= 32)) {
+    if (u32Temp > 0x1040) {
+      u8flag = 0;
+    } else {
+      u8flag = 1;
+    }
+  } else if ((u32Temp < 0x1030) && (u32AllGain <= 24)) {
+    u8flag = 2;
+  } else {
+    u8flag = su8Idx & 0x0F;
+  }
+
+  if ((((su8Idx >> 4) & 0x0F) != u8Idx2) || ((su8Idx & 0x0F) != u8flag)) {
+    su8Idx = ((u8Idx2 & 0x0F) << 4) | (u8flag & 0x0F);
     sensor_write_register(0x3812, 0x00);
-    for (u8i = 0; u8i < 3; u8i++) {
+    for (u8i = 0; u8i < 1; u8i++) {
       sensor_write_register((XM_U32)gau16LogicAddr_Mipi[u8i],
                             (XM_U32)gau8Logic_sc3335[u8Idx2][u8i]);
+    }
+    for (u8i = 0; u8i < 5; u8i++) {
+      sensor_write_register((XM_U32)TempLogicAddr_Mipi[u8i],
+                            (XM_U32)TempLogic_sc3335[u8i][u8flag]);
     }
     sensor_write_register(0x3812, 0x30);
   }
 }
+
 static XM_VOID cmos_gains_update(XM_U32 u32Again, XM_U32 u32Dgain) {
   static XM_U32 su32AGain = 0xFFFFFFF;
   static XM_U32 su32DGain = 0xFFFFFFF;
-  unsigned int u32Tmp, tmp[4];
-  gau32AllGain = (XM_U64)gu32AGainNow * gu32DGainNow / 128;
+  unsigned int tmp[4];
+
+  gau32AllGain = (XM_U64)gu32AGainNow * gu32DGainNow >> 10;
   gainLogic_sc3335(gau32AllGain);
   if ((su32AGain != u32Again) || (su32DGain != u32Dgain)) {
     su32AGain = u32Again;
     su32DGain = u32Dgain;
     // 2.GainUpdate
+    // a.Again
     tmp[0] = u32Again & 0xFF;
-    u32Tmp = (u32Again >> 8) & 0xFF;
-    tmp[1] = 0x03 | (u32Tmp << 2);
+    tmp[1] = 4 * ((u32Again >> 8) & 0xFF) | 0x03;
+    // b.DGain
+    tmp[2] = (u32Dgain >> 8) & 0xFF;
+    tmp[3] = u32Dgain & 0xFF;
 
-    tmp[2] = u32Dgain & 0xFF;
-    tmp[3] = (u32Dgain >> 8) & 0xFF;
     sensor_write_register(0x3e08, tmp[1]);
     sensor_write_register(0x3e09, tmp[0]);
-    sensor_write_register(0x3e06, tmp[3]);
-    sensor_write_register(0x3e07, tmp[2]);
+    sensor_write_register(0x3e06, tmp[2]);
+    sensor_write_register(0x3e07, tmp[3]);
   }
   return;
 }
@@ -309,29 +354,47 @@ static XM_VOID cmos_fps_set(XM_U8 u8Fps, AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
 static XM_VOID cmos_slow_framerate_set(XM_U16 u16FullLines,
                                        AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
   return;
+  static XM_U16 preU16FullLine = 0xffff;
+  if (preU16FullLine == u16FullLines)
+    return;
+
+  preU16FullLine = u16FullLines;
+  u16FullLines = (u16FullLines >= 4096) ? 4000 : u16FullLines;
+  pstAeSnsDft->u32MaxIntTime = u16FullLines - gu8MaxShutterOfst;
+  SysDelay_ms(100);
+  if (gu32ShutNow > pstAeSnsDft->u32MaxIntTime) {
+    cmos_inttime_update(pstAeSnsDft->u32MaxIntTime);
+  }
+  sensor_write_register(0x320e, (u16FullLines & 0xff00) >> 8);
+  sensor_write_register(0x320f, u16FullLines & 0xff);
+
+  XM_MPI_MIPI_RefreshFV(0, (XM_U32)u16FullLines);
 }
 
 /****************************************************************************
  * AWB
  ****************************************************************************/
 const static ISP_COLORMATRIX_AUTO_S g_stAwbCcm = {
-    5000, {0x000, 180, 30, 46, 0x000, -22, 230, 48, 0x000, -2, -78, 336},
-    4000, {0x000, 215, -61, 102, 0x000, -7, 142, 121, 0x000, 4, -136, 388},
-    2800, {0x000, 189, -85, 152, 0x000, -40, 105, 192, 0x000, -58, -284, 598}};
-
-const static ISP_AWB_CALIBRATION_V2_S gstAwbCal = {
-    {0, 0, 4096, 2499, 3127, 2234, 3619, 4096},
-    {4096, 3779, 0, 0, 4096, 2469, 4096, 1874},
-    {-782, -4096, -1385, -4096, -3530, -4096, -3819, -2926},
-    213,
+    5000,
+    {0, 0x11F, 0xFFCD, 0x14, 0, 0xFFE8, 0x116, 2, 0, 0xB, 0xFFB6, 0x13F},
+    4000,
+    {0, 0x13C, 0xFF95, 0x2F, 0, 0xFFD9, 0xFC, 0x2B, 0, 4, 0xFFA8, 0x154},
+    2800,
+    {0, 0x96, 0x46, 0x24, 0, 0xFFA7, 0x114, 0x45, 0, 0xFF9D, 0xFF2C, 0x237}};
+static const ISP_AWB_CALIBRATION_V2_S gstAwbCal = {
+    {0, 0, 0x1000, 0xADA, 0x1000, 0x952, 0xC37, 0x1000},
+    {0x1000, 0xEBB, 0, 0, 0xF61, 0x97E, 0x1000, 0x4E8},
+    {0xFD14, 0xF000, 0xFB12, 0xF000, 0xF196, 0xF000, 0xF341, 0xF6F4},
+    0xD5,
     0,
-    1533,
+    0x58C,
     0,
-    2786,
-    {0, 738, 1082, 1317, 1388, 1445, 1704, 1757, 2786, 0, 0, 0, 0, 0, 0, 0},
-    {2000, 2150, 2800, 4000, 4150, 5000, 6500, 7500, 12000, 0, 0, 0, 0, 0, 0,
-     0},
-    {1396, 1024, 1582, 0}};
+    0xA84,
+    {0, 0x311, 0x3FE, 0x4E8, 0x539, 0x5AE, 0x660, 0x68D, 0xA84, 0, 0, 0, 0, 0,
+     0, 0},
+    {0x7D0, 0x866, 0xAF0, 0xFA0, 0x1036, 0x1388, 0x1964, 0x1D4C, 0x2EE0, 0, 0,
+     0, 0, 0, 0, 0},
+    {0x69F, 0x400, 0x646, 0}};
 
 static XM_S32 cmos_get_awb_default(AWB_SENSOR_DEFAULT_S *pstAwbSnsDft) {
   if (XM_NULL == pstAwbSnsDft) {
