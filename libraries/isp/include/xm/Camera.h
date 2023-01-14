@@ -4,645 +4,633 @@
 //  Copyright (c)2008-2008, ZheJiang JuFeng Technology Stock CO.LTD.
 //  All Rights Reserved.
 //
-//	Description:	
+//	Description:
 //	Revisions:		Year-Month-Day  SVN-Author  Modification
 //
 #ifndef __CAMERA_H__
-#define __CAMERA_H__ 
+#define __CAMERA_H__
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-#include "xm_type.h"
 #include "xm_comm_video.h"
+#include "xm_type.h"
 #ifdef SOC_NONE
 #include "mpi_vencTx.h"
 #endif
 
-#define GET_REJECT_SHAKE_TIME(cfgTime)  ((cfgTime)*20)
-#define BYTE		unsigned char
-#define WORD	unsigned short
+#define GET_REJECT_SHAKE_TIME(cfgTime) ((cfgTime)*20)
+#define BYTE unsigned char
+#define WORD unsigned short
 
-//ºÍAHD_NextChipÒ»ÖÂ
+//å’ŒAHD_NextChipä¸€è‡´
 // 3MP 13x; 4MP 14x; 5M 15x
 typedef enum {
-	SENSOR_CHIP_UNKNOW	=	0,
-	SENSOR_CHIP_H42		=	92,
-	SENSOR_CHIP_AR0140	=	94,
-	SENSOR_CHIP_AR0130	=	95,
-	SENSOR_CHIP_SC1035	=	96,	
-	SENSOR_CHIP_SC1037	=	97,
-	SENSOR_CHIP_H81		=	98,
-	SENSOR_CHIP_H65		=	99,
-	
-	SENSOR_CHIP_SP140A	=	81,
-	SENSOR_CHIP_H62		=	82,
-	SENSOR_CHIP_BG0703	=	83,
-	SENSOR_CHIP_SC1145	=	84,
-	SENSOR_CHIP_SC1135	=	85,
-	SENSOR_CHIP_OV9732	=	86,
-	SENSOR_CHIP_OV9750	=	87,
-	SENSOR_CHIP_SP1409	=	88,
-	SENSOR_CHIP_MIS1002	=	89,
-	
-	SENSOR_CHIP_SC2045	=	21,
-	SENSOR_CHIP_IMX222	=	22,
-	SENSOR_CHIP_IMX322	=	23,
-	SENSOR_CHIP_AR0237_IR	=	24,
-	SENSOR_CHIP_SC2035	=	25,
-	SENSOR_CHIP_F02		=	26,
-	SENSOR_CHIP_AR0237	=	27,
-	SENSOR_CHIP_IMX323	=	28,
-	SENSOR_CHIP_PS5220	=	29,
+  SENSOR_CHIP_UNKNOW = 0,
 
-	SENSOR_CHIP_SC2335  =	30,
-	
-	SENSOR_CHIP_SC2135	=	71,
-	SENSOR_CHIP_F22 	=	72,
-	SENSOR_CHIP_BG0803 	=	73,
-	SENSOR_CHIP_PS5230 	=	74,
-	SENSOR_CHIP_PS3210 	=	75,
-	SENSOR_CHIP_GC2023 	=	76,
-	SENSOR_CHIP_SC2145	=	77,
-	SENSOR_CHIP_HNX083	=	78,
-	SENSOR_CHIP_HNX993	=	79,
-	
-	SENSOR_CHIP_SC1235	=	50,
-	SENSOR_CHIP_BF3016	=	51,
-	SENSOR_CHIP_IMX307 	=	52,
-	SENSOR_CHIP_SC2235E	=	53,	
-	SENSOR_CHIP_F37 	=	55,
-	SENSOR_CHIP_SP2305 	=	56,
-	SENSOR_CHIP_MIS2006 =	59,	
-	
-	SENSOR_CHIP_BG0806 	=	60,
-	SENSOR_CHIP_IMX291 	=	61,
-	SENSOR_CHIP_PS5250	=	62,
-	SENSOR_CHIP_SC2235	=	63,
-	SENSOR_CHIP_SC2145H	=	64,
-	SENSOR_CHIP_GC2033 	=	65,
-	SENSOR_CHIP_F28 	=	66,
-	SENSOR_CHIP_SC2235P =	67,
-	SENSOR_CHIP_MIS2003 =	68, //¶ÔÓ¦MIS2236
-	SENSOR_CHIP_SC307E 	=	69,
-	
-	SENSOR_CHIP_AR0330 	=	130,
-	SENSOR_CHIP_SC3035 	=	131,
-	SENSOR_CHIP_AUGE 	=	132,
-	SENSOR_CHIP_SC3335 	=	135,
-	SENSOR_CHIP_OV4689 	=	140,
-	SENSOR_CHIP_SC4236 	=	141,
-	SENSOR_CHIP_K02 	=	142,
-	SENSOR_CHIP_PS5510 	=	150,
-	SENSOR_CHIP_K03 	=	151,
-	SENSOR_CHIP_SC5035 	=	152,
-	SENSOR_CHIP_SC5235 	=	153,
-	SENSOR_CHIP_SC335E 	=	154,
-	SENSOR_CHIP_IMX335 	=	155,
-	SENSOR_CHIP_SC5239 	=	156,
-	SENSOR_CHIP_Doris 	=	157,
-	SENSOR_CHIP_SC5332  = 159,
-	SENSOR_CHIP_OV12895 	=	180,
-	SENSOR_CHIP_APOLLO 	=	181,
-}XM_SENSOR_CHIP;
+  SENSOR_CHIP_SC2045 = 21,
+  SENSOR_CHIP_IMX222 = 22,
+  SENSOR_CHIP_IMX322 = 23,
+  SENSOR_CHIP_AR0237_IR = 24,
+  SENSOR_CHIP_SC2035 = 25,
+  SENSOR_CHIP_F02 = 26,
+  SENSOR_CHIP_AR0237 = 27,
+  SENSOR_CHIP_IMX323 = 28,
+  SENSOR_CHIP_PS5220 = 29,
 
+  SENSOR_CHIP_SC2335 = 30,
+  SENSOR_CHIP_H63 = 31,
+  SENSOR_CHIP_SC1345 = 38,
+  SENSOR_CHIP_SC1335T = 39,
+  SENSOR_CHIP_SC2320 = 40,
+  SENSOR_CHIP_MIS2008 = 41,
+  SENSOR_CHIP_OV2718 = 48,
+  SENSOR_CHIP_SC2239 = 49,
+  SENSOR_CHIP_SC1235 = 50,
+  SENSOR_CHIP_BF3016 = 51,
+  SENSOR_CHIP_IMX307 = 52,
+  SENSOR_CHIP_SC2235E = 53,
+  SENSOR_CHIP_SC307H = 54,
+  SENSOR_CHIP_F37 = 55,
+  SENSOR_CHIP_SP2305 = 56,
+  SENSOR_CHIP_F37P_FAST = 57,
+  SENSOR_CHIP_SC307P = 58,
+  SENSOR_CHIP_MIS2006 = 59,
 
-enum dvr_info_cmd_hs
-{
-	PRODUCT_TYPE 		= 0,
-	VIDEO_CHANNEL 		= 1,
-	AUDIO_CHANNEL 		= 2,
-	ALARM_IN 			= 3,
-	ALARM_OUT			= 4,
-	FVIDEO_CHIP			= 5,
-	DSP_CHIP 			= 6,
-	ANALOG_AUDIO_MODE	= 7,
-	TALKBACK			= 8,
-	BVIDEO_CHIP			= 9,
-	STORE_INTERFACE 	= 10,
-	MATRIX		 		= 11,
-	WIRELESS_INTERFACE	= 12,
-	HD_ENCODE			= 13,
-	HD_VERSION 			= 14,
-	VD_INTERFACE        = 15,
-	NET_INTERFACE       = 16,
-	HD_INFO_LEN			= 17
+  SENSOR_CHIP_BG0806 = 60,
+  SENSOR_CHIP_IMX291 = 61,
+  SENSOR_CHIP_PS5250 = 62,
+  SENSOR_CHIP_SC2235 = 63,
+  SENSOR_CHIP_SC2145H = 64,
+  SENSOR_CHIP_GC2033 = 65,
+  SENSOR_CHIP_F28 = 66,
+  SENSOR_CHIP_SC2235P = 67,
+  SENSOR_CHIP_MIS2003 = 68, //å¯¹åº”MIS2236
+  SENSOR_CHIP_SC307E = 69,
+
+  SENSOR_CHIP_SC307C = 70,
+  SENSOR_CHIP_SC2135 = 71,
+  SENSOR_CHIP_F22 = 72,
+  SENSOR_CHIP_BG0803 = 73,
+  SENSOR_CHIP_PS5230 = 74,
+  SENSOR_CHIP_PS3210 = 75,
+  SENSOR_CHIP_GC2023 = 76,
+  SENSOR_CHIP_SC2145 = 77,
+  SENSOR_CHIP_HNX083 = 78,
+  SENSOR_CHIP_HNX993 = 79,
+
+  SENSOR_CHIP_SC337H = 80,
+  SENSOR_CHIP_SP140A = 81,
+  SENSOR_CHIP_H62 = 82,
+  SENSOR_CHIP_BG0703 = 83,
+  SENSOR_CHIP_SC1145 = 84,
+  SENSOR_CHIP_SC1135 = 85,
+  SENSOR_CHIP_OV9732 = 86,
+  SENSOR_CHIP_OV9750 = 87,
+  SENSOR_CHIP_SP1409 = 88,
+  SENSOR_CHIP_MIS1002 = 89,
+
+  SENSOR_CHIP_SC1330T = 91,
+  SENSOR_CHIP_H42 = 92,
+  SENSOR_CHIP_AR0140 = 94,
+  SENSOR_CHIP_AR0130 = 95,
+  SENSOR_CHIP_SC1035 = 96,
+  SENSOR_CHIP_SC1037 = 97,
+  SENSOR_CHIP_H81 = 98,
+  SENSOR_CHIP_H65 = 99,
+  SENSOR_CHIP_SC223A = 101,
+  SENSOR_CHIP_SC2336 = 102,
+
+  SENSOR_CHIP_AR0330 = 130,
+  SENSOR_CHIP_SC3035 = 131,
+  SENSOR_CHIP_AUGE = 132,
+  SENSOR_CHIP_Q03 = 133,
+  SENSOR_CHIP_SC3335 = 135,
+  SENSOR_CHIP_SC3338 = 136,
+  SENSOR_CHIP_OV4689 = 140,
+  SENSOR_CHIP_SC4236 = 141,
+  SENSOR_CHIP_K02 = 142,
+  SENSOR_CHIP_PS5510 = 150,
+  SENSOR_CHIP_K03 = 151,
+  SENSOR_CHIP_SC5035 = 152,
+  SENSOR_CHIP_SC5235 = 153,
+  SENSOR_CHIP_SC335E = 154,
+  SENSOR_CHIP_IMX335 = 155,
+  SENSOR_CHIP_SC5239 = 156,
+  SENSOR_CHIP_Doris = 157,
+  SENSOR_CHIP_K05 = 158,
+  SENSOR_CHIP_SC5332 = 159,
+  SENSOR_CHIP_MIS5001 = 160,
+  SENSOR_CHIP_OV12895 = 180,
+  SENSOR_CHIP_APOLLO = 181,
+  SENSOR_CHIP_F53 = 182,
+} XM_SENSOR_CHIP;
+
+enum dvr_info_cmd_hs {
+  PRODUCT_TYPE = 0,
+  VIDEO_CHANNEL = 1,
+  AUDIO_CHANNEL = 2,
+  ALARM_IN = 3,
+  ALARM_OUT = 4,
+  FVIDEO_CHIP = 5,
+  DSP_CHIP = 6,
+  ANALOG_AUDIO_MODE = 7,
+  TALKBACK = 8,
+  BVIDEO_CHIP = 9,
+  STORE_INTERFACE = 10,
+  MATRIX = 11,
+  WIRELESS_INTERFACE = 12,
+  HD_ENCODE = 13,
+  HD_VERSION = 14,
+  VD_INTERFACE = 15,
+  NET_INTERFACE = 16,
+  HD_INFO_LEN = 17
 };
 
+enum netmode { NET_LAN = 0, NET_WLAN_8188EU };
 
-enum netmode{
-	NET_LAN = 0,
-	NET_WLAN_8188EU
-};
+typedef enum _resolution_bit_ {
+  RSLTION_BIT_720P = 0,
+  RSLTION_BIT_960P,
+  RSLTION_BIT_1080P,
+  RSLTION_BIT_1536P,
+  RSLTION_BIT_4MP,
+  RSLTION_BIT_5MP,
+  RSLTION_BIT_8MP,
 
-typedef enum _resolution_bit_{
-	RSLTION_BIT_720P = 0,
-	RSLTION_BIT_960P,
-	RSLTION_BIT_1080P,
-	RSLTION_BIT_1536P,
-	RSLTION_BIT_4MP,
-	RSLTION_BIT_5MP,
-	RSLTION_BIT_8MP,
-
-	RSLTION_BIT_BUTT
-}RSLTION_BIT;
-
-
-typedef enum{
-	IPC_UNKNOWN = 0x2000,
-	IPC_50X10 = 0x2001, 																					  
-	IPC_53X13 = 0x2002,
-	IPC_RA50X10 = 0x2003,
-	IPC_50X10_XYD = 0x2004,
-	IPC_50X10_SW = 0x2005,		
-	IPC_53X13_SWI = 0x2006,		//IPC_53X13_SWI	·Éµú
-	IPC_RA50X10_C = 0x2007,
-	IPC_RA53X13 = 0x2008,
-	IPC_53X13_SW = 0x2009,		
-	IPC_53X13_SWL = 0x200A,	// IPC_53X13_SWL	°×¹âµÆ·Éµú
-	IPC_RA53X13_C = 0x200B,
-	IPC_50X10_SWC = 0x200C,
-	IPC_50X20_SWL = 0x200E, 
-	IPC_50X20_SWI = 0x200F, 
-	IPC_53X13_XYD = 0x2010,
-	IPC_RA50X20_C = 0x2011,	
-	IPC_50X30_SWL = 0x2012,
-	IPC_50X10_SWCL = 0x2013,
-	IPC_53X13_SWCL = 0x2014,
-	IPC_50X20_SWCL = 0x2018,
-	IPC_50X30_SWI = 0x2015,
-	IPC_RA50X20 = 0x2016,
-	IPC_50X20_SWC = 0x2017,
-	IPC_50X10_SW_S = 0x2019,//32M
-	IPC_53X13_SWL_S = 0x201A,
-	IPC_50X10_SWC_S = 0x201B,
-	IPC_RA50X10_C_S = 0x201C,
-	IPC_53X13_SWI_S = 0x201D,
-	IPC_XM530_RA50X20 = 0x3001,
-	IPC_XM530_80X20 = 0x3002,
-	IPC_XM530_80X50 = 0x3005,
-	IPC_XM550_85X20_CP = 0x3006,
-	IPC_XM530_50X20_SW = 0x3007,
-	IPC_XM530_R80X20_PQ = 0x3008,
-	IPC_XM530_50X20_ELG = 0x3009,
-	XM350AI_60X20	= 0x6000,	// ÁÙÊ±Çø·Ö
-	NR_IPC
-}IPC_NICKNAME_E;
+  RSLTION_BIT_BUTT
+} RSLTION_BIT;
 
 typedef enum {
-	BLIGHT_CLOSE = 0x10,
-	BLIGHT_OPEN = 0x11,
-	CLIGHT_CLOSE = 0x20,
-	MUSICLIGHT_OPEN = 0x21,
-	MOODLIGHT_OPEN = 0x22,
-}enLIGHT_CTRL;
+  IPC_UNKNOWN = 0x2000,
+  IPC_50X10 = 0x2001,
+  IPC_53X13 = 0x2002,
+  IPC_RA50X10 = 0x2003,
+  IPC_50X10_XYD = 0x2004,
+  IPC_50X10_SW = 0x2005,
+  IPC_53X13_SWI = 0x2006, // IPC_53X13_SWI	é£ç¢Ÿ
+  IPC_RA50X10_C = 0x2007,
+  IPC_RA53X13 = 0x2008,
+  IPC_53X13_SW = 0x2009,
+  IPC_53X13_SWL = 0x200A, // IPC_53X13_SWL	ç™½å…‰ç¯é£ç¢Ÿ
+  IPC_RA53X13_C = 0x200B,
+  IPC_50X10_SWC = 0x200C,
+  IPC_50X20_SWL = 0x200E,
+  IPC_50X20_SWI = 0x200F,
+  IPC_53X13_XYD = 0x2010,
+  IPC_RA50X20_C = 0x2011,
+  IPC_50X30_SWL = 0x2012,
+  IPC_50X10_SWCL = 0x2013,
+  IPC_53X13_SWCL = 0x2014,
+  IPC_50X20_SWCL = 0x2018,
+  IPC_50X30_SWI = 0x2015,
+  IPC_RA50X20 = 0x2016,
+  IPC_50X20_SWC = 0x2017,
+  IPC_50X10_SW_S = 0x2019, // 32M
+  IPC_53X13_SWL_S = 0x201A,
+  IPC_50X10_SWC_S = 0x201B,
+  IPC_RA50X10_C_S = 0x201C,
+  IPC_53X13_SWI_S = 0x201D,
+  IPC_XM530_RA50X20 = 0x3001,
+  IPC_XM530_80X20 = 0x3002,
+  IPC_XM530_80X50 = 0x3005,
+  IPC_XM550_85X20_CP = 0x3006,
+  IPC_XM530_50X20_SW = 0x3007,
+  IPC_XM530_R80X20_PQ = 0x3008,
+  IPC_XM530_50X20_ELG = 0x3009,
+  XM350AI_60X20 = 0x6000, // ä¸´æ—¶åŒºåˆ†
+  NR_IPC
+} IPC_NICKNAME_E;
 
+typedef enum {
+  BLIGHT_CLOSE = 0x10,
+  BLIGHT_OPEN = 0x11,
+  CLIGHT_CLOSE = 0x20,
+  MUSICLIGHT_OPEN = 0x21,
+  MOODLIGHT_OPEN = 0x22,
+} enLIGHT_CTRL;
 
-typedef struct xm_COORD_S
-{
-    XM_S32 s32X;
-    XM_S32 s32Y;
-}COORD_S;
+typedef struct xm_COORD_S {
+  XM_S32 s32X;
+  XM_S32 s32Y;
+} COORD_S;
 
 /************************************************************************
  *
- *»ñÈ¡Éè±¸µÄÌØ¶¨Ãû³ÆID
- * ·µ»ØÃ¶¾ÙIPC_NICKNAME_E
+ *è·å–è®¾å¤‡çš„ç‰¹å®šåç§°ID
+ * è¿”å›æšä¸¾IPC_NICKNAME_E
  *
  ************************************************************************/
 extern int get_hwinfo(int info_cmd);
 extern int GetProductNickName(void);
 /************************************************************************
-½Ó¿ÚËùÔÚ¿â: 	libdvr.so
-º¯Êı¹¦ÄÜ: 		»ñÈ¡ProductDefinitionÀïµÄ²úÆ·ĞÍºÅ
-ÊäÈë²ÎÊı:		´æ´¢×Ö·û´®µÄµØÖ·
-·µ»Ø²ÎÊı:		0:	³É¹¦
-					-1:	Ê§°Ü
+æ¥å£æ‰€åœ¨åº“: 	libdvr.so
+å‡½æ•°åŠŸèƒ½: 		è·å–ProductDefinitioné‡Œçš„äº§å“å‹å·
+è¾“å…¥å‚æ•°:		å­˜å‚¨å­—ç¬¦ä¸²çš„åœ°å€
+è¿”å›å‚æ•°:		0:	æˆåŠŸ
+                                        -1:	å¤±è´¥
  ************************************************************************/
 int GetProductString(char *pString);
 
-///±àÂëÆ÷¾²Ì¬²ÎÊı
-typedef struct ENCODE_STATICPARAM
-{
-	char reserved[2];
-	int  profile;    
-	int level;
-	int reserved1[4];
+///ç¼–ç å™¨é™æ€å‚æ•°
+typedef struct ENCODE_STATICPARAM {
+  char reserved[2];
+  int profile;
+  int level;
+  int reserved1[4];
 } ENCODE_STATICPARAM;
 
+#define NAME_LEN 16
+typedef struct ispconfig_json_s {
+  char deviceType[NAME_LEN];
+  char oemName[NAME_LEN];
+  unsigned char u8InfraredIO;
+  unsigned char u8PolaritySwap;
+  unsigned char u8IrCutIO;
+  unsigned char u8IrCutSwap;
 
-#define NAME_LEN  16
-typedef struct ispconfig_json_s 
-{
-	char deviceType[NAME_LEN];
-	char oemName[NAME_LEN];
-	unsigned char u8InfraredIO;
-	unsigned char u8PolaritySwap;
-	unsigned char u8IrCutIO;
-	unsigned char u8IrCutSwap;
+  /*****************************************
+  u8IRLed: (0: default   å¸¸è§„æ¨¡ç»„)
+          bit0: 	(1: è½¯ä»¶æ§åˆ¶ç¯(WL/IR)        0: ç¡¬ä»¶æ§åˆ¶ç¯(å¸¸è§„))
+          bit4:	(1: ç¡¬å…‰æ•					0:
+  è½¯å…‰æ•)
+  *****************************************/
+  unsigned char u8IRLed;
 
-/*****************************************
-u8IRLed: (0: default   ³£¹æÄ£×é)
-	bit0: 	(1: Èí¼ş¿ØÖÆµÆ(WL/IR)        0: Ó²¼ş¿ØÖÆµÆ(³£¹æ))
-	bit4:	(1: Ó²¹âÃô					0: Èí¹âÃô)
-*****************************************/
-	unsigned char u8IRLed;
-
-/*****************************************
-u16LedIO: (0: default   ³£¹æÄ£×é)
-	bit0~bit7: 	(ºìÍâµÆGPIO£¬16½øÖÆ±íÊ¾)
-	bit8~bit15:	(°×¹âµÆGPIO£¬16½øÖÆ±íÊ¾)
-*****************************************/	
-	unsigned short u16SoftLedIO;
+  /*****************************************
+  u16LedIO: (0: default   å¸¸è§„æ¨¡ç»„)
+          bit0~bit7: 	(çº¢å¤–ç¯GPIOï¼Œ16è¿›åˆ¶è¡¨ç¤º)
+          bit8~bit15:	(ç™½å…‰ç¯GPIOï¼Œ16è¿›åˆ¶è¡¨ç¤º)
+  *****************************************/
+  unsigned short u16SoftLedIO;
 } ISPCONFIG_JSON_S;
 
 /*
 typedef enum WB_MODE
 {
-	WB_DISABLE,			// ½ûÖ¹
-	WB_AUTO,			// ×Ô¶¯
-	WB_DAYLIGHT,		// ÈÕ¹â 6500k
-	WB_CLOUDY,			// ÒõÌì 7500k
-	WB_INCANDESCENCE,	// °×ÈÈ¹â 5000k
-	WB_FLUORESCENT,		// ÈÕ¹âµÆ 4400k
-	WB_TUNGSTEN,			// ÎÙË¿µÆ 2800k
-	WB_MANUAL			// ÊÖ¶¯
+        WB_DISABLE,			// ç¦æ­¢
+        WB_AUTO,			// è‡ªåŠ¨
+        WB_DAYLIGHT,		// æ—¥å…‰ 6500k
+        WB_CLOUDY,			// é˜´å¤© 7500k
+        WB_INCANDESCENCE,	// ç™½çƒ­å…‰ 5000k
+        WB_FLUORESCENT,		// æ—¥å…‰ç¯ 4400k
+        WB_TUNGSTEN,			// é’¨ä¸ç¯ 2800k
+        WB_MANUAL			// æ‰‹åŠ¨
 }WB_MODE;
 */
-typedef enum IRCUT_SWITCH_MODE
-{
-	IRCUT_SYN_INFRARED,
-	IRCUT_SWITCH_AUTO,
-	IRCUT_BUTT
-}IRCUT_SWITCH_MODE;
-typedef enum DNC_MODE
-{
-	DNC_AUTO,			// ×Ô¶¯ÇĞ»»
-	DNC_MULTICOLOR,		// ²ÊÉ«
-	DNC_BLACKWHITE,		// Ç¿ÖÆÎªºÚ°×Ä£Ê½
-	DNC_INTE_WHITE_INF, //ÖÇÄÜ¾¯½ä
-	DNC_WHITELAMP_AUTO, //ÖÇÄÜÅ¯¹â
-	DNC_IRLAMP_AUTO,	//ÖÇÄÜºìÍâ
-	DNC_LP_MODE,		//³µÅÆÄ£Ê½
-	DNC_BUTT
-}DNC_MODE;
+typedef enum IRCUT_SWITCH_MODE {
+  IRCUT_SYN_INFRARED,
+  IRCUT_SWITCH_AUTO,
+  IRCUT_BUTT
+} IRCUT_SWITCH_MODE;
+typedef enum DNC_MODE {
+  DNC_AUTO,           // è‡ªåŠ¨åˆ‡æ¢
+  DNC_MULTICOLOR,     // å½©è‰²
+  DNC_BLACKWHITE,     // å¼ºåˆ¶ä¸ºé»‘ç™½æ¨¡å¼
+  DNC_INTE_WHITE_INF, //æ™ºèƒ½è­¦æˆ’
+  DNC_WHITELAMP_AUTO, //æ™ºèƒ½æš–å…‰
+  DNC_IRLAMP_AUTO,    //æ™ºèƒ½çº¢å¤–
+  DNC_LP_MODE,        //è½¦ç‰Œæ¨¡å¼
+  DNC_BUTT
+} DNC_MODE;
 
-typedef enum IRCUT_MODE
-{
-	IRCUT_NIGHT,///ÍíÉÏ
-	IRCUT_DAY,///°×ÌìÂË¹âÆ¬
-	IRCUT_AUTO,
-}IRCUT_MODE;
+typedef enum IRCUT_MODE {
+  IRCUT_NIGHT, ///æ™šä¸Š
+  IRCUT_DAY,   ///ç™½å¤©æ»¤å…‰ç‰‡
+  IRCUT_AUTO,
+} IRCUT_MODE;
 
-typedef enum CAMERA_SCENE
-{
-	SCENE_AUTO,
-	SCENE_INDOOR,
-	SCENE_OUTDOOR,
-	SCENE_BUTT,
-}CAMERA_SCENE;
-typedef enum IRCUT_SWITCH_DIRECTION
-{
-	NORMAL_DIRECTION,
-//	CONTRARY_DIRECTION
-}IRCUT_SWITCH_DIRECTION;
+typedef enum CAMERA_SCENE {
+  SCENE_AUTO,
+  SCENE_INDOOR,
+  SCENE_OUTDOOR,
+  SCENE_BUTT,
+} CAMERA_SCENE;
+typedef enum IRCUT_SWITCH_DIRECTION {
+  NORMAL_DIRECTION,
+  //	CONTRARY_DIRECTION
+} IRCUT_SWITCH_DIRECTION;
 
-typedef struct XM_MOVEMENT_DATA_S
-{
-	 int 	reg_addr; 
-	 int 	data; 
-	 int   mode;
-}MOVEMENT_DATA_S ;
+typedef struct XM_MOVEMENT_DATA_S {
+  int reg_addr;
+  int data;
+  int mode;
+} MOVEMENT_DATA_S;
 
-/// ÊÓÆµÑÕÉ«¸ñÊ½
-typedef struct CAMERA_COLOR{
-	unsigned char	Brightness;		///< ÁÁ¶È£¬È¡Öµ0-100¡£
-	unsigned char	Contrast;		///< ¶Ô±È¶È£¬È¡Öµ0-100¡£
-	unsigned char 	Saturation;		///< ±¥ºÍ¶È£¬È¡Öµ0-100¡£
-	unsigned char 	Hue;			///< É«µ÷£¬È¡Öµ0-100¡£
-	unsigned char 	Gain;			///< ÔöÒæ£¬È¡Öµ0-100¡£bit7ÖÃÎ»±íÊ¾×Ô¶¯ÔöÒæ£¬ÆäËûÎ»±»ºöÂÔ¡£
-	unsigned char	WhiteBalance;	///< ×Ô¶¯°×µçÆ½¿ØÖÆ£¬bit7ÖÃÎ»±íÊ¾¿ªÆô×Ô¶¯¿ØÖÆ.0x0,0x1,0x2·Ö±ğ´ú±íµÍ,ÖĞ,¸ßµÈ¼¶
-	unsigned short	Acutance;       	///< Èñ¶È£¬È¡Öµ0-15, µÚ8Î»±íÊ¾Ë®Æ½Èñ¶È£¬¸ß8Îª±íÊ¾´¹Ö±Èñ¶È¡£
-}CAMERA_COLOR;	// ºÍVIDEO_COLORÒ»ÖÂ
+/// è§†é¢‘é¢œè‰²æ ¼å¼
+typedef struct CAMERA_COLOR {
+  unsigned char Brightness; ///< äº®åº¦ï¼Œå–å€¼0-100ã€‚
+  unsigned char Contrast;   ///< å¯¹æ¯”åº¦ï¼Œå–å€¼0-100ã€‚
+  unsigned char Saturation; ///< é¥±å’Œåº¦ï¼Œå–å€¼0-100ã€‚
+  unsigned char Hue;        ///< è‰²è°ƒï¼Œå–å€¼0-100ã€‚
+  unsigned char Gain; ///< å¢ç›Šï¼Œå–å€¼0-100ã€‚bit7ç½®ä½è¡¨ç¤ºè‡ªåŠ¨å¢ç›Šï¼Œå…¶ä»–ä½è¢«å¿½ç•¥ã€‚
+  unsigned char
+      WhiteBalance; ///< è‡ªåŠ¨ç™½ç”µå¹³æ§åˆ¶ï¼Œbit7ç½®ä½è¡¨ç¤ºå¼€å¯è‡ªåŠ¨æ§åˆ¶.0x0,0x1,0x2åˆ†åˆ«ä»£è¡¨ä½,ä¸­,é«˜ç­‰çº§
+  unsigned short
+      Acutance; ///< é”åº¦ï¼Œå–å€¼0-15, ç¬¬8ä½è¡¨ç¤ºæ°´å¹³é”åº¦ï¼Œé«˜8ä¸ºè¡¨ç¤ºå‚ç›´é”åº¦ã€‚
+} CAMERA_COLOR; // å’ŒVIDEO_COLORä¸€è‡´
 
-
-// ±àÂë²ÎÊı
-typedef struct tagCAPTURE_FORMAT
-{
-    BYTE    Compression;        /*!< Ñ¹ËõÄ£Ê½ */
-    BYTE    BitRateControl;     /*!< ÂëÁ÷¿ØÖÆ */
-    BYTE    ImageSize;          /*!< Í¼Ïñ·Ö±æÂÊ */
-    BYTE    ImageQuality;       /*!< Í¼Ïñ»­ÖÊ */
-    BYTE    FramesPerSecond;    /*!< Ö¡ÂÊ */
-    BYTE    AVOption;           /*!< ÒôÊÓÆµÑ¡Ïî */
-    WORD    BitRate;            ///< ²Î¿¼ÂëÁ÷Öµ£¬KbpsÎªµ¥Î»
-    BYTE    GOP;                /*< Ö¡¼ä¸ôµÄÊıÖµ£¬½¨ÒéÖµ49¡«99*/
-    BYTE    reserved[3];        /*< ±£Áô×Ö½Ú*/
+// ç¼–ç å‚æ•°
+typedef struct tagCAPTURE_FORMAT {
+  BYTE Compression;     /*!< å‹ç¼©æ¨¡å¼ */
+  BYTE BitRateControl;  /*!< ç æµæ§åˆ¶ */
+  BYTE ImageSize;       /*!< å›¾åƒåˆ†è¾¨ç‡ */
+  BYTE ImageQuality;    /*!< å›¾åƒç”»è´¨ */
+  BYTE FramesPerSecond; /*!< å¸§ç‡ */
+  BYTE AVOption;        /*!< éŸ³è§†é¢‘é€‰é¡¹ */
+  WORD BitRate;         ///< å‚è€ƒç æµå€¼ï¼ŒKbpsä¸ºå•ä½
+  BYTE GOP;             /*< å¸§é—´éš”çš„æ•°å€¼ï¼Œå»ºè®®å€¼49ï½99*/
+  BYTE reserved[3];     /*< ä¿ç•™å­—èŠ‚*/
 } CAPTURE_FORMAT;
 
+typedef struct stCAM_INIT_DATE {
+  XM_S32 mask; //æ©ç 
+  XM_U8 u8GammaDay;
+  XM_U8 u8GammaNight;
+  XM_U8 u8LumDefDay;
+  XM_U8 u8LumDefNight;
+  XM_U8 u8InfrGpioNum; // ç¯æ¿GPIO
+  XM_U16 u16GainDef;   // x1
+  XM_U16 u16GainDefSD; // x1
+  XM_U16 u16GainMax;   // x1
+  XM_U32 u32DnThrDay[5];
+  XM_U32 u32DnThrNight[5];
+  XM_U32 u32EshutterLvEn;  // E Shutter enable level
+  XM_U32 u32EshutterLvDis; // E Shutter Disbale level
 
-typedef struct stCAM_INIT_DATE
-{
-	XM_S32 mask;			//ÑÚÂë
-	XM_U8 u8GammaDay;
-	XM_U8 u8GammaNight;
-	XM_U8 u8LumDefDay;
-	XM_U8 u8LumDefNight;
-	XM_U8 u8InfrGpioNum;		// µÆ°åGPIO
-	XM_U16 u16GainDef;			// x1
-	XM_U16 u16GainDefSD;		// x1
-	XM_U16 u16GainMax;			// x1
-	XM_U32 u32DnThrDay[5];
-	XM_U32 u32DnThrNight[5];
-	XM_U32 u32EshutterLvEn;		// E Shutter enable level
-	XM_U32 u32EshutterLvDis;		// E Shutter Disbale level	
+  XM_U32 u32awb_agc;     // bit7: En  bit0~bit6: Choice
+  XM_U32 u32AgcSLvlAwb;  // >= limit awb gain
+  XM_U32 u32AgcELvlAwb;  // <= not limit awb gain
+  XM_U32 u32CscLumCon;   // HighByte -> LowByte [Lum Con]
+  XM_U32 u32CscAcutance; // Autance
+  XM_U32 u32CscHueSat;   // HighByte -> LowByte [Hue Sat]
 
-	XM_U32 u32awb_agc;			// bit7: En  bit0~bit6: Choice
-	XM_U32 u32AgcSLvlAwb;		// >= limit awb gain
-	XM_U32 u32AgcELvlAwb;		// <= not limit awb gain
-	XM_U32 u32CscLumCon;		// HighByte -> LowByte [Lum Con]
-	XM_U32 u32CscAcutance;		// Autance
-	XM_U32 u32CscHueSat;		// HighByte -> LowByte [Hue Sat]
+  XM_S32 s32TgtNum; //[0,3]
+  XM_U32 au32TgtExp[4];
+  XM_U32 au32TgtLum[4];
+  XM_U32 u32FlashExtCfgEn;  // 0xA55A: Enable
+  XM_U32 u32GammaAgc;       // bit7: En  bit0~bit6: Choice
+  XM_U32 u32GamAgcStartLvl; // > StartLevel  use AgcGamma
+  XM_U32 u32GamAgcEndLvl;   // < EndLevel use NormalGamma
+  XM_S32 s32Rvs;            // Bit0: Infrared swap
+} CAM_INIT_DATA;
 
-	XM_S32 s32TgtNum;	//[0,3]
-	XM_U32 au32TgtExp[4];
-	XM_U32 au32TgtLum[4];
-	XM_U32 u32FlashExtCfgEn;		// 0xA55A: Enable
-	XM_U32 u32GammaAgc;		// bit7: En  bit0~bit6: Choice
-	XM_U32 u32GamAgcStartLvl;	// > StartLevel  use AgcGamma
-	XM_U32 u32GamAgcEndLvl;		// < EndLevel use NormalGamma
-	XM_S32 s32Rvs;				// Bit0: Infrared swap
-}CAM_INIT_DATA;
+//è¿”å›VIçª—å£å°ºå¯¸çš„ç»“æ„ä½“
+typedef struct st_VI_WIN_S {
+  XM_U32 u32Width;
+  XM_U32 u32Height;
+  XM_U32 u32TotalWidth;
+  XM_U32 u32TotalHeight;
+} VI_WIN_S;
 
-//·µ»ØVI´°¿Ú³ß´çµÄ½á¹¹Ìå
-typedef struct st_VI_WIN_S
-{
-    XM_U32 u32Width;
-    XM_U32 u32Height;
-    XM_U32 u32TotalWidth;
-    XM_U32 u32TotalHeight;
-}VI_WIN_S;
-
-
-// ÉèÖÃ°×Æ½ºâ²ÎÊı
+// è®¾ç½®ç™½å¹³è¡¡å‚æ•°
 int camera_set_wb_mode(unsigned int mode);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ:	»ñÈ¡/ÉèÖÃ ÈÕÒ¹Ä£Ê½
-ÊäÈë²ÎÊı:			0:	Auto
-				1:	Color
-				2:	BW
-				3:	ÖÇÄÜ¾¯½ä
-				4: 	ÖÇÄÜÅ¯¹â(¿É±ä¹â)
-				5:	ÖÇÄÜºìÍâ
-				6:	³µÅÆÄ£Ê½
+å‡½æ•°åŠŸèƒ½:	è·å–/è®¾ç½® æ—¥å¤œæ¨¡å¼
+è¾“å…¥å‚æ•°:			0:	Auto
+                                1:	Color
+                                2:	BW
+                                3:	æ™ºèƒ½è­¦æˆ’
+                                4: 	æ™ºèƒ½æš–å…‰(å¯å˜å…‰)
+                                5:	æ™ºèƒ½çº¢å¤–
+                                6:	è½¦ç‰Œæ¨¡å¼
 note:
 *************************************************************************/
 int camera_get_dnc_mode(XM_U32 *pMode);
 int camera_set_dnc_mode(unsigned int mode);
 
-
-// »ñÈ¡Ö§³ÖµÄÆØ¹âµÈ¼¶Êı
-// ·µ»ØÖµ<0£¬»ñÈ¡Ê§°Ü£¬>=0±íÊ¾µÈ¼¶Êı£¬¾ßÌåµÈ¼¶±£´æÔÚÊı×éspeedsÖĞ¡£
-// speedsÊı×é³¤¶È±ØĞë×ã¹»´ó£¬È¡16²î²»¶àÁË¡£
+// è·å–æ”¯æŒçš„æ›å…‰ç­‰çº§æ•°
+// è¿”å›å€¼<0ï¼Œè·å–å¤±è´¥ï¼Œ>=0è¡¨ç¤ºç­‰çº§æ•°ï¼Œå…·ä½“ç­‰çº§ä¿å­˜åœ¨æ•°ç»„speedsä¸­ã€‚
+// speedsæ•°ç»„é•¿åº¦å¿…é¡»è¶³å¤Ÿå¤§ï¼Œå–16å·®ä¸å¤šäº†ã€‚
 int camera_get_exposure_speeds(int vstd, unsigned int *speeds);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ:	ÆØ¹âÄ£Ê½ÉèÖÃ
-ÊäÈë²ÎÊı:	level:	0		×Ô¶¯ÆØ¹â
-						1~9		ÊÖ¶¯ÆØ¹â(¹Ì¶¨¼¸µµ)	
-				value1:	ÆØ¹âÏÂÏŞ(min,us)
-				value2:	ÆØ¹âÉÏÏŞ(max,us)
-note:	
-	×Ô¶¯ÆØ¹â(ÉÏÏÂÏŞÎŞĞ§)  		level :0
-	ÊÖ¶¯ÆØ¹â(¹Ì¶¨¼¸µµ)			level :1~9
+å‡½æ•°åŠŸèƒ½:	æ›å…‰æ¨¡å¼è®¾ç½®
+è¾“å…¥å‚æ•°:	level:	0		è‡ªåŠ¨æ›å…‰
+                                                1~9
+æ‰‹åŠ¨æ›å…‰(å›ºå®šå‡ æ¡£) value1:	æ›å…‰ä¸‹é™(min,us) value2:	æ›å…‰ä¸Šé™(max,us)
+note:
+        è‡ªåŠ¨æ›å…‰(ä¸Šä¸‹é™æ— æ•ˆ)  		level :0
+        æ‰‹åŠ¨æ›å…‰(å›ºå®šå‡ æ¡£)			level :1~9
 *************************************************************************/
 int camera_get_exposure_level(int *pLevel, XM_U32 *pValue1, XM_U32 *pValue2);
-int camera_set_exposure_level(int level, unsigned int value1, unsigned int value2);
+int camera_set_exposure_level(int level, unsigned int value1,
+                              unsigned int value2);
 
 /*******************************************************************
-º¯Êı¹¦ÄÜ:	ÉèÖÃ/»ñÈ¡×Ô¶¯ÔöÒæ
-ÊäÈë²ÎÊı:	s32GainMax:	×î´óÔöÒæ	( 0~100	def: 50)
-				s32AutoEn:	AutoGain Ê¹ÄÜ	(0~1		def: 1)
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0 	³É¹¦
-				-1	³ö´í
-Note:			Lycai
+å‡½æ•°åŠŸèƒ½:	è®¾ç½®/è·å–è‡ªåŠ¨å¢ç›Š
+è¾“å…¥å‚æ•°:	s32GainMax:	æœ€å¤§å¢ç›Š	( 0~100	def: 50)
+                                s32AutoEn:	AutoGain ä½¿èƒ½	(0~1
+def: 1) è¾“å‡ºå‚æ•°:	æ—  è¿”å›å‚æ•°:	0 	æˆåŠŸ -1	å‡ºé”™ Note:
+Lycai
 *******************************************************************/
 int camera_get_gain(int *pGainLevel, int *pAutoEn);
 int camera_set_gain(int s32GainMax, int s32AutoEn);
 
-
-// ÉèÖÃ²Î¿¼µçÆ½Öµ
-// level:²Î¿¼µçÆ½Öµ£¬È¡Öµ0-100¡£
+// è®¾ç½®å‚è€ƒç”µå¹³å€¼
+// level:å‚è€ƒç”µå¹³å€¼ï¼Œå–å€¼0-100ã€‚
 int camera_get_refrence_level(void);
 int camera_set_refrence_level(int level);
 
-
-// »ñÈ¡Æ½¾ùÁÁ¶ÈÖµ
+// è·å–å¹³å‡äº®åº¦å€¼
 int camera_get_luminance(void);
 
-//»ñÈ¡×´Ì¬Âë,>=0±íÊ¾×´Ì¬Õı³£,<0±íÊ¾×´Ì¬Òì³£
+//è·å–çŠ¶æ€ç ,>=0è¡¨ç¤ºçŠ¶æ€æ­£å¸¸,<0è¡¨ç¤ºçŠ¶æ€å¼‚å¸¸
 int camera_get_status(int *status);
 
-//ÓÃÓÚµ÷ÊÔ
+//ç”¨äºè°ƒè¯•
 int camera_debug(char *cmd);
 
-//·µ»Øxm 2a¿âµÄ°æ±¾ĞÅÏ¢
+//è¿”å›xm 2aåº“çš„ç‰ˆæœ¬ä¿¡æ¯
 int camera_aew_get_version(char *str);
 
-//·µ»ØWBÔöÒæ
-void  camera_get_wb_params(void *param);
+//è¿”å›WBå¢ç›Š
+void camera_get_wb_params(void *param);
 
-//ÉèÖÃ×Ô¶¯¹âÈ¦Ä£Ê½
+//è®¾ç½®è‡ªåŠ¨å…‰åœˆæ¨¡å¼
 int camera_set_aperture(unsigned int mode);
 
-//ÉèÖÃ±³¹â²¹³¥Ä£Ê½
+//è®¾ç½®èƒŒå…‰è¡¥å¿æ¨¡å¼
 int camera_get_blc(XM_U32 *pMode);
 int camera_set_blc(unsigned int mode);
 
 /*******************************************************************
-º¯Êı¹¦ÄÜ:	»ñÈ¡µ±Ç°±³¹â²¹³¥²ÎÊı
-ÊäÈë²ÎÊı:	ÎŞ
-Êä³ö²ÎÊı:	*pu32Enable µ±Ç°Ê¹ÄÜ¿ª¹Ø(0/1)
-			*pu32Level µ±Ç°Ç¿¶È(0~100)
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	Ê§°Ü
+å‡½æ•°åŠŸèƒ½:	è·å–å½“å‰èƒŒå…‰è¡¥å¿å‚æ•°
+è¾“å…¥å‚æ•°:	æ— 
+è¾“å‡ºå‚æ•°:	*pu32Enable å½“å‰ä½¿èƒ½å¼€å…³(0/1)
+                        *pu32Level å½“å‰å¼ºåº¦(0~100)
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å¤±è´¥
 *******************************************************************/
 int camera_get_blc_v2(XM_U32 *pu32Enable, XM_U32 *pu32Level);
 
 /*******************************************************************
-º¯Êı¹¦ÄÜ:	ÉèÖÃ±³¹â²¹³¥²ÎÊı
-ÊäÈë²ÎÊı:		u32Enable: Ê¹ÄÜ¿ª¹Ø(0/1)
-			u32Level: Ç¿¶È(0~100)
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	Ê§°Ü
+å‡½æ•°åŠŸèƒ½:	è®¾ç½®èƒŒå…‰è¡¥å¿å‚æ•°
+è¾“å…¥å‚æ•°:		u32Enable: ä½¿èƒ½å¼€å…³(0/1)
+                        u32Level: å¼ºåº¦(0~100)
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å¤±è´¥
 *******************************************************************/
 int camera_set_blc_v2(XM_U32 u32Enable, XM_U32 u32Level);
 
-// ÉèÖÃÇé¾°Ä£Ê½
-int camera_get_scene(CAMERA_SCENE* pScene);
+// è®¾ç½®æƒ…æ™¯æ¨¡å¼
+int camera_get_scene(CAMERA_SCENE *pScene);
 int camera_set_scene(CAMERA_SCENE scene);
 
-
 /*******************************************************************
-º¯Êı¹¦ÄÜ:	»ñÈ¡µç×ÓÂı¿ìÃÅ×´Ì¬(µ±Ç°)
-ÊäÈë²ÎÊı:	ÎŞ
-Êä³ö²ÎÊı:	*pu8EShutterSts:
-					 fps' = fps*0x10/gu8EshutterSts
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	Ê§°Ü
+å‡½æ•°åŠŸèƒ½:	è·å–ç”µå­æ…¢å¿«é—¨çŠ¶æ€(å½“å‰)
+è¾“å…¥å‚æ•°:	æ— 
+è¾“å‡ºå‚æ•°:	*pu8EShutterSts:
+                                         fps' = fps*0x10/gu8EshutterSts
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å¤±è´¥
 *******************************************************************/
 int camera_get_es_status(XM_U8 *pu8EShutterSts);
 
-
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	½µÖ¡¹¦ÄÜ£¨Ê¹ÄÜ£©
-ÊäÈë²ÎÊı:	es_shutter: 
-					0:		1/1
-					2:		1/2
-					4:		1/3
-					6:		1/4
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	é™å¸§åŠŸèƒ½ï¼ˆä½¿èƒ½ï¼‰
+è¾“å…¥å‚æ•°:	es_shutter:
+                                        0:		1/1
+                                        2:		1/2
+                                        4:		1/3
+                                        6:		1/4
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_get_es_shutter(int *pEshutterLevel);
 int camera_set_es_shutter(int es_shutter);
-///¿ªÆôÈÕ¹âµÆ·ÀÉÁ¹¦ÄÜ
-//en = 0 ²»¿ªÆô en= 1¿ªÆô
+///å¼€å¯æ—¥å…‰ç¯é˜²é—ªåŠŸèƒ½
+// en = 0 ä¸å¼€å¯ en= 1å¼€å¯
 int camera_get_reject_flicker(int *pEn);
 int camera_set_reject_flicker(int en);
 
-// ÈÕÒ¹ÇĞ»»ãĞÖµ
+// æ—¥å¤œåˆ‡æ¢é˜ˆå€¼
 int camera_get_dnc_thr(int *pDnc_thr);
-int camera_set_dnc_thr(int dnc_thr); 		//ÈÕÒ¹×ª»»ãĞÖµ 10-50£¬Ä¬ÈÏ30
+int camera_set_dnc_thr(int dnc_thr); //æ—¥å¤œè½¬æ¢é˜ˆå€¼ 10-50ï¼Œé»˜è®¤30
 
 /*******************************************************************
-º¯Êı¹¦ÄÜ:	»ñÈ¡/ÉèÖÃ ÈÕÒ¹µ÷½ÚÁéÃô¶È
-ÊäÈë²ÎÊı:	ÎŞ
-Êä³ö²ÎÊı:	* pLevel:	µÈ¼¶(1~10)
-·µ»Ø²ÎÊı:	0 	³É¹¦
-				-1	³ö´í
+å‡½æ•°åŠŸèƒ½:	è·å–/è®¾ç½® æ—¥å¤œè°ƒèŠ‚çµæ•åº¦
+è¾“å…¥å‚æ•°:	æ— 
+è¾“å‡ºå‚æ•°:	* pLevel:	ç­‰çº§(1~10)
+è¿”å›å‚æ•°:	0 	æˆåŠŸ
+                                -1	å‡ºé”™
 Note:			Lycai
 *******************************************************************/
-int camera_get_ae_sensitivity(int*pLevel);
-int camera_set_ae_sensitivity(int ae_sensitivity); ///aeÁéÃô¶ÈÅäÖÃ 1-10£¬Ä¬ÈÏÎª5
+int camera_get_ae_sensitivity(int *pLevel);
+int camera_set_ae_sensitivity(int ae_sensitivity); /// aeçµæ•åº¦é…ç½®
+                                                   /// 1-10ï¼Œé»˜è®¤ä¸º5
 
 /*******************************************************************
-º¯Êı¹¦ÄÜ:	»ñÈ¡/ÉèÖÃ AEµ÷½ÚÁéÃô¶È
-ÊäÈë²ÎÊı:	ÎŞ
-Êä³ö²ÎÊı:	* pLevel:	µÈ¼¶(1~10)
-·µ»Ø²ÎÊı:	0 	³É¹¦
-				-1	³ö´í
+å‡½æ•°åŠŸèƒ½:	è·å–/è®¾ç½® AEè°ƒèŠ‚çµæ•åº¦
+è¾“å…¥å‚æ•°:	æ— 
+è¾“å‡ºå‚æ•°:	* pLevel:	ç­‰çº§(1~10)
+è¿”å›å‚æ•°:	0 	æˆåŠŸ
+                                -1	å‡ºé”™
 Note:			Lycai
 *******************************************************************/
-int camera_get_ae_sensitivity2(int* pLevel);
+int camera_get_ae_sensitivity2(int *pLevel);
 int camera_set_ae_sensitivity2(int level);
 
-
-//int camera_set_RGBGain(int channel, int gainval);//ÉèÖÃRGBÔöÒæ1 REDÍ¨µÀ  2 GREENÍ¨µÀ  3BLUEÍ¨µÀ
-int camera_get_Infrared(void);//»ñÈ¡Éè±¸ºìÍâ×´Ì¬ 1±íÊ¾ºìÍâ´ò¿ª 0±íÊ¾¹Ø±Õ 2±íÊ¾Ğ¾Æ¬²»Ö§³Ö
-int camera_set_Ircut(int mode);//ÅäÖÃircut×´Ì¬
+// int camera_set_RGBGain(int channel, int gainval);//è®¾ç½®RGBå¢ç›Š1 REDé€šé“  2
+// GREENé€šé“  3BLUEé€šé“
+int camera_get_Infrared(
+    void); //è·å–è®¾å¤‡çº¢å¤–çŠ¶æ€ 1è¡¨ç¤ºçº¢å¤–æ‰“å¼€ 0è¡¨ç¤ºå…³é—­ 2è¡¨ç¤ºèŠ¯ç‰‡ä¸æ”¯æŒ
+int camera_set_Ircut(int mode); //é…ç½®ircutçŠ¶æ€
 int camera_save_debug_cmd(char *cmd);
 
 /*******************************************************************
-º¯Êı¹¦ÄÜ:	»ñÈ¡/ÉèÖÃÈÕÒ¹½µÔëµÈ¼¶
-ÊäÈë²ÎÊı:	daynight:		0(Day)	1(Night)
-				nf_level: 		0~5   Def:3
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0 	³É¹¦
-				-1	³ö´í
+å‡½æ•°åŠŸèƒ½:	è·å–/è®¾ç½®æ—¥å¤œé™å™ªç­‰çº§
+è¾“å…¥å‚æ•°:	daynight:		0(Day)	1(Night)
+                                nf_level: 		0~5   Def:3
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0 	æˆåŠŸ
+                                -1	å‡ºé”™
 Note:			Lycai
 *******************************************************************/
 int CameraGetNFLevel(int daynight, int *pNrLevel);
 int CameraSetNFLevel(int daynight, int nf_level);
-//swap 0:Õı³£Ğò 1£º·´Ğò
+// swap 0:æ­£å¸¸åº 1ï¼šååº
 int CameraGetSwapICR(int *pSwap);
 int CameraSwapICR(int swap);
 
-int test_movement(int x,int y,int z);
+int test_movement(int x, int y, int z);
 
 int movement_ircut(int level);
 
-int movement_gpioset(int addr,int mode);
+int movement_gpioset(int addr, int mode);
 
 int movement_addrset(MOVEMENT_DATA_S *);
 
 // DWDR
-int camera_get_wdr(int* pLevel, int* pEnable);
+int camera_get_wdr(int *pLevel, int *pEnable);
 int camera_set_wdr(int level, int enable);
 
-
 int Camera_Get_StyleMode(int *pChoice);
-int Camera_Set_StyleMode(int choice);		//ÊäÈë²ÎÊı:   0, 1, 2
+int Camera_Set_StyleMode(int choice); //è¾“å…¥å‚æ•°:   0, 1, 2
 
-int Camera_Get_DebugFile(char *fliename, unsigned int choice, unsigned int depth);
+int Camera_Get_DebugFile(char *fliename, unsigned int choice,
+                         unsigned int depth);
 
-int Movement_LumTarget_Change(int lum_now);		//¸Ä±äÄ¿±êÁÁ¶È
+int Movement_LumTarget_Change(int lum_now); //æ”¹å˜ç›®æ ‡äº®åº¦
 
-int Camera_Get_DebugFile(char *fliename, unsigned int choice, unsigned int depth);
+int Camera_Get_DebugFile(char *fliename, unsigned int choice,
+                         unsigned int depth);
 
 int camera_scan_task(XM_U32 u32Tms);
 
-// IR-CUT Ä£Ê½
+// IR-CUT æ¨¡å¼
 int camera_get_ircut_mode(int *pIrcutMode);
 int camera_set_ircut_mode(int ircut_mode);
 
-// ¾µÏñ
+// é•œåƒ
 int camera_get_mirror(int *pMirror);
 int camera_set_mirror(int mirror);
 
-// ·­×ª
+// ç¿»è½¬
 int camera_get_flip(int *pFlip);
 int camera_set_flip(int flip);
 
+/*************************************************************************
+å‡½æ•°åŠŸèƒ½: 	å›¾åƒé¢œè‰²(Web) æ¥å£
+è¾“å…¥å‚æ•°:	channel:	 æ— æ•ˆ
+                                pColor:
+                                        Brightness: äº®åº¦(0~100)
+                                        Contrast: å¯¹æ¯”åº¦(0~100)
+                                        Saturation: é¥±å’Œåº¦(0~100)
+                                        Hue:	è‰²åº¦(0~100)
+                                        Acutance: é”åŒ–(0~15)
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
+*************************************************************************/
+int camera_get_color(int channel, CAMERA_COLOR *pColor);
+int camera_set_color(int channel, CAMERA_COLOR *pColor);
 
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	Í¼ÏñÑÕÉ«(Web) ½Ó¿Ú
-ÊäÈë²ÎÊı:	channel:	 ÎŞĞ§
-				pColor:
-					Brightness: ÁÁ¶È(0~100)
-					Contrast: ¶Ô±È¶È(0~100)
-					Saturation: ±¥ºÍ¶È(0~100)
-					Hue:	É«¶È(0~100)
-					Acutance: Èñ»¯(0~15)
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	è·å–/è®¾ç½® è§†é¢‘åˆ¶å¼(PAL/NTSC)
+è¾“å…¥å‚æ•°:	channel:	 æ— æ•ˆ
+                                u32Vstd: 0:(UN)
+                                                1:PAL
+                                                2:NTSC
+è¾“å‡ºå‚æ•°:	*pu32Vstd	0:(UN)
+                                                        1:PAL
+                                                        2:NTSC
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
-int camera_get_color(int channel, CAMERA_COLOR * pColor);
-int camera_set_color(int channel, CAMERA_COLOR * pColor);
-
-
-/*************************************************************************
-º¯Êı¹¦ÄÜ: 	»ñÈ¡/ÉèÖÃ ÊÓÆµÖÆÊ½(PAL/NTSC)
-ÊäÈë²ÎÊı:	channel:	 ÎŞĞ§
-				u32Vstd: 0:(UN)
-						1:PAL
-						2:NTSC
-Êä³ö²ÎÊı:	*pu32Vstd	0:(UN)
-							1:PAL
-							2:NTSC
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
-*************************************************************************/
-int camera_get_vstd(int channel,unsigned int *pu32Vstd);
-int camera_set_vstd(int channel,unsigned int u32Vstd);
-
-
+int camera_get_vstd(int channel, unsigned int *pu32Vstd);
+int camera_set_vstd(int channel, unsigned int u32Vstd);
 
 // u32Level: 	0~100
 // def:		0
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	»ñÈ¡/ÉèÖÃ È¥Î±²Ê
-ÊäÈë²ÎÊı:	u32Level: 	0~100(def:0)
-Êä³ö²ÎÊı:	pu32Level:	µ±Ç°µÈ¼¶
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	è·å–/è®¾ç½® å»ä¼ªå½©
+è¾“å…¥å‚æ•°:	u32Level: 	0~100(def:0)
+è¾“å‡ºå‚æ•°:	pu32Level:	å½“å‰ç­‰çº§
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_set_antiFalseColor(unsigned int u32Level);
 int camera_get_antiFalseColor(unsigned int *pu32Level);
@@ -650,98 +638,87 @@ int camera_get_antiFalseColor(unsigned int *pu32Level);
 // u32Level: 	0~100
 // def:		0
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	»ñÈ¡/ÉèÖÃ È¥¾â³İ
-ÊäÈë²ÎÊı:	u32Level: 	0~100(def:0)
-Êä³ö²ÎÊı:	pu32Level:	µ±Ç°µÈ¼¶
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	è·å–/è®¾ç½® å»é”¯é½¿
+è¾“å…¥å‚æ•°:	u32Level: 	0~100(def:0)
+è¾“å‡ºå‚æ•°:	pu32Level:	å½“å‰ç­‰çº§
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_set_sawtooth(unsigned int u32Level);
 int camera_get_sawtooth(unsigned int *pu32Level);
 
-//·ÀºìÍâ¹ıÆØ¹¦ÄÜ
-//Enable = 0 ²»¿ªÆô Enable = 1¿ªÆô
+//é˜²çº¢å¤–è¿‡æ›åŠŸèƒ½
+// Enable = 0 ä¸å¼€å¯ Enable = 1å¼€å¯
 int camera_set_hlc(int Enable);
 int camera_get_hlc(int *pEnable);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	camera_set_format
-ÊäÈë²ÎÊı:	chn
-				u32Type: 0MainStream	1:SubStream1	2:SubStream2
-				pstFormat: encode paramer
-Êä³ö²ÎÊı:	none
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	camera_set_format
+è¾“å…¥å‚æ•°:	chn
+                                u32Type: 0MainStream	1:SubStream1
+2:SubStream2 pstFormat: encode paramer è¾“å‡ºå‚æ•°:	none è¿”å›å‚æ•°:	0:
+æˆåŠŸ -1:	å‡ºé”™
 *************************************************************************/
-int camera_set_format(int chn, unsigned int u32Type,const CAPTURE_FORMAT *pstFormat);
-
+int camera_set_format(int chn, unsigned int u32Type,
+                      const CAPTURE_FORMAT *pstFormat);
 
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	½µÖ¡À©Õ¹¹¦ÄÜ(XM320Ê¹ÓÃ)
-ÊäÈë²ÎÊı:	u8Mode:		1: Read 	
-							2: Write
-				pu8Status: 			fps
-							0:		1/1
-							2:		1/2
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	é™å¸§æ‰©å±•åŠŸèƒ½(XM320ä½¿ç”¨)
+è¾“å…¥å‚æ•°:	u8Mode:		1: Read
+                                                        2: Write
+                                pu8Status: 			fps
+                                                        0:		1/1
+                                                        2:		1/2
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_es_shutter_ex(XM_U8 u8Mode, XM_U8 *pu8Status);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	²úÆ·ĞÍºÅ(¶Á/Ğ´)
-ÊäÈë²ÎÊı:	u8Mode:		1: Read 	
-							2: Write
-				*pu32ProductType:	²úÆ·ĞÍºÅ
-Êä³ö²ÎÊı:	*pu32ProductType:	²úÆ·ĞÍºÅ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	äº§å“å‹å·(è¯»/å†™)
+è¾“å…¥å‚æ•°:	u8Mode:		1: Read
+                                                        2: Write
+                                *pu32ProductType:	äº§å“å‹å·
+è¾“å‡ºå‚æ•°:	*pu32ProductType:	äº§å“å‹å·
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_productType(XM_U8 u8Mode, XM_U32 *pu32ProductType);
 
-
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	»ñÈ¡/ÉèÖÃÄÚ²¿²ÎÊı
-ÊäÈë²ÎÊı:	pstCamearPara: Ö¸Ïò²ÎÊıµØÖ·
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	è·å–/è®¾ç½®å†…éƒ¨å‚æ•°
+è¾“å…¥å‚æ•°:	pstCamearPara: æŒ‡å‘å‚æ•°åœ°å€
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_para_get(CAM_INIT_DATA *pstCamearPara);
 int camera_para_set(CAM_INIT_DATA *pstCamearPara);
 
-
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	ÉèÖÃ/»ñÈ¡ ÏŞÖÆAWBÉ«ÎÂ
-ÊäÈë²ÎÊı:	u8MinCt: 	×îµÍÉ«ÎÂ	bit7: En  bit0~bit6: Choice
-			u32Start: 	¿ªÊ¼ÏŞÖÆÔöÒæ(x1024)
-			u32End: 	·Å¿ªÏŞÖÆÔöÒæ(x1024)
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	è®¾ç½®/è·å– é™åˆ¶AWBè‰²æ¸©
+è¾“å…¥å‚æ•°:	u8MinCt: 	æœ€ä½è‰²æ¸©	bit7: En  bit0~bit6: Choice
+                        u32Start: 	å¼€å§‹é™åˆ¶å¢ç›Š(x1024)
+                        u32End: 	æ”¾å¼€é™åˆ¶å¢ç›Š(x1024)
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_awbLimit_set(XM_U8 u8MinCt, XM_U32 u32Start, XM_U32 u32End);
 int camera_awbLimit_get(XM_U8 *pu8MinCt, XM_U32 *pu32Start, XM_U32 *pu32End);
 
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	ÉèÖÃ/»ñÈ¡ BurstÊ¹ÄÜ(BW)
-ÊäÈë²ÎÊı:	u8Enable: 0:Disable 	1:Enable
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	è®¾ç½®/è·å– Burstä½¿èƒ½(BW)
+è¾“å…¥å‚æ•°:	u8Enable: 0:Disable 	1:Enable
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_bwBurst_set(XM_U8 u8Enable);
 int camera_bwBurst_get(XM_U8 *pu8Enable);
 
-
-
 int camera_get_vdaMovState(XM_U32 *pData);
-
 
 int camera_set_wbRB(XM_U8 u8Data);
 int camera_get_wbRB(XM_U8 *pu8Data);
@@ -752,330 +729,296 @@ int camera_get_wbGM(XM_U8 *pu8Data);
 int camera_set_encoderinfo(XM_U8 *pu8Dta);
 
 /*************************************************************************
-º¯Êı¹¦ÄÜ:	»ñÈ¡ÈÕÒ¹×´Ì¬
-Êä³ö²ÎÊı:	pu8Mode:
-					0:	Color
-					1:    BW
+å‡½æ•°åŠŸèƒ½:	è·å–æ—¥å¤œçŠ¶æ€
+è¾“å‡ºå‚æ•°:	pu8Mode:
+                                        0:	Color
+                                        1:    BW
 note:
 *************************************************************************/
 int camera_get_dn_state(XM_U8 *pu8Mode);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ:	±àÂë/ÖÆÊ½/·Ö±æÂÊ Ä£Ê½ÇĞ»»
-Êä³ö²ÎÊı:	u8Mode:
-					0x00:AHD	0x01:CVI		0x02:TVI		0x10:XVI
-				u8VstdMode:	
-					1: PAL	2:NTSC
-				u8RlstMode:
-					0:1M 1:2M 3:3M 4:4M 5:5M
-note:
+å‡½æ•°åŠŸèƒ½:	ç¼–ç /åˆ¶å¼/åˆ†è¾¨ç‡ æ¨¡å¼åˆ‡æ¢
+è¾“å‡ºå‚æ•°:	u8Mode:
+                                        0x00:AHD	0x01:CVI
+0x02:TVI		0x10:XVI u8VstdMode: 1: PAL	2:NTSC u8RlstMode: 0:1M
+1:2M 3:3M 4:4M 5:5M note:
 *************************************************************************/
 int camera_set_isp_para(XM_U8 u8Mode, XM_U8 u8VstdMode, XM_U8 u8RlstMode);
 int camera_get_isp_para(XM_U8 *pu8Mode);
 
-
 int camera_set_language(int s32Language);
 
-
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	ÅäÖÃ/»ñÈ¡ LEDÄ£Ê½
-ÊäÈë²ÎÊı:	ps32Mode:	0xAB(	A:	0: IR   1: WL   --- ½ö¶ÁÈ¡Ê±ÓĞĞ§
-							 	B:	0:Auto  1:Manual  2:Intelligence)
-				ps32State: 	0:Close 1:Open
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	é…ç½®/è·å– LEDæ¨¡å¼
+è¾“å…¥å‚æ•°:	ps32Mode:	0xAB(	A:	0: IR   1: WL   --- ä»…è¯»å–æ—¶æœ‰æ•ˆ
+                                                                B:	0:Auto
+1:Manual  2:Intelligence) ps32State: 	0:Close 1:Open è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_set_ledMode(int s32Mode, int s32State);
 int camera_get_ledMode(int *ps32Mode, int *ps32State);
 
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	ÅäÖÃ LEDÀàĞÍ
-ÊäÈë²ÎÊı:	s32Type:	0: IR   1: WL  2:Double
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	é…ç½® LEDç±»å‹
+è¾“å…¥å‚æ•°:	s32Type:	0: IR   1: WL  2:Double
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_set_ledType(int s32Type);
 int camera_get_ledType(int *ps32Type);
 
-
-
-
 /*****************************************************************************
-º¯Êı¹¦ÄÜ:	Íâ²¿µ÷ÊÔÑ¡Ôñgamma
-ÊäÈë²ÎÊı:    	u32Gamma: [High Byte->Low Byte] = [u8IdxWgt(Idx2)  u8Idx2  u8Idx1]
-				u8Idx1:	0: 		disable gamma  (ÏßĞÔ)
-						1~15:	LinearGamma
-						128~255:	WdrGamma
-				u8Idx2:	0: 		disable gamma  (ÏßĞÔ)
-						0~15:	LinearGamma
-						128~255:	WdrGamma
-				u8IdxWgt: (0~255)
-						u8Idx1 Weight: 255-u8IdxWgt
-						u8Idx2 Weight: u8IdxWgt				
-·µ»Ø²ÎÊı:    0: ³É¹¦ -1: Ê§°Ü
+å‡½æ•°åŠŸèƒ½:	å¤–éƒ¨è°ƒè¯•é€‰æ‹©gamma
+è¾“å…¥å‚æ•°:    	u32Gamma: [High Byte->Low Byte] = [u8IdxWgt(Idx2)  u8Idx2
+u8Idx1] u8Idx1:	0: 		disable gamma  (çº¿æ€§) 1~15:	LinearGamma
+                                                128~255:	WdrGamma
+                                u8Idx2:	0: 		disable gamma  (çº¿æ€§)
+                                                0~15:	LinearGamma
+                                                128~255:	WdrGamma
+                                u8IdxWgt: (0~255)
+                                                u8Idx1 Weight: 255-u8IdxWgt
+                                                u8Idx2 Weight: u8IdxWgt
+è¿”å›å‚æ•°:    0: æˆåŠŸ -1: å¤±è´¥
 *****************************************************************************/
 int camera_set_gamma(XM_U32 u32Gamma);
 int camera_get_gamma(XM_U32 *pu32Gamma);
 
-
 int camera_set_smartVda(XM_U8 u8MovFlg);
 int camera_get_smartVda(XM_U8 *pu8MovFlg);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	»ñÈ¡ÎÈ¶¨×´Ì¬(µÆÅİ)
-ÊäÈë²ÎÊı:	ÎŞ
-Êä³ö²ÎÊı:	pu8StateFlg
-					0: ÎÈ¶¨
-					1: ²Ù×÷LED
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	è·å–ç¨³å®šçŠ¶æ€(ç¯æ³¡)
+è¾“å…¥å‚æ•°:	æ— 
+è¾“å‡ºå‚æ•°:	pu8StateFlg
+                                        0: ç¨³å®š
+                                        1: æ“ä½œLED
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_get_stabState(XM_U8 *pu8StateFlg);
 
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	»ñÈ¡ ±¨¾¯LED³ÖĞøÊ±¼ä(ms)
-ÊäÈë²ÎÊı:	s32Tms:  ³ÖĞøÊ±¼ä(ms) ----(¾«¶È100ms)
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	è·å– æŠ¥è­¦LEDæŒç»­æ—¶é—´(ms)
+è¾“å…¥å‚æ•°:	s32Tms:  æŒç»­æ—¶é—´(ms) ----(ç²¾åº¦100ms)
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_set_ledHold(int s32Tms);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	2M×¥Í¼½Ó¿Ú
-ÊäÈë²ÎÊı:	ÎŞ
-Êä³ö²ÎÊı:	pstSnapVFInfo
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	2MæŠ“å›¾æ¥å£
+è¾“å…¥å‚æ•°:	æ— 
+è¾“å‡ºå‚æ•°:	pstSnapVFInfo
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_snap(VIDEO_FRAME_INFO_S *pstSnapVFInfo);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	ÅäÖÃÍ¼Ïñ×ø±ê
-ÊäÈë²ÎÊı:	mode: ±£Áô
-				stCoord: ×ø±êĞÅÏ¢
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	é…ç½®å›¾åƒåæ ‡
+è¾“å…¥å‚æ•°:	mode: ä¿ç•™
+                                stCoord: åæ ‡ä¿¡æ¯
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_set_coord(int mode, COORD_S stCoord);
 
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	ÅäÖÃÍ¼Ïñ×ø±ê
-ÊäÈë²ÎÊı:	pstViWin 
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	é…ç½®å›¾åƒåæ ‡
+è¾“å…¥å‚æ•°:	pstViWin
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_get_vi_resolution(VI_WIN_S *pstViWin);
 
-
 int camera_init(XM_U32 *pu32ProductType);
 
+typedef struct st_AIRSLT_INFO_S {
+  XM_U8 u8AlarmFlg;    // 1: è§¦å‘æŠ¥è­¦   	0:æœªè§¦å‘
+  XM_U32 u32TargetNum; // ç›®æ ‡ä¸ªæ•°;
+  XM_U32 u32Info[64];  // æŠ¥è­¦ä¿¡æ¯(åæ ‡ç­‰)
+} AIRSLT_INFO_S;
 
+typedef struct xm_isp_get_ai_result_s {
+  /***
+  u32Cmd:
+   0: äººå½¢æ£€æµ‹
+   0x10: è½¦ç‰Œæ£€æµ‹
+  ***/
+  unsigned int u32Cmd; /*å‘½ä»¤æ ‡è®°*/
 
-typedef struct st_AIRSLT_INFO_S
-{
-    XM_U8 u8AlarmFlg;	//1: ´¥·¢±¨¾¯   	0:Î´´¥·¢
-    XM_U32 u32TargetNum;	// Ä¿±ê¸öÊı;
-    XM_U32 u32Info[64];		// ±¨¾¯ĞÅÏ¢(×ø±êµÈ)
-}AIRSLT_INFO_S;
+  unsigned int u32AlarmFlag; /*è§¦å‘æŠ¥è­¦(äººå½¢/è½¦ç‰Œ)1ï¼šæŠ¥è­¦(æ£€æµ‹åˆ°ç›®æ ‡)
+                                0ï¼šä¸æŠ¥è­¦(æœªæ£€æµ‹åˆ°ç›®æ ‡)*/
 
+  /***
+  u32TargetNum
+         bit0~bit7: ç›®æ ‡ä¸ªæ•°
+         bit16~bit31: æ¡†ä¸ªæ•°
+  ***/
+  unsigned int u32TargetNum; /*ç›®æ ‡æ•°(äººå½¢/è½¦ç‰Œ) */
 
+  /***
+  u32Cmd = 0x10æ—¶:
+   u32Reserved[0]:æ¡†çš„èµ·å§‹ç‚¹æ°´å¹³åæ ‡
+   u32Reserved[1]:æ¡†çš„èµ·å§‹ç‚¹å‚ç›´åæ ‡
+   u32Reserved[2]:æ¡†çš„ç»“æŸç‚¹æ°´å¹³åæ ‡
+   u32Reserved[3]:æ¡†çš„ç»“æŸç‚¹å‚ç›´åæ ‡
+  ***/
+  unsigned int u32Reserved[64];
+} ISP_GET_AI_RESULT_S;
 
-typedef struct xm_isp_get_ai_result_s
-{	
-	/***
-	u32Cmd: 
-	 0: ÈËĞÎ¼ì²â
-	 0x10: ³µÅÆ¼ì²â
-	***/
-	 unsigned int u32Cmd;  /*ÃüÁî±ê¼Ç*/
-
-	 unsigned int u32AlarmFlag; /*´¥·¢±¨¾¯(ÈËĞÎ/³µÅÆ)1£º±¨¾¯(¼ì²âµ½Ä¿±ê)  0£º²»±¨¾¯(Î´¼ì²âµ½Ä¿±ê)*/
-
-	 /***
-	 u32TargetNum
-	 	bit0~bit7: Ä¿±ê¸öÊı    
-	 	bit16~bit31: ¿ò¸öÊı
-	 ***/
-	 unsigned int u32TargetNum; /*Ä¿±êÊı(ÈËĞÎ/³µÅÆ) */
-	 
-	/***
-	u32Cmd = 0x10Ê±:
-	 u32Reserved[0]:¿òµÄÆğÊ¼µãË®Æ½×ø±ê
-	 u32Reserved[1]:¿òµÄÆğÊ¼µã´¹Ö±×ø±ê
-	 u32Reserved[2]:¿òµÄ½áÊøµãË®Æ½×ø±ê
-	 u32Reserved[3]:¿òµÄ½áÊøµã´¹Ö±×ø±ê
-	***/
-	 unsigned int u32Reserved[64];
-}ISP_GET_AI_RESULT_S;
-
-typedef struct xm_ISP_GET_AI_FUNC_S
-{
-	XM_S32(*pfn_get_ai_result)(ISP_GET_AI_RESULT_S *pstAiResult);	// ·µ»ØÖµ£º0:³É¹¦      	-1:Ê§°Ü
+typedef struct xm_ISP_GET_AI_FUNC_S {
+  XM_S32(*pfn_get_ai_result)
+  (ISP_GET_AI_RESULT_S *pstAiResult); // è¿”å›å€¼ï¼š0:æˆåŠŸ      	-1:å¤±è´¥
 } ISP_GET_AI_FUNC_S;
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 		ÅäÖÃÖÇÄÜ±¨¾¯ĞÅÏ¢(ÈËĞÎ¼ì²â)
-ÊäÈë²ÎÊı:		u8Cmd:  ±¨¾¯Âë
-				0x00:	ÈËĞÎ
-				0x10:	³µÅÆ
-			pstAiInfoRlst:	±¨¾¯ĞÅÏ¢
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 		é…ç½®æ™ºèƒ½æŠ¥è­¦ä¿¡æ¯(äººå½¢æ£€æµ‹)
+è¾“å…¥å‚æ•°:		u8Cmd:  æŠ¥è­¦ç 
+                                0x00:	äººå½¢
+                                0x10:	è½¦ç‰Œ
+                        pstAiInfoRlst:	æŠ¥è­¦ä¿¡æ¯
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_set_aiInfo(XM_U8 u8Cmd, AIRSLT_INFO_S *pstAiInfoRlst);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 		ÅäÖÃÈËĞÎ·À¹ıÆØÊ¹ÄÜ
-ÊäÈë²ÎÊı:		en:	1:Ê¹ÄÜ   0:½ûÄÜ
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 		é…ç½®äººå½¢é˜²è¿‡æ›ä½¿èƒ½
+è¾“å…¥å‚æ•°:		en:	1:ä½¿èƒ½   0:ç¦èƒ½
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_set_aeweight(int en);
 int camera_get_aeweight(int *ps32En);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ:		ÅäÖÃÈíºìÍâãĞÖµ
-ÊäÈë²ÎÊı:		dnc_thr:
-			 1~5(default:3) (Ô½Ğ¡£¬Ô½ÔçÇĞºÚ°×)
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1: ³ö´í
+å‡½æ•°åŠŸèƒ½:		é…ç½®è½¯çº¢å¤–é˜ˆå€¼
+è¾“å…¥å‚æ•°:		dnc_thr:
+                         1~5(default:3) (è¶Šå°ï¼Œè¶Šæ—©åˆ‡é»‘ç™½)
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1: å‡ºé”™
 *************************************************************************/
 int camera_set_softIr_thr(int dnc_thr);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ:		×¢²á»ñÈ¡ÖÇÄÜ¿â½á¹ûµÄ½Ó¿Úº¯Êı
-ÊäÈë²ÎÊı:		pstGetAiFunc:
-				Ö¸¶¨º¯Êı
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1: ³ö´í
+å‡½æ•°åŠŸèƒ½:		æ³¨å†Œè·å–æ™ºèƒ½åº“ç»“æœçš„æ¥å£å‡½æ•°
+è¾“å…¥å‚æ•°:		pstGetAiFunc:
+                                æŒ‡å®šå‡½æ•°
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1: å‡ºé”™
 *************************************************************************/
 int camera_register_callback_aiFun(ISP_GET_AI_FUNC_S *pstGetAiFunc);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ:		ÅäÖÃµÆ°åĞÅºÅ·´Ïò£¨ºÍÄ¬ÈÏ¶ÔÓ¦£©
-ÊäÈë²ÎÊı:		s32SWapEn:
-				0: ²»·´Ğò    	1:·´Ğò
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1: ³ö´í
-×¢£º
-	µÆ°å->Ö÷°å
+å‡½æ•°åŠŸèƒ½:		é…ç½®ç¯æ¿ä¿¡å·åå‘ï¼ˆå’Œé»˜è®¤å¯¹åº”ï¼‰
+è¾“å…¥å‚æ•°:		s32SWapEn:
+                                0: ä¸ååº    	1:ååº
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1: å‡ºé”™
+æ³¨ï¼š
+        ç¯æ¿->ä¸»æ¿
 *************************************************************************/
 int camera_set_infrared_swap(int s32SWapEn);
 int camera_get_infrared_swap(int *ps32SWapEn);
-
 
 #ifdef SOC_NONE
 int camera_get_txAttr(XM_U8 *pu8En, VENC_TX_ATTR *pstTxAttr);
 int camera_set_txAttr(XM_U8 u8En, VENC_TX_ATTR stTxAttr);
 #endif
 
+#if (defined SOC_ALIOS) || (defined SOC_XMSDK)
+typedef struct xm_CAMERACFG_TO_ISP {
+  unsigned int u32ProductType;
+  unsigned int u32StdType;  // 0: unknow 1:PAL 2:NTSC
+  unsigned int u32RsltType; // 0:720P 1:1080P 2:960P 3:3M 4:4M 5:5M
 
+  /****************************
+  u32IRLed:
+          bit31:
+                  0	not use
+                  1	use
+          bit23:	æ§åˆ¶ç™½å…‰ç¯çš„ç”µå¹³
+          bit16~bit22:	æ§åˆ¶ç™½å…‰ç¯çš„GPIO	(0x00: choice by
+  source,100:è¡¨ç¤ºGPIO00) bit15: 	æ§åˆ¶çº¢å¤–ç¯çš„ç”µå¹³ bit8~bit14:
+  æ§åˆ¶çº¢å¤–ç¯çš„GPIO (0x00: choice by source,100:è¡¨ç¤ºGPIO00)
 
+          bit4:
+                  0	è½¯å…‰æ•
+                  1	ç¡¬å…‰æ•
+          bit0:
+                  0  	æ™®é€šæ¨¡å¼ï¼ˆçº¢å¤–åŒæ­¥/è‡ªåŠ¨åŒæ­¥... (ç¡¬ä»¶æ§åˆ¶çº¢å¤–ç¯)ï¼‰
+                  1	è½¯ä»¶æ§åˆ¶ç¯
+  ****************************/
+  unsigned int u32IRLed;
+  unsigned int au32RsltCh[4]
+                         [4]; // (Ch0_Width Ch0_Height Ch1_Width Ch1_Height) * 4
 
-#if(defined SOC_ALIOS) || (defined SOC_XMSDK)
-typedef struct xm_CAMERACFG_TO_ISP
-{
-	unsigned int u32ProductType;
-	unsigned int u32StdType;		// 0: unknow 1:PAL 2:NTSC
-	unsigned int u32RsltType;		// 0:720P 1:1080P 2:960P 3:3M 4:4M 5:5M
+  /****************************
+  u32Infrared:
+          bit31:
+                  0	not use
+                  1	use
 
-	/****************************
-	u32IRLed:  
-		bit31:
-			0	not use
-			1	use
-		bit23:	¿ØÖÆ°×¹âµÆµÄµçÆ½
-		bit16~bit22:	¿ØÖÆ°×¹âµÆµÄGPIO	(0x00: choice by source,100:±íÊ¾GPIO00)
-		bit15: 	¿ØÖÆºìÍâµÆµÄµçÆ½
-		bit8~bit14:	¿ØÖÆºìÍâµÆµÄGPIO (0x00: choice by source,100:±íÊ¾GPIO00)
+          bit8~bit15: InfraredGPIO (0x00: choice by source,100:è¡¨ç¤ºGPIO00)
+          bit0: InfraredSwap
+  ****************************/
+  unsigned int u32Infrared;
 
-		bit4:
-			0	Èí¹âÃô
-			1	Ó²¹âÃô
-		bit0:
-			0  	ÆÕÍ¨Ä£Ê½£¨ºìÍâÍ¬²½/×Ô¶¯Í¬²½... (Ó²¼ş¿ØÖÆºìÍâµÆ)£©
-			1	Èí¼ş¿ØÖÆµÆ
-	****************************/
-	unsigned int u32IRLed;
-	unsigned int au32RsltCh[4][4];	// (Ch0_Width Ch0_Height Ch1_Width Ch1_Height) * 4
+  /****************************
+  u32IrCut:
+          bit31:
+                  0	not use
+                  1	use
+          bit8~bit15: IrcutGPIO (0x00: choice by source,100:è¡¨ç¤ºGPIO00)
+          bit0: IRCUT Swap
+  ****************************/
+  unsigned int u32IrCut;
 
-	/****************************
-	u32Infrared:  
-		bit31:
-			0	not use
-			1	use
+  unsigned int u32VencType; //(1:H.265  other:H.264)
 
-		bit8~bit15: InfraredGPIO (0x00: choice by source,100:±íÊ¾GPIO00)	
-		bit0: InfraredSwap
-	****************************/
-	unsigned int u32Infrared;
-
-	/****************************
-	u32IrCut:  
-		bit31:
-			0	not use
-			1	use
-		bit8~bit15: IrcutGPIO (0x00: choice by source,100:±íÊ¾GPIO00)
-		bit0: IRCUT Swap
-	****************************/
-	unsigned int u32IrCut;
-
-	unsigned int u32VencType;	//(1:H.265  other:H.264)
-
-	// config sensor interface
-	unsigned int u32SnsInterface;	//(0:By src   1:DVP  2:MIPI)
-	unsigned int au32Rsv[8];
-}CAMERACFG_TO_ISP;
+  // config sensor interface
+  unsigned int u32SnsInterface; //(0:By src   1:DVP  2:MIPI)
+  unsigned int au32Rsv[8];
+} CAMERACFG_TO_ISP;
 
 /*************************************************************************
-º¯Êı¹¦ÄÜ: 	´´½¨ISPÏà¹ØÒµÎñ(Æô¶¯Í¼ÏñÏà¹Ø´¦Àí)
-ÊäÈë²ÎÊı:	pstCfg 
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:	0:	³É¹¦
-				-1:	³ö´í
+å‡½æ•°åŠŸèƒ½: 	åˆ›å»ºISPç›¸å…³ä¸šåŠ¡(å¯åŠ¨å›¾åƒç›¸å…³å¤„ç†)
+è¾“å…¥å‚æ•°:	pstCfg
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:	0:	æˆåŠŸ
+                                -1:	å‡ºé”™
 *************************************************************************/
 int camera_isp_task(CAMERACFG_TO_ISP *pstCfg);
 
-
 /*************************************************************************
-º¯Êı¹¦ÄÜ:	Í¼ÏñÏà¹Ø½øĞĞÍË³ö²Ù×÷
-ÊäÈë²ÎÊı:	ÎŞ
-Êä³ö²ÎÊı:	ÎŞ
-·µ»Ø²ÎÊı:		0:	³É¹¦
-			-1:	³ö´í
+å‡½æ•°åŠŸèƒ½:	å›¾åƒç›¸å…³è¿›è¡Œé€€å‡ºæ“ä½œ
+è¾“å…¥å‚æ•°:	æ— 
+è¾“å‡ºå‚æ•°:	æ— 
+è¿”å›å‚æ•°:		0:	æˆåŠŸ
+                        -1:	å‡ºé”™
 *************************************************************************/
 int camera_exit(void);
 
-
 /***************************************************************
-º¯Êı¹¦ÄÜ:	È¥Îí¹¦ÄÜ
-ÊäÈë²ÎÊı:	enable:	´ò¿ª¹Ø±Õ[0,1]
-				level:	Ç¿¶ÈµÈ¼¶[0,100]
-·µ»Ø²ÎÊı:	0:		³É¹¦
-				-1:		³ö´í
+å‡½æ•°åŠŸèƒ½:	å»é›¾åŠŸèƒ½
+è¾“å…¥å‚æ•°:	enable:	æ‰“å¼€å…³é—­[0,1]
+                                level:	å¼ºåº¦ç­‰çº§[0,100]
+è¿”å›å‚æ•°:	0:		æˆåŠŸ
+                                -1:		å‡ºé”™
 ***************************************************************/
 int Camera_SetClearFog(int enable, int level);
-
 
 #endif
 
@@ -1084,4 +1027,3 @@ int Camera_SetClearFog(int enable, int level);
 #endif
 
 #endif
-
