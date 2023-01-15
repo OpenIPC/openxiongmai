@@ -10,8 +10,6 @@
 #include "XAx_cmos.h"
 #include "xm_print.h"
 
-#define STATIC static
-
 extern const ISP_CMOS_GAMMA_S gstIspGamma;
 extern XM_VOID XM_MPI_ISP_Memset(XM_U8 *pu8Addr, XM_U8 u8Ch, XM_U32 u32Num);
 #define HD3MP_25P_LINES (1350)
@@ -22,7 +20,7 @@ extern XM_U32 gu32AGainNow;
 
 static const ISP_CMOS_AGC_TABLE_S g_stIspAgcTable = {
     /* bvalid */
-    0,
+    1,
     /* 100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600, 51200, 102400,
        204800, 409600, 819200, 1638400, 3276800 */
     /* sharpen_D	H	*/
@@ -186,7 +184,7 @@ static XM_S32 cmos_get_sensor_max_resolution(
   return 0;
 }
 
-STATIC XM_VOID cmos_inttime_update(XM_U32 u32IntTime) {
+static XM_VOID cmos_inttime_update(XM_U32 u32IntTime) {
   if (gu32ShutNow == u32IntTime)
     return;
   gu32ShutNow = u32IntTime;
