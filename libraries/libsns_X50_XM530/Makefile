@@ -1,10 +1,10 @@
-CROSS_COMPILE=arm-xm-linux-
+CROSS_COMPILE=arm-openipc-linux-musleabi-
 CC=$(CROSS_COMPILE)gcc
 AR=$(CROSS_COMPILE)ar
 STRIP=$(CROSS_COMPILE)strip
 CFLAGS=-I../isp/include/isp \
 	   -I../isp/include/xm \
-	   -Werror -Wall -std=c99 -fPIC
+	   -Werror -std=c99 -fPIC
 
 ##############################################
 # CHIP_ID:	XM530
