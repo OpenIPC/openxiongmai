@@ -8,8 +8,16 @@ on:
       - main
   workflow_dispatch:
 
+# External inputs are pinned so upstream changes cannot silently alter results.
+# OpenIPC rebuilds the toolchain release assets in place: when a checksum
+# check fails, verify the new tarball and update the sha256 here.
 env:
-  TOOLCHAIN_URL: https://github.com/OpenIPC/firmware/releases/download/toolchain/toolchain.xiongmai-xm530.tgz
+  TOOLCHAIN_URL_XM530: https://github.com/OpenIPC/firmware/releases/download/toolchain/toolchain.xiongmai-xm530.tgz
+  TOOLCHAIN_SHA256_XM530: 71c556f0c9cf72ea10b8f921057890fd24559b613daf637c6b1804eb5b1492f1
+  TOOLCHAIN_URL_XM510: https://github.com/OpenIPC/firmware/releases/download/toolchain/toolchain.xiongmai-xm510.tgz
+  TOOLCHAIN_SHA256_XM510: 6850cf324c119782b7e5a0e883e7550fcfb9e61c2f51be955a7a04c22aa82013
+  # OpenIPC/firmware commit providing kernel configs and kernel patches
+  FIRMWARE_REF: 1eb14b97be010917da4ceac08f324f77e15810e8
   CROSS_COMPILE: arm-openipc-linux-musleabi-
 
 jobs:
@@ -29,8 +37,11 @@ jobs:
 
       - name: Install OpenIPC XM530 toolchain
         run: |
+          curl -sSLf -o "$RUNNER_TEMP/toolchain.tgz" "$TOOLCHAIN_URL_XM530"
+          echo "$TOOLCHAIN_SHA256_XM530  $RUNNER_TEMP/toolchain.tgz" | sha256sum -c - \
+            || { echo "::error::toolchain checksum changed upstream; update TOOLCHAIN_SHA256_XM530" >&2; exit 1; }
           mkdir -p "$RUNNER_TEMP/toolchain"
-          curl -sSLf "$TOOLCHAIN_URL" | tar xz -C "$RUNNER_TEMP/toolchain"
+          tar xzf "$RUNNER_TEMP/toolchain.tgz" -C "$RUNNER_TEMP/toolchain"
           echo "$RUNNER_TEMP/toolchain/arm-openipc-linux-musleabi_sdk-buildroot/bin" >> "$GITHUB_PATH"
 
       - name: Build libraries
@@ -91,7 +102,7 @@ jobs:
             echo "$lib: ${needed:-<none>}"
             for n in $needed; do
               case "$n" in
-                libc.so*|libpthread.so*|libm.so*|libdl.so*) ;;
+                libc.so*) ;;
                 *) echo "UNEXPECTED NEEDED in $lib: $n" >&2; fail=1 ;;
               esac
             done
@@ -101,32 +112,66 @@ jobs:
   #
   # kernel-modules
   #
-  # Builds the out-of-tree kernel modules against the OpenIPC XM530 kernel
-  # (openipc/linux@xiongmai-xm530, 3.10.103) configured with the firmware's
-  # xm530.generic.config. hx280enc is not built yet: its source references
-  # struct JpegProcType, which is never defined.
+  # Builds the out-of-tree kernel modules for each Xiongmai kernel the
+  # OpenIPC firmware ships, the same way firmware does: the pinned
+  # openipc/linux branch, the firmware's <soc>.generic.config, and the
+  # firmware's generic kernel patches (gcc 8/12/13 compiler headers, etc.).
+  # hx280enc is not built yet: its source references struct JpegProcType,
+  # which is never defined.
   #
   kernel-modules:
-    name: Kernel modules (xm530)
+    name: Kernel modules (${{ matrix.soc }})
     runs-on: ubuntu-latest
-    env:
-      KERNEL_URL: https://github.com/openipc/linux/archive/xiongmai-xm530.tar.gz
-      KERNEL_CONFIG_URL: https://raw.githubusercontent.com/OpenIPC/firmware/master/br-ext-chip-xiongmai/board/xm530/xm530.generic.config
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - soc: xm510
+            kernel_ref: 373be8a95fd3303d10bc27c3101564eb8bb63930  # xiongmai-xm510
+            kernel_version: 3.0.101
+          - soc: xm530
+            kernel_ref: 533ce629d351f752acbd1d928f00a2ee5a71a2ca  # xiongmai-xm530
+            kernel_version: 3.10.103
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install OpenIPC XM530 toolchain
+      - name: Fetch firmware kernel config and patches
+        uses: actions/checkout@v4
+        with:
+          repository: OpenIPC/firmware
+          ref: ${{ env.FIRMWARE_REF }}
+          path: firmware
+          sparse-checkout: |
+            general/package/all-patches/linux
+            br-ext-chip-xiongmai/board/${{ matrix.soc }}
+
+      - name: Install OpenIPC ${{ matrix.soc }} toolchain
         run: |
+          case "${{ matrix.soc }}" in
+            xm510) url=$TOOLCHAIN_URL_XM510; sum=$TOOLCHAIN_SHA256_XM510 ;;
+            xm530) url=$TOOLCHAIN_URL_XM530; sum=$TOOLCHAIN_SHA256_XM530 ;;
+          esac
+          curl -sSLf -o "$RUNNER_TEMP/toolchain.tgz" "$url"
+          echo "$sum  $RUNNER_TEMP/toolchain.tgz" | sha256sum -c - \
+            || { echo "::error::toolchain checksum changed upstream; update the ${{ matrix.soc }} sha256" >&2; exit 1; }
           mkdir -p "$RUNNER_TEMP/toolchain"
-          curl -sSLf "$TOOLCHAIN_URL" | tar xz -C "$RUNNER_TEMP/toolchain"
+          tar xzf "$RUNNER_TEMP/toolchain.tgz" -C "$RUNNER_TEMP/toolchain"
           echo "$RUNNER_TEMP/toolchain/arm-openipc-linux-musleabi_sdk-buildroot/bin" >> "$GITHUB_PATH"
 
-      - name: Prepare XM530 kernel tree
+      - name: Prepare ${{ matrix.soc }} kernel tree
         run: |
-          curl -sSLf "$KERNEL_URL" | tar xz -C "$RUNNER_TEMP"
-          KDIR="$RUNNER_TEMP/linux-xiongmai-xm530"
-          curl -sSLf -o "$KDIR/.config" "$KERNEL_CONFIG_URL"
-          make -C "$KDIR" ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" olddefconfig
+          KDIR="$RUNNER_TEMP/linux"
+          mkdir -p "$KDIR"
+          curl -sSLf "https://github.com/OpenIPC/linux/archive/${{ matrix.kernel_ref }}.tar.gz" \
+            | tar xz --strip-components=1 -C "$KDIR"
+          for p in firmware/general/package/all-patches/linux/*.patch; do
+            echo "applying $(basename "$p")"
+            patch -d "$KDIR" -p1 --forward < "$p"
+          done
+          cp "firmware/br-ext-chip-xiongmai/board/${{ matrix.soc }}/${{ matrix.soc }}.generic.config" "$KDIR/.config"
+          # 3.0 has no olddefconfig; accept defaults for new symbols. `yes` dies
+          # of SIGPIPE when make exits, which pipefail would treat as failure.
+          (yes "" || true) | make -C "$KDIR" ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldconfig > /dev/null
           make -C "$KDIR" ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" -j"$(nproc)" modules_prepare
           echo "KDIR=$KDIR" >> "$GITHUB_ENV"
 
@@ -143,6 +188,8 @@ jobs:
               || { echo "$ko is not an ARM object" >&2; exit 1; }
             vermagic=$(${CROSS_COMPILE}strings "$ko" | grep '^vermagic=')
             echo "ok: $ko ($vermagic)"
-            echo "$vermagic" | grep -q '^vermagic=3\.10\.103' \
-              || { echo "unexpected vermagic for $ko" >&2; exit 1; }
+            case "$vermagic" in
+              "vermagic=${{ matrix.kernel_version }}"[+\ ]*) ;;
+              *) echo "unexpected vermagic for $ko, want ${{ matrix.kernel_version }}" >&2; exit 1 ;;
+            esac
           done

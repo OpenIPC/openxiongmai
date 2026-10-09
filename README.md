@@ -116,10 +116,12 @@ To add a sensor:
 
 ## CI
 
-Every push and pull request to `main` runs two jobs. Both use the OpenIPC XM530 musl toolchain (`toolchain.xiongmai-xm530`).
+Every push and pull request to `main` runs these jobs, each using the OpenIPC musl toolchain for its SoC (`toolchain.xiongmai-xm5x0`).
 
 - **Libraries cross-compile (XM530):** builds all four userspace libraries, checks that the expected entry points are exported (`sensor_register_callback`, `XM_I2C_Ioctl`, `XM_MPI_*`, ...), and checks that the shared objects depend only on libc.
-- **Kernel modules (xm530):** builds `xm_i2c` against `openipc/linux@xiongmai-xm530` (3.10.103), configured with the firmware's `xm530.generic.config`. `hx280enc` isn't built yet because its source references `struct JpegProcType`, which is never defined.
+- **Kernel modules (xm510 / xm530):** builds `xm_i2c` against the OpenIPC kernels `openipc/linux@xiongmai-xm510` (3.0.101) and `@xiongmai-xm530` (3.10.103), the same way the firmware does: with the firmware's `<soc>.generic.config` and its generic kernel patches. `hx280enc` isn't built yet because its source references `struct JpegProcType`, which is never defined.
+
+All external inputs are pinned: the kernel commits, the firmware commit, and the toolchain sha256 checksums. OpenIPC rebuilds its toolchain tarballs in place, so a checksum failure means upstream published a new build and the checksum in `build.yml` needs updating.
 
 [![Build Status](https://github.com/OpenIPC/openxiongmai/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/openxiongmai/actions/workflows/build.yml)
 

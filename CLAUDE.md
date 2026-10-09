@@ -29,7 +29,7 @@ Most Makefiles build with `-Werror -Wall -std=c99`. `libsns_X50_XM530` dropped `
 
 ## CI
 
-`.github/workflows/build.yml` runs two jobs. The first builds all four libraries with the OpenIPC `toolchain.xiongmai-xm530` (gcc 13, musl) and asserts the exported symbols and `NEEDED` entries. The second builds `xm_i2c` against `openipc/linux@xiongmai-xm530` (3.10.103). Both are required status checks on `main`. To reproduce CI locally, download the same toolchain tarball from the OpenIPC firmware `toolchain` release. Add any new library or exported entry point to the workflow's checks.
+`.github/workflows/build.yml` runs two jobs. The first builds all four libraries with the OpenIPC `toolchain.xiongmai-xm530` (gcc 13, musl) and asserts the exported symbols and `NEEDED` entries. The kernel job is a matrix over xm510 (3.0.101) and xm530 (3.10.103). Each entry builds `xm_i2c` against the pinned `openipc/linux@xiongmai-<soc>` commit, using the firmware's `<soc>.generic.config` and its `general/package/all-patches/linux` patches. Without those patches, gcc 13 can't build the 3.0 kernel. All jobs are required status checks on `main`. Kernel, firmware and toolchain inputs are pinned in `build.yml`. OpenIPC rebuilds the toolchain tarballs in place, so a sha256 mismatch means the checksum needs updating. To reproduce CI locally, download the same pinned inputs. Add any new library or exported entry point to the workflow's checks.
 
 ## Architecture
 
