@@ -377,6 +377,7 @@ XM_U32 sensor_getlist_sc2235P(XM_U16 *pu16Num) {
                sizeof(gau16SnsInit_sc2235P_Mipi[0]);
     return (XM_U32)gau16SnsInit_sc2235P_Mipi;
   } else {
+    DEBUG("------------- SC2235P (DVP) ----------------\n");
     *pu16Num =
         sizeof(gau16SnsInit_sc2235P_DVP) / sizeof(gau16SnsInit_sc2235P_DVP[0]);
     return (XM_U32)gau16SnsInit_sc2235P_DVP;

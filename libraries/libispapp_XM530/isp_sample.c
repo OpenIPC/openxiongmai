@@ -1209,7 +1209,6 @@ static void GetProductInfo() {
     gstProductInfo.bHsyncRecEn = XM_TRUE;
     gu8PclkEdge = 0;
     break;
-#if 0
   case SENSOR_CHIP_SC2235E:
   case SENSOR_CHIP_SC2235P:
     gstProductInfo.u8StdType =
@@ -1222,42 +1221,30 @@ static void GetProductInfo() {
 #ifdef DEVTYPE_AHD
     gstProductInfo.u32ProductType = XM350AI_60X20;
 #endif
-    gstProductInfo.u8SensorClk = SENSORCLK_27M;
-    stComboDevAttr.input_mode = SENSCONT_MIPI;
+    // SC2235E is MIPI only, SC2235P comes in both DVP and MIPI variants
+    stComboDevAttr.input_mode =
+        (gstProductInfo.u32SensorType == SENSOR_CHIP_SC2235E) ? SENSCONT_MIPI
+                                                               : SENSCONT_DVP;
+    if (gstParamIn.u8SnsInterface) {
+      stComboDevAttr.input_mode = gstParamIn.u8SnsInterface - 1;
+    }
+    if (stComboDevAttr.input_mode == SENSCONT_DVP) {
+      gstProductInfo.u8SensorClk = SENSORCLK_37x125M;
+    } else {
+      gstProductInfo.u8SensorClk = SENSORCLK_27M;
+    }
     stComboDevAttr.mipi_attr.MipiCtrl = 0x001400b8;
     stComboDevAttr.mipi_attr.lane = MIPI_2LANE;  // mipi的lane数
     stComboDevAttr.mipi_attr.depth = MIPI_10BIT; // sensor点深度
-    if (stComboDevAttr.input_mode == SENSCONT_DVP) {
-      gstProductInfo.u8SensorClk = SENSORCLK_37x125M;
+    if (gstProductInfo.u8StdType == PALS) {
+      stComboDevAttr.mipi_attr.snsAllPixs = 2640; // sensor输出总点数
+    } else {
+      stComboDevAttr.mipi_attr.snsAllPixs = 2200; // sensor输出总点数
     }
-    if (gstProductInfo.u8RsltType == P1080_) {
-      if (gstProductInfo.u8StdType == PALS) {
-        stComboDevAttr.mipi_attr.snsAllPixs = 2640; // sensor输出总点数
-      } else {
-        stComboDevAttr.mipi_attr.snsAllPixs = 2200; // sensor输出总点数
-      }
-      stComboDevAttr.mipi_attr.snsAllLine = 1125; // sensor输出总行数
-
-      stComboDevAttr.mipi_attr.snsActiveLine = 1088;
-      stComboDevAttr.mipi_attr.snsActivePixs = 1928;
-
-      stComboDevAttr.mipi_attr.bMpDvpclk = 74250000; //芯片内部并行取点时钟
-    } else                                           // 720P
-    {
-      gstProductInfo.u8SensorClk = SENSORCLK_37x125M;
-      if (gstProductInfo.u8StdType == PALS) {
-        stComboDevAttr.mipi_attr.snsAllPixs = 1980; // sensor输出总点数
-      } else {
-        stComboDevAttr.mipi_attr.snsAllPixs = 1650; // sensor输出总点数
-      }
-      stComboDevAttr.mipi_attr.snsAllLine = 750; // sensor输出总行数
-      stComboDevAttr.mipi_attr.snsActiveLine = 728;
-      stComboDevAttr.mipi_attr.snsActivePixs = 1288;
-      stComboDevAttr.mipi_attr.bMpDvpclk = 37125000; //芯片内部并行取点时钟
-
-      stVenAttr.enPclk = PCLK_37x125M;
-      XM_MPI_VENC_SetScaler(&stVenAttr);
-    }
+    stComboDevAttr.mipi_attr.snsAllLine = 1125; // sensor输出总行数
+    stComboDevAttr.mipi_attr.snsActiveLine = 1088;
+    stComboDevAttr.mipi_attr.snsActivePixs = 1928;
+    stComboDevAttr.mipi_attr.bMpDvpclk = 74250000; //芯片内部并行取点时钟
     stComboDevAttr.mipi_attr.bAllPixs =
         stComboDevAttr.mipi_attr.snsAllPixs; //芯片内部并行取点总点数
     stComboDevAttr.mipi_attr.snsMpOutclk =
@@ -1266,7 +1253,6 @@ static void GetProductInfo() {
         (1 << stComboDevAttr.mipi_attr.lane);    // sensor输出的mipi
     stComboDevAttr.mipi_attr.delay = 0x01010101; // mipi内部delay
     break;
-#endif
   case SENSOR_CHIP_SC307E:
     gstProductInfo.u8StdType =
         (gstParamIn.u8Vstd == VSTDNULL) ? PALS : gstParamIn.u8Vstd;
@@ -2177,17 +2163,17 @@ static XM_S32 GetIspWndRect(XM_U8 u8Fps, RECT_S *pstRect) {
     break;
   case SENSOR_CHIP_SC2235P:
     if (gstProductInfo.u8RsltType == P1080_) {
-#if 1 // Mipi
-      pstRect->s32X = 1;
-      pstRect->s32Y = 2;
-      pstRect->u32Height = 1088;
-      pstRect->u32Width = 1920;
-#else
-      pstRect->s32X = 1;
-      pstRect->s32Y = 15;
-      pstRect->u32Height = 1088;
-      pstRect->u32Width = 1928;
-#endif
+      if (gstProductInfo.SnsConnect == SENSCONT_MIPI) {
+        pstRect->s32X = 1;
+        pstRect->s32Y = 2;
+        pstRect->u32Height = 1088;
+        pstRect->u32Width = 1920;
+      } else {
+        pstRect->s32X = 1;
+        pstRect->s32Y = 15;
+        pstRect->u32Height = 1088;
+        pstRect->u32Width = 1928;
+      }
     } else {
       pstRect->s32X = 1;
       pstRect->s32Y = 2;
