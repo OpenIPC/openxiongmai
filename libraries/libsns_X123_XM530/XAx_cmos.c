@@ -38,7 +38,7 @@ const XM_U16 gau16GainTbl_SmatSns[64] = {
     7168,  7424,  7680,  7936,  8192,  8704,  9216,  9728,  10240, 10752, 11264,
     11776, 12288, 12800, 13312, 13824, 14336, 14848, 15360, 15872};
 
-static const ISP_AWB_CALIBRATION_V2_S gstAwbCalCom = {
+static const ISP_AWB_CALIBRATION_V2_S gstAwbCalCom __attribute__((unused)) = {
     {0, 0, 4096, 2537, 3013, 1771, 593, 4096},
     {4096, 4096, 0, 0, 4096, 4096, 4096, 1888},
     {-536, -2892, -1496, -4096, -3037, -3792, -1331, -2560},

@@ -27,6 +27,10 @@ Build outputs:
 
 Most Makefiles build with `-Werror -Wall -std=c99`. `libsns_X50_XM530` dropped `-Wall` because the sources still contain unused variables. A new source file builds only after you add its `.o` to the Makefile's explicit `OBJECTS` list.
 
+## CI
+
+`.github/workflows/build.yml` runs two jobs. The first builds all four libraries with the OpenIPC `toolchain.xiongmai-xm530` (gcc 13, musl) and asserts the exported symbols and `NEEDED` entries. The second builds `xm_i2c` against `openipc/linux@xiongmai-xm530` (3.10.103). Both are required status checks on `main`. To reproduce CI locally, download the same toolchain tarball from the OpenIPC firmware `toolchain` release. Add any new library or exported entry point to the workflow's checks.
+
 ## Architecture
 
 ### Two header families
@@ -67,7 +71,7 @@ Some of the per-sensor code sits inside `#if (defined SOC_SYSTEM) || (defined SO
 ### Kernel drivers
 
 - `drivers/xm_i2c`: a misc-device stub. Its read, write and ioctl handlers are placeholders that only print "not supported".
-- `drivers/hx280enc`: the Hantro 6280/7280/8270/8290 video encoder driver.
+- `drivers/hx280enc`: the Hantro 6280/7280/8270/8290 video encoder driver. It doesn't compile yet because `struct JpegProcType` is used but never defined, so CI doesn't build it.
 
 ## Conventions
 

@@ -114,6 +114,15 @@ To add a sensor:
 | `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder | Driver source |
 | `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
 
+## CI
+
+Every push and pull request to `main` runs two jobs. Both use the OpenIPC XM530 musl toolchain (`toolchain.xiongmai-xm530`).
+
+- **Libraries cross-compile (XM530):** builds all four userspace libraries, checks that the expected entry points are exported (`sensor_register_callback`, `XM_I2C_Ioctl`, `XM_MPI_*`, ...), and checks that the shared objects depend only on libc.
+- **Kernel modules (xm530):** builds `xm_i2c` against `openipc/linux@xiongmai-xm530` (3.10.103), configured with the firmware's `xm530.generic.config`. `hx280enc` isn't built yet because its source references `struct JpegProcType`, which is never defined.
+
+[![Build Status](https://github.com/OpenIPC/openxiongmai/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/openxiongmai/actions/workflows/build.yml)
+
 ## License
 
 GPL v3. See [LICENSE](LICENSE).

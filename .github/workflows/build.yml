@@ -1,0 +1,148 @@
+name: build
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  TOOLCHAIN_URL: https://github.com/OpenIPC/firmware/releases/download/toolchain/toolchain.xiongmai-xm530.tgz
+  CROSS_COMPILE: arm-openipc-linux-musleabi-
+
+jobs:
+  #
+  # libraries-cross-compile
+  #
+  # Builds every userspace library with the OpenIPC XM530 musl toolchain
+  # (the same one firmware uses), checks that the outputs exist, asserts
+  # the entry points the vendor ISP / application expects are exported,
+  # and confirms the shared objects depend only on libc.
+  #
+  libraries-cross-compile:
+    name: Libraries cross-compile (XM530)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenIPC XM530 toolchain
+        run: |
+          mkdir -p "$RUNNER_TEMP/toolchain"
+          curl -sSLf "$TOOLCHAIN_URL" | tar xz -C "$RUNNER_TEMP/toolchain"
+          echo "$RUNNER_TEMP/toolchain/arm-openipc-linux-musleabi_sdk-buildroot/bin" >> "$GITHUB_PATH"
+
+      - name: Build libraries
+        run: |
+          ${CROSS_COMPILE}gcc --version | head -1
+          # libmpi's Makefile hard-codes PATH; override it from the command line.
+          for d in libsns_X50_XM530 libsns_X123_XM530 libispapp_XM530 libmpi; do
+            echo "::group::$d"
+            make -C "libraries/$d" CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+            echo "::endgroup::"
+          done
+
+      - name: Verify outputs exist
+        run: |
+          for f in \
+              libraries/libsns_X50_XM530/libsns_X50_XM530.so \
+              libraries/libsns_X123_XM530/libsns_X123_XM530.so \
+              libraries/libispapp_XM530/libispapp_XM530.so \
+              libraries/libmpi/libopenmpi.a; do
+            [ -f "$f" ] || { echo "MISSING: $f" >&2; exit 1; }
+            echo "ok: $f ($(stat -c%s "$f") bytes)"
+          done
+
+      - name: Assert exported symbols
+        run: |
+          fail=0
+          check() {
+            lib=$1; shift
+            case "$lib" in
+              *.so) syms=$(${CROSS_COMPILE}nm -D --defined-only "$lib") ;;
+              *)    syms=$(${CROSS_COMPILE}nm --defined-only "$lib") ;;
+            esac
+            for s in "$@"; do
+              if echo "$syms" | grep -qE " T $s\$"; then
+                echo "ok: $lib exports $s"
+              else
+                echo "MISSING: $lib does not export $s" >&2; fail=1
+              fi
+            done
+          }
+          for lib in libraries/libsns_X50_XM530/libsns_X50_XM530.so \
+                     libraries/libsns_X123_XM530/libsns_X123_XM530.so; do
+            check "$lib" sensor_register_callback sensor_unregister_callback \
+                         sensor_init sensor_mode_set
+          done
+          check libraries/libispapp_XM530/libispapp_XM530.so \
+                XM_I2C_Ioctl SysGetProductInfo
+          check libraries/libmpi/libopenmpi.a \
+                XM_MPI_SYS_Init XM_MPI_SYS_MmzAlloc XM_MPI_VI_INIT \
+                XM_MPI_VENC_CreateChn XM_MPI_RGN_INIT
+          exit $fail
+
+      - name: Assert no vendor libs in NEEDED
+        run: |
+          fail=0
+          for lib in libraries/*/*.so; do
+            needed=$(${CROSS_COMPILE}readelf -d "$lib" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')
+            echo "$lib: ${needed:-<none>}"
+            for n in $needed; do
+              case "$n" in
+                libc.so*|libpthread.so*|libm.so*|libdl.so*) ;;
+                *) echo "UNEXPECTED NEEDED in $lib: $n" >&2; fail=1 ;;
+              esac
+            done
+          done
+          exit $fail
+
+  #
+  # kernel-modules
+  #
+  # Builds the out-of-tree kernel modules against the OpenIPC XM530 kernel
+  # (openipc/linux@xiongmai-xm530, 3.10.103) configured with the firmware's
+  # xm530.generic.config. hx280enc is not built yet: its source references
+  # struct JpegProcType, which is never defined.
+  #
+  kernel-modules:
+    name: Kernel modules (xm530)
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_URL: https://github.com/openipc/linux/archive/xiongmai-xm530.tar.gz
+      KERNEL_CONFIG_URL: https://raw.githubusercontent.com/OpenIPC/firmware/master/br-ext-chip-xiongmai/board/xm530/xm530.generic.config
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OpenIPC XM530 toolchain
+        run: |
+          mkdir -p "$RUNNER_TEMP/toolchain"
+          curl -sSLf "$TOOLCHAIN_URL" | tar xz -C "$RUNNER_TEMP/toolchain"
+          echo "$RUNNER_TEMP/toolchain/arm-openipc-linux-musleabi_sdk-buildroot/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare XM530 kernel tree
+        run: |
+          curl -sSLf "$KERNEL_URL" | tar xz -C "$RUNNER_TEMP"
+          KDIR="$RUNNER_TEMP/linux-xiongmai-xm530"
+          curl -sSLf -o "$KDIR/.config" "$KERNEL_CONFIG_URL"
+          make -C "$KDIR" ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" olddefconfig
+          make -C "$KDIR" ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" -j"$(nproc)" modules_prepare
+          echo "KDIR=$KDIR" >> "$GITHUB_ENV"
+
+      - name: Build xm_i2c
+        run: |
+          make -C drivers/xm_i2c KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
+      - name: Verify modules
+        run: |
+          for ko in drivers/xm_i2c/xm_i2c.ko; do
+            [ -f "$ko" ] || { echo "MISSING: $ko" >&2; exit 1; }
+            ${CROSS_COMPILE}readelf -h "$ko" | grep -q 'Machine:.*ARM' \
+              || { echo "$ko is not an ARM object" >&2; exit 1; }
+            vermagic=$(${CROSS_COMPILE}strings "$ko" | grep '^vermagic=')
+            echo "ok: $ko ($vermagic)"
+            echo "$vermagic" | grep -q '^vermagic=3\.10\.103' \
+              || { echo "unexpected vermagic for $ko" >&2; exit 1; }
+          done
