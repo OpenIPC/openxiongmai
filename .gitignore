@@ -7,3 +7,4 @@ Module.symvers
 modules.order
 .tmp_versions/
 compile_flags.txt
+*.so
