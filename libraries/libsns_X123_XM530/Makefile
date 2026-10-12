@@ -27,6 +27,7 @@ OBJECTS = \
 	sc2235_cmos.o \
 	sc2235E_cmos.o \
 	sc2235P_cmos.o \
+	sc2239_cmos.o \
 	sc2335_cmos.o \
 	sc3035_cmos.o \
 	sc3035_sensor_ctl.o \

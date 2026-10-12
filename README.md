@@ -82,6 +82,7 @@ The Makefiles set different default toolchains (`arm-xm-linux-`, `arm-linux-` or
 | **SmartSens** | SC1235 | X123 |
 | | SC2145 / SC2145H | X123 |
 | | SC2235 / SC2235E / SC2235P | X123 |
+| | SC2239 | X123 |
 | | SC2335 | X123 |
 | | SC3035 | X123 |
 | | SC307E | X123 |

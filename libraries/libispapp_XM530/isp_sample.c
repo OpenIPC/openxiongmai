@@ -183,11 +183,15 @@ XM_S32 SysGetProductInfo(XM_PRODUCT_INFO *pstProductInfo) {
     ERR("SysMemnCpy failed!\n");
     return XM_FAILURE;
   }
+  /* majestic does not know the SC2239 */
+  if (pstProductInfo->u32SensorType == SENSOR_CHIP_SC2239)
+    pstProductInfo->u32SensorType = SENSOR_CHIP_SC2335;
   return XM_SUCCESS;
 }
 
 XM_S32 SysSetProductInfo(XM_PRODUCT_INFO *pstProductInfo) {
   XM_S32 s32Ret;
+  XM_U32 u32SensorType = gstProductInfo.u32SensorType;
   if (pstProductInfo == NULL) {
     ERR("SysGetProductInfo input err!\n");
     return XM_FAILURE;
@@ -198,6 +202,9 @@ XM_S32 SysSetProductInfo(XM_PRODUCT_INFO *pstProductInfo) {
     ERR("XM_MPI_ISP_Memncpy failed!\n");
     return XM_FAILURE;
   }
+  if (u32SensorType == SENSOR_CHIP_SC2239 &&
+      gstProductInfo.u32SensorType == SENSOR_CHIP_SC2335)
+    gstProductInfo.u32SensorType = SENSOR_CHIP_SC2239;
   return XM_SUCCESS;
 }
 
@@ -1201,6 +1208,34 @@ static void GetProductInfo() {
     gstProductInfo.SnsBwide = SENSBWIDE_12BIT;
     gstProductInfo.bHsyncRecEn = XM_TRUE;
     break;
+  case SENSOR_CHIP_SC2239:
+    gstProductInfo.u8StdType =
+        (gstParamIn.u8Vstd == VSTDNULL) ? PALS : gstParamIn.u8Vstd;
+    gstProductInfo.u8RsltType = P1080_;
+    gstProductInfo.bHsyncRecEn = XM_TRUE;
+    gu8PclkEdge = 0;
+    gstProductInfo.SnsBwide = SENSBWIDE_10BIT;
+    gstProductInfo.u8SensorClk = SENSORCLK_27M;
+    gstProductInfo.SnsConnect = SENSCONT_MIPI;
+    stComboDevAttr.input_mode = gstProductInfo.SnsConnect;
+    stComboDevAttr.mipi_attr.MipiCtrl = 0x001400b8;
+    stComboDevAttr.mipi_attr.lane = MIPI_1LANE;
+    stComboDevAttr.mipi_attr.depth = MIPI_10BIT;
+    stComboDevAttr.mipi_attr.snsAllPixs = 2200;
+    stComboDevAttr.mipi_attr.snsAllLine =
+        (gstProductInfo.u8StdType == PALS) ? 1350 : 1125;
+    stComboDevAttr.mipi_attr.snsActiveLine = 1088;
+    stComboDevAttr.mipi_attr.snsActivePixs = 1928;
+    stComboDevAttr.mipi_attr.bMpDvpclk = 74250000;
+    stComboDevAttr.mipi_attr.bAllPixs = stComboDevAttr.mipi_attr.snsAllPixs;
+    stComboDevAttr.mipi_attr.snsMpOutclk =
+        stComboDevAttr.mipi_attr.bMpDvpclk * au8Bit[gstProductInfo.SnsBwide] /
+        (1 << stComboDevAttr.mipi_attr.lane) / 2;
+    stComboDevAttr.mipi_attr.delay = 0x01010101;
+    cmos_get_sns_attr(&stSnsAttr);
+    stSnsAttr.u8InputMode = stComboDevAttr.input_mode;
+    cmos_set_sns_attr(&stSnsAttr);
+    break;
   case SENSOR_CHIP_IMX323:
   case SENSOR_CHIP_SC2235:
     gstProductInfo.u8RsltType = P1080_;
@@ -2168,6 +2203,12 @@ static XM_S32 GetIspWndRect(XM_U8 u8Fps, RECT_S *pstRect) {
     pstRect->s32Y = 15;
     pstRect->u32Height = 1088;
     pstRect->u32Width = 1928;
+    break;
+  case SENSOR_CHIP_SC2239:
+    pstRect->s32X = 1;
+    pstRect->s32Y = 1;
+    pstRect->u32Height = 1080;
+    pstRect->u32Width = 1920;
     break;
   case SENSOR_CHIP_SC2235E:
     pstRect->s32X = 1;
