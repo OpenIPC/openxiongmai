@@ -97,7 +97,8 @@ static XM_S32 cmos_set_mirror_flip(XM_U8 u8Mirror, XM_U8 u8Flip) {
     u32Val &= ~0x60;
   }
   sensor_write_register(0x3221, u32Val);
-  VI_WinSet(1, u8Mirror, u8Flip, 0, 0);
+  /* flip shifts the Bayer pattern by one row */
+  VI_WinSet(1, u8Mirror, u8Flip, 0, u8Flip ? 1 : 0);
   XM_MPI_MIPI_RefreshFV(100, 0);
   return XM_SUCCESS;
 }
