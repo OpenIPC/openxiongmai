@@ -2,16 +2,16 @@ CROSS_COMPILE=arm-xm-linux-
 CC=$(CROSS_COMPILE)gcc
 AR=$(CROSS_COMPILE)ar
 STRIP=$(CROSS_COMPILE)strip
-CFLAGS=-I../isp/include/isp \
+override CFLAGS += -I../isp/include/isp \
 	   -I../isp/include/xm \
 	   -Werror -Wall -std=c99 -fPIC
 
 ##############################################
 # CHIP_ID:	XM530
 ##############################################
-CFLAGS += -DCHIPID_XM530
-CFLAGS += -DSOC_SYSTEM
-CFLAGS += -DAWB_ALGO_V2
+override CFLAGS += -DCHIPID_XM530
+override CFLAGS += -DSOC_SYSTEM
+override CFLAGS += -DAWB_ALGO_V2
 
 OBJECTS = \
 	auge_cmos.o \
@@ -42,6 +42,8 @@ OBJECTS = \
 	sp2305_cmos.o \
 	XAx_cmos.o \
 	XAx_sensor_ctl.o
+
+all: libsns_X123_XM530.so
 
 libsns_X123_XM530.so: $(OBJECTS)
 	$(CC) -shared -o $@ $^

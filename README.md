@@ -53,7 +53,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 
 ## Building
 
-There's no top-level build. Each component has its own Makefile and is built separately with an ARM cross toolchain. Using the OpenIPC SDK:
+Each component has its own Makefile and is built with an ARM cross toolchain. Using the OpenIPC SDK:
 
 ```bash
 export PATH=/path/to/openipc_sdk/bin:$PATH
@@ -64,12 +64,17 @@ make -C libraries/libsns_X123_XM530 CROSS_COMPILE=arm-openipc-linux-musleabi-
 make -C libraries/libispapp_XM530   CROSS_COMPILE=arm-openipc-linux-musleabi-
 make -C libraries/libmpi            CROSS_COMPILE=arm-openipc-linux-musleabi-
 
+# Or the libraries OpenIPC firmware ships for one SoC family, in one go
+make -C libraries CHIPARCH=xm530 CC=arm-openipc-linux-musleabi-gcc STRIP=arm-openipc-linux-musleabi-strip
+
 # Kernel modules: point KDIR at a configured kernel tree
 make -C drivers/hx280enc KDIR=/path/to/linux
 make -C drivers/xm_i2c   KDIR=/path/to/linux
 ```
 
 The Makefiles set different default toolchains (`arm-xm-linux-`, `arm-linux-` or `arm-openipc-linux-musleabi-`), so pass `CROSS_COMPILE` explicitly. `libmpi` and the kernel module Makefiles also hard-code `PATH` to a vendor toolchain directory. Override it from the command line, for example `make PATH="$PATH" ...`, or give an absolute `CROSS_COMPILE` prefix. Most components build with `-Werror`.
+
+OpenIPC firmware builds these libraries from source: its `xiongmai-opensdk` package fetches this repository at a pinned commit and runs `make -C libraries CHIPARCH=<soc>` with the Buildroot toolchain and `CFLAGS`. The library Makefiles append their own include paths and defines to the `CFLAGS` they are given.
 
 ## Supported sensors
 

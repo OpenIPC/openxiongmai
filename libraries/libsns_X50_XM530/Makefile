@@ -2,16 +2,16 @@ CROSS_COMPILE=arm-openipc-linux-musleabi-
 CC=$(CROSS_COMPILE)gcc
 AR=$(CROSS_COMPILE)ar
 STRIP=$(CROSS_COMPILE)strip
-CFLAGS=-I../isp/include/isp \
+override CFLAGS += -I../isp/include/isp \
 	   -I../isp/include/xm \
 	   -Werror -std=c99 -fPIC
 
 ##############################################
 # CHIP_ID:	XM530
 ##############################################
-CFLAGS += -DCHIPID_XM530
-CFLAGS += -DSOC_SYSTEM
-CFLAGS += -DAWB_ALGO_V2
+override CFLAGS += -DCHIPID_XM530
+override CFLAGS += -DSOC_SYSTEM
+override CFLAGS += -DAWB_ALGO_V2
 
 OBJECTS = \
 	IMX335_cmos.o \
@@ -28,6 +28,8 @@ OBJECTS = \
 	SC5332_sensor_ctl.o \
 	X50_cmos.o \
 	X50_sensor_ctl.o
+
+all: libsns_X50_XM530.so
 
 libsns_X50_XM530.so: $(OBJECTS)
 	$(CC) -shared -o $@ $^
