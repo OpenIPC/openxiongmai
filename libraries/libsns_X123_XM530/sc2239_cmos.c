@@ -25,6 +25,11 @@ extern XM_U32 gau32AllGain;
 extern XM_U32 gu32DGainNow;
 extern XM_U32 gu32AGainNow;
 
+static XM_U8 su8FpsMode = 0xFF;
+static XM_U8 su8LogicIdx = 0xFF;
+static XM_U32 su32AGain = 0xFFFFFFF;
+static XM_U32 su32DGain = 0xFFFFFFF;
+
 /* Based on the SC2335 tables, with stronger NR at high gain; not calibrated. */
 static const ISP_CMOS_AGC_TABLE_S g_stIspAgcTable = {
     /* bvalid */
@@ -204,7 +209,6 @@ const static XM_U8 gau8Logic_sc2239[5][3] = {
 const static XM_U16 gau16LogicAddr_sc2239[3] = {0x3634, 0x3306, 0x3301};
 
 static void gainLogic_sc2239(XM_U8 u8CoarseAgain, XM_U8 u8FineAgain) {
-  static XM_U8 su8Idx = 0xFF;
   XM_U8 u8Idx, u8i;
 
   switch (u8CoarseAgain) {
@@ -221,10 +225,10 @@ static void gainLogic_sc2239(XM_U8 u8CoarseAgain, XM_U8 u8FineAgain) {
     u8Idx = 4;
     break;
   }
-  if (su8Idx == u8Idx) {
+  if (su8LogicIdx == u8Idx) {
     return;
   }
-  su8Idx = u8Idx;
+  su8LogicIdx = u8Idx;
   for (u8i = 0; u8i < 3; u8i++) {
     sensor_write_register((XM_U32)gau16LogicAddr_sc2239[u8i],
                           (XM_U32)gau8Logic_sc2239[u8Idx][u8i]);
@@ -243,8 +247,6 @@ static XM_VOID cmos_inttime_update(XM_U32 u32IntTime) {
 }
 
 static XM_VOID cmos_gains_update(XM_U32 u32Again, XM_U32 u32Dgain) {
-  static XM_U32 su32AGain = 0xFFFFFFF;
-  static XM_U32 su32DGain = 0xFFFFFFF;
   XM_U8 u8CoarseAgain, u8FineAgain;
 
   gau32AllGain = (XM_U64)gu32AGainNow * gu32DGainNow >> 10;
@@ -283,7 +285,6 @@ static XM_VOID cmos_slow_framerate_set(XM_U16 u16FullLines,
 }
 
 static XM_VOID cmos_fps_set(XM_U8 u8Fps, AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
-  static XM_U8 su8Mode = 0xFF;
   XM_U32 u32TotalSizeV;
 
   switch (u8Fps) {
@@ -297,10 +298,10 @@ static XM_VOID cmos_fps_set(XM_U8 u8Fps, AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
     return;
   }
 
-  if (su8Mode == u8Fps) {
+  if (su8FpsMode == u8Fps) {
     return;
   }
-  su8Mode = u8Fps;
+  su8FpsMode = u8Fps;
 
   if (pstAeSnsDft != NULL) {
     pstAeSnsDft->u32FullLinesStd = u32TotalSizeV;
@@ -418,6 +419,14 @@ static const XM_U16 gau16SnsInit_sc2239_mipi[][2] = {
 };
 
 XM_U32 sensor_getlist_sc2239(XM_U16 *pu16Num) {
+  /* sensor_init() writes this list, which resets the sensor */
+  su8FpsMode = 0xFF;
+  su8LogicIdx = 0xFF;
+  su32AGain = 0xFFFFFFF;
+  su32DGain = 0xFFFFFFF;
+  gu32ShutNow = 0;
+  gu16FullLines = SC2239_VTS_25FPS;
+  gu8Fps = 25;
   DEBUG("------------- SC2239 1080P 25fps MIPI ----------------\n");
   *pu16Num =
       sizeof(gau16SnsInit_sc2239_mipi) / sizeof(gau16SnsInit_sc2239_mipi[0]);
