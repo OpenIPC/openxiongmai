@@ -6,14 +6,12 @@
 # CC, STRIP and CFLAGS come from the caller; each library's Makefile appends
 # its own include paths and defines to CFLAGS rather than replacing them.
 
-MAKEFILES = $(shell find . -mindepth 2 -maxdepth 2 -type f -name Makefile)
-SUBDIRS   = $(sort $(dir $(MAKEFILES)))
-
 # XM530 (and XM550, which runs the same firmware): the sensor libraries and
 # the ISP application layer. libmpi is left out: firmware does not ship it,
-# and its Makefile sets PATH to a vendor toolchain.
+# and its Makefile sets PATH to a vendor toolchain. The list is explicit, so a
+# missing directory fails the build instead of being skipped.
 ifeq ($(CHIPARCH),xm530)
-    SUBDIRS := $(filter ./libsns_X50_XM530/ ./libsns_X123_XM530/ ./libispapp_XM530/,$(SUBDIRS))
+    SUBDIRS := libsns_X50_XM530 libsns_X123_XM530 libispapp_XM530
 else
     $(error CHIPARCH=$(CHIPARCH): only xm530 is supported)
 endif
@@ -31,8 +29,13 @@ all:
 	fi
 
 clean:
+	@failed=""; \
 	for dir in $(SUBDIRS); do \
-		$(MAKE) -C $$dir clean; \
-	done
+		$(MAKE) -C $$dir clean || failed="$$failed $$dir"; \
+	done; \
+	if [ -n "$$failed" ]; then \
+		echo "Clean failed for:$$failed" >&2; \
+		exit 1; \
+	fi
 
 .PHONY: all clean
