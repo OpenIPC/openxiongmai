@@ -429,6 +429,13 @@ int sensor_register_callback(ISP_DEV IspDev) {
     gu8MaxShutterOfst = 4;
     pfn_sensor_getlist = sensor_getlist_sc2335;
     break;
+  case SENSOR_CHIP_SC2239:
+    cmos_init_sensor_exp_function_sc2239(&(stIspRegister.stSnsExp));
+    cmos_init_ae_exp_function_sc2239(&(stAeRegister.stSnsExp));
+    cmos_init_awb_exp_function_sc2239(&(stAwbRegister.stSnsExp));
+    gu8MaxShutterOfst = 4;
+    pfn_sensor_getlist = sensor_getlist_sc2239;
+    break;
   case SENSOR_CHIP_SP2305:
     cmos_init_sensor_exp_function_SP2305(&(stIspRegister.stSnsExp));
     cmos_init_ae_exp_function_SP2305(&(stAeRegister.stSnsExp));
@@ -756,6 +763,7 @@ START_TAB:
   case SENSOR_CHIP_SC2145:
   case SENSOR_CHIP_AUGE:
   case SENSOR_CHIP_SC2335:
+  case SENSOR_CHIP_SC2239:
   case SENSOR_CHIP_SC3035:
   case SENSOR_CHIP_SC3335:
     if ((u32SnsChipFilt != SENSOR_CHIP_SC1235) &&
@@ -769,7 +777,8 @@ START_TAB:
         (u32SnsChipFilt != SENSOR_CHIP_AUGE) &&
         (u32SnsChipFilt != SENSOR_CHIP_SC3035) &&
         (u32SnsChipFilt != SENSOR_CHIP_SC3335) &&
-        (u32SnsChipFilt != SENSOR_CHIP_SC2335)) {
+        (u32SnsChipFilt != SENSOR_CHIP_SC2335) &&
+        (u32SnsChipFilt != SENSOR_CHIP_SC2239)) {
       gSnsDevAddr = 0x30;
       gSnsRegAddrByte = 0x2;
       gSnsRegDataByte = 0x1;
@@ -830,6 +839,10 @@ START_TAB:
       } else if (s32Id == 0xCB14) {
         gSensorChip = SENSOR_CHIP_SC2335;
         DEBUG("SC2335!\n");
+        goto RET_TAB;
+      } else if (s32Id == 0xCB10) {
+        gSensorChip = SENSOR_CHIP_SC2239;
+        DEBUG("SC2239!\n");
         goto RET_TAB;
       }
       // rescan

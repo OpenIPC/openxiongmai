@@ -197,5 +197,11 @@ cmos_init_sensor_exp_function_sc2335(ISP_SENSOR_EXP_FUNC_S *pstSensorExpFunc);
 XM_S32 cmos_init_ae_exp_function_sc2335(AE_SENSOR_EXP_FUNC_S *pstExpFuncs);
 XM_S32 cmos_init_awb_exp_function_sc2335(AWB_SENSOR_EXP_FUNC_S *pstExpFuncs);
 
+XM_U32 sensor_getlist_sc2239(XM_U16 *pu16Num);
+XM_S32
+cmos_init_sensor_exp_function_sc2239(ISP_SENSOR_EXP_FUNC_S *pstSensorExpFunc);
+XM_S32 cmos_init_ae_exp_function_sc2239(AE_SENSOR_EXP_FUNC_S *pstExpFuncs);
+XM_S32 cmos_init_awb_exp_function_sc2239(AWB_SENSOR_EXP_FUNC_S *pstExpFuncs);
+
 XM_U32 sensor_getlist_sc3035(XM_U16 *pu16Num);
 XM_U32 sensor_getlist_sc3335(XM_U16 *pu16Num);
