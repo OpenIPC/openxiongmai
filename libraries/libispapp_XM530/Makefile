@@ -2,7 +2,7 @@ CROSS_COMPILE=arm-xm-linux-
 CC=$(CROSS_COMPILE)gcc
 AR=$(CROSS_COMPILE)ar
 STRIP=$(CROSS_COMPILE)strip
-CFLAGS=-I../isp/include/isp \
+override CFLAGS += -I../isp/include/isp \
 	   -I../isp/include/xm \
 	   -I../isp/include/mpi \
 	   -D_GNU_SOURCE \
@@ -11,8 +11,8 @@ CFLAGS=-I../isp/include/isp \
 ##############################################
 # CHIP_ID:	XM530
 ##############################################
-CFLAGS += -DCHIPID_XM530
-CFLAGS += -DSOC_SYSTEM -DSOC_XMSDK
+override CFLAGS += -DCHIPID_XM530
+override CFLAGS += -DSOC_SYSTEM -DSOC_XMSDK
 
 OBJECTS = \
 	com.o \
@@ -23,6 +23,8 @@ OBJECTS = \
 	sample_common.o \
 	uart.o \
 	vda_sample.o
+
+all: libispapp_XM530.so
 
 libispapp_XM530.so: $(OBJECTS)
 	$(CC) -shared -o $@ $^

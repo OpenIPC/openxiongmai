@@ -8,7 +8,7 @@ Open-source reimplementations of Xiongmai (XM) IP camera SoC userspace libraries
 
 ## Building
 
-Every component is a standalone Makefile. There's no top-level build. Build from the component's directory with an ARM cross toolchain. The README gives the OpenIPC SDK recipe:
+Every component is a standalone Makefile. Build from the component's directory with an ARM cross toolchain. The README gives the OpenIPC SDK recipe:
 
 ```sh
 export PATH=/path/to/openipc_sdk/bin:$PATH
@@ -24,6 +24,8 @@ Build outputs:
 - The `libsns_*` and `libispapp_*` libraries build stripped `.so` files with `-fPIC`.
 - `libmpi` builds the static `libopenmpi.a`.
 - The kernel modules in `drivers/` (`hx280enc`, `xm_i2c`) are out-of-tree kbuild modules. `KDIR` defaults to `$(HOME)/projects/cameras/sdk/XM510/os/kernel/linux-xm510`, so override it: `make KDIR=/path/to/kernel`.
+
+`libraries/Makefile` builds the libraries OpenIPC firmware ships for one SoC family: `make -C libraries CHIPARCH=xm530` builds `libsns_X50_XM530`, `libsns_X123_XM530` and `libispapp_XM530`, and any other `CHIPARCH` is an error. Firmware's `xiongmai-opensdk` package calls it with `$(TARGET_CONFIGURE_OPTS)`, which puts `CC`, `STRIP` and `CFLAGS` on the command line. That's why the library Makefiles use `override CFLAGS +=`. A plain `CFLAGS =` would be ignored, and the build would lose its include paths and defines. A library change reaches cameras only after the firmware package's pinned commit is bumped.
 
 Most Makefiles build with `-Werror -Wall -std=c99`. `libsns_X50_XM530` dropped `-Wall` because the sources still contain unused variables. A new source file builds only after you add its `.o` to the Makefile's explicit `OBJECTS` list.
 

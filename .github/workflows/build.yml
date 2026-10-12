@@ -47,12 +47,19 @@ jobs:
       - name: Build libraries
         run: |
           ${CROSS_COMPILE}gcc --version | head -1
+          # The libraries OpenIPC/firmware ships, built the way its
+          # xiongmai-opensdk package does: through libraries/Makefile, with
+          # the compiler and BR2_OPTIMIZE_S-style CFLAGS passed in.
+          echo "::group::libraries (CHIPARCH=xm530)"
+          make -C libraries CHIPARCH=xm530 \
+            CC="${CROSS_COMPILE}gcc" AR="${CROSS_COMPILE}ar" STRIP="${CROSS_COMPILE}strip" \
+            CFLAGS="-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Os -g0 -D_FORTIFY_SOURCE=1" \
+            all
+          echo "::endgroup::"
           # libmpi's Makefile hard-codes PATH; override it from the command line.
-          for d in libsns_X50_XM530 libsns_X123_XM530 libispapp_XM530 libmpi; do
-            echo "::group::$d"
-            make -C "libraries/$d" CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
-            echo "::endgroup::"
-          done
+          echo "::group::libmpi"
+          make -C libraries/libmpi CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+          echo "::endgroup::"
 
       - name: Verify outputs exist
         run: |
