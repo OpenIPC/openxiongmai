@@ -267,12 +267,10 @@ static XM_VOID cmos_gains_update(XM_U32 u32Again, XM_U32 u32Dgain) {
 
 static XM_VOID cmos_slow_framerate_set(XM_U16 u16FullLines,
                                        AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
-  static XM_U16 su16FullLines = 0xffff;
-  if (su16FullLines == u16FullLines)
-    return;
-  su16FullLines = u16FullLines;
-
   u16FullLines = (u16FullLines >= 4096) ? 4000 : u16FullLines;
+  if (gu16FullLines == u16FullLines)
+    return;
+
   pstAeSnsDft->u32MaxIntTime = u16FullLines - SC2239_EXP_OFFSET;
   SysDelay_ms(100);
   if (gu32ShutNow > pstAeSnsDft->u32MaxIntTime) {
@@ -309,10 +307,14 @@ static XM_VOID cmos_fps_set(XM_U8 u8Fps, AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
     pstAeSnsDft->u32MaxIntTime = u32TotalSizeV - SC2239_EXP_OFFSET;
     pstAeSnsDft->u32LinesPer500ms = u32TotalSizeV * u8Fps / 2;
   }
+  if (gu32ShutNow > u32TotalSizeV - SC2239_EXP_OFFSET) {
+    cmos_inttime_update(u32TotalSizeV - SC2239_EXP_OFFSET);
+  }
   sensor_write_register(0x320e, (u32TotalSizeV >> 8) & 0xFF);
   sensor_write_register(0x320f, u32TotalSizeV & 0xFF);
   gu16FullLines = u32TotalSizeV;
   gu8Fps = u8Fps;
+  XM_MPI_MIPI_RefreshFV(0, u32TotalSizeV);
 
   SysDelay_ms(20);
   return;

@@ -87,6 +87,9 @@ jobs:
             check "$lib" sensor_register_callback sensor_unregister_callback \
                          sensor_init sensor_mode_set
           done
+          check libraries/libsns_X123_XM530/libsns_X123_XM530.so \
+                sensor_getlist_sc2239 cmos_init_sensor_exp_function_sc2239 \
+                cmos_init_ae_exp_function_sc2239 cmos_init_awb_exp_function_sc2239
           check libraries/libispapp_XM530/libispapp_XM530.so \
                 XM_I2C_Ioctl SysGetProductInfo
           check libraries/libmpi/libopenmpi.a \
