@@ -1256,12 +1256,14 @@ static void GetProductInfo() {
 #ifdef DEVTYPE_AHD
     gstProductInfo.u32ProductType = XM350AI_60X20;
 #endif
-    // SC2235E is MIPI only, SC2235P comes in both DVP and MIPI variants
-    stComboDevAttr.input_mode =
-        (gstProductInfo.u32SensorType == SENSOR_CHIP_SC2235E) ? SENSCONT_MIPI
-                                                               : SENSCONT_DVP;
-    if (gstParamIn.u8SnsInterface) {
+    // SC2235E is MIPI only, so it ignores the interface override. SC2235P
+    // comes in both DVP and MIPI variants and defaults to DVP.
+    if (gstProductInfo.u32SensorType == SENSOR_CHIP_SC2235E) {
+      stComboDevAttr.input_mode = SENSCONT_MIPI;
+    } else if (gstParamIn.u8SnsInterface) {
       stComboDevAttr.input_mode = gstParamIn.u8SnsInterface - 1;
+    } else {
+      stComboDevAttr.input_mode = SENSCONT_DVP;
     }
     if (stComboDevAttr.input_mode == SENSCONT_DVP) {
       gstProductInfo.u8SensorClk = SENSORCLK_37x125M;
