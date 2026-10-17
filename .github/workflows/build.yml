@@ -13,7 +13,7 @@ on:
 # check fails, verify the new tarball and update the sha256 here.
 env:
   TOOLCHAIN_URL_XM530: https://github.com/OpenIPC/firmware/releases/download/toolchain/toolchain.xiongmai-xm530.tgz
-  TOOLCHAIN_SHA256_XM530: 71c556f0c9cf72ea10b8f921057890fd24559b613daf637c6b1804eb5b1492f1
+  TOOLCHAIN_SHA256_XM530: c88003c5beb4eb9090a1cc03a02439888c25578bfa58924b21ef28a2762b94eb
   TOOLCHAIN_URL_XM510: https://github.com/OpenIPC/firmware/releases/download/toolchain/toolchain.xiongmai-xm510.tgz
   TOOLCHAIN_SHA256_XM510: 6850cf324c119782b7e5a0e883e7550fcfb9e61c2f51be955a7a04c22aa82013
   # OpenIPC/firmware commit providing kernel configs and kernel patches

@@ -1,3 +1,4 @@
+#include <string.h>
 #include "XAx_cmos.h"
 #include "mpi_ae.h"
 #include "mpi_awb.h"
@@ -292,6 +293,12 @@ int sensor_register_callback(ISP_DEV IspDev) {
   ISP_SENSOR_REGISTER_S stIspRegister;
   AE_SENSOR_REGISTER_S stAeRegister;
   AWB_SENSOR_REGISTER_S stAwbRegister;
+  /* The ISP calls these callbacks from isp_irq, long after this frame has
+   * returned. Any slot that no init below sets would otherwise hold whatever
+   * was on the stack, and the ISP would jump there (openxiongmai#8). */
+  memset(&stIspRegister, 0, sizeof(stIspRegister));
+  memset(&stAeRegister, 0, sizeof(stAeRegister));
+  memset(&stAwbRegister, 0, sizeof(stAwbRegister));
   IspDev = (IspDev < 0)
                ? 0
                : ((IspDev > (ISP_NUM_MAX - 1)) ? (ISP_NUM_MAX - 1) : IspDev);
