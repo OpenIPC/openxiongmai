@@ -95,6 +95,12 @@ XM_S32 XM_MPI_VI_DisableChn(VI_CHN ViChn) {
   return XM_FAILURE;
 }
 
+/*
+ * Frame record of xm5x0_vi.ko: chn, pool, luma and chroma phys, width and
+ * height, plus a 64-bit PTS on XM530. That makes 32 bytes on XM530
+ * (0xC0205604 get, 0x40205605 release) and 24 on XM510 (0xC0185604,
+ * 0x40185605). The size that works is remembered.
+ */
 typedef struct {
   VI_CHN chn;
   XM_U32 u32PoolId;
@@ -102,51 +108,71 @@ typedef struct {
   XM_U32 u32PhyAddr_1;
   XM_U32 u32Width;
   XM_U32 u32Height;
+  XM_U64 u64Pts; /* XM530 only */
 } vi_frame_t;
 
+#define VI_CMD(dir, nr, size)                                                  \
+  (((XM_U32)(dir) << 30) | ((size) << 16) | ('V' << 8) | (nr))
+#define VI_GET_FRAME 4
+#define VI_RELEASE_FRAME 5
+
+static const XM_U32 vi_frame_sizes[] = {sizeof(vi_frame_t),
+                                        sizeof(vi_frame_t) - sizeof(XM_U64)};
+static int vi_abi = -1;
+
 XM_S32 XM_MPI_VI_GetFrame(VI_CHN ViChn, VIDEO_FRAME_INFO_S *pstFrameInfo) {
+  vi_frame_t arg;
+  int i;
+
   if (ViChn >= VENC_MAX_CHN_NUM) {
     FATAL_ARG("not support ViChn = %d, fd_vi = %d", ViChn, fd_vi);
     return XM_FAILURE;
   }
 
-  if (fd_vi != -1 || (fd_vi = open("/dev/vi", 0), fd_vi >= 0)) {
-    vi_frame_t arg = {
-        .chn = ViChn,
-    };
-    XM_S32 ret = ioctl(fd_vi, 0xC0185604, &arg);
-    pstFrameInfo->u32PoolId = arg.u32PoolId;
-    pstFrameInfo->stVFrame.u32PhyAddr[0] = arg.u32PhyAddr_0;
-    pstFrameInfo->stVFrame.u32PhyAddr[1] = arg.u32PhyAddr_1;
-    pstFrameInfo->stVFrame.u32Width = arg.u32Width;
-    pstFrameInfo->stVFrame.u32Height = arg.u32Height;
-    return ret;
+  if (fd_vi == -1 && (fd_vi = open("/dev/vi", 0), fd_vi < 0)) {
+    FATAL("open error");
+    return XM_FAILURE;
   }
 
-  FATAL("open error");
+  /* No frame yet and an unknown record size both fail, so the size is
+   * only settled by a call that returns a frame. */
+  for (i = vi_abi < 0 ? 0 : vi_abi; i < 2; i++) {
+    memset(&arg, 0, sizeof(arg));
+    arg.chn = ViChn;
+    if (ioctl(fd_vi, VI_CMD(3, VI_GET_FRAME, vi_frame_sizes[i]), &arg) == 0 &&
+        arg.u32PhyAddr_0) {
+      vi_abi = i;
+      pstFrameInfo->u32PoolId = arg.u32PoolId;
+      pstFrameInfo->stVFrame.u32PhyAddr[0] = arg.u32PhyAddr_0;
+      pstFrameInfo->stVFrame.u32PhyAddr[1] = arg.u32PhyAddr_1;
+      pstFrameInfo->stVFrame.u32Width = arg.u32Width;
+      pstFrameInfo->stVFrame.u32Height = arg.u32Height;
+      pstFrameInfo->stVFrame.u64pts = arg.u64Pts;
+      return XM_SUCCESS;
+    }
+    if (vi_abi >= 0)
+      break;
+  }
   return XM_FAILURE;
 }
 
 XM_S32 XM_MPI_VI_ReleaseFrame(VI_CHN ViChn, VIDEO_FRAME_INFO_S *pstFrameInfo) {
-  if (ViChn >= VENC_MAX_CHN_NUM) {
+  if (ViChn >= VENC_MAX_CHN_NUM || vi_abi < 0) {
     FATAL_ARG("not support ViChn = %d, fd_vi = %d", ViChn, fd_vi);
     return XM_FAILURE;
   }
 
-  if (fd_vi != -1 || (fd_vi = open("/dev/vi", 0), fd_vi >= 0)) {
-    vi_frame_t arg = {
-        .chn = ViChn,
-        .u32PoolId = pstFrameInfo->u32PoolId,
-        .u32PhyAddr_0 = pstFrameInfo->stVFrame.u32PhyAddr[0],
-        .u32PhyAddr_1 = pstFrameInfo->stVFrame.u32PhyAddr[1],
-        .u32Width = pstFrameInfo->stVFrame.u32Width,
-        .u32Height = pstFrameInfo->stVFrame.u32Height,
-    };
-    return ioctl(fd_vi, 0x40185605, &arg);
-  }
-
-  FATAL("open error");
-  return XM_FAILURE;
+  vi_frame_t arg = {
+      .chn = ViChn,
+      .u32PoolId = pstFrameInfo->u32PoolId,
+      .u32PhyAddr_0 = pstFrameInfo->stVFrame.u32PhyAddr[0],
+      .u32PhyAddr_1 = pstFrameInfo->stVFrame.u32PhyAddr[1],
+      .u32Width = pstFrameInfo->stVFrame.u32Width,
+      .u32Height = pstFrameInfo->stVFrame.u32Height,
+      .u64Pts = pstFrameInfo->stVFrame.u64pts,
+  };
+  return ioctl(fd_vi, VI_CMD(1, VI_RELEASE_FRAME, vi_frame_sizes[vi_abi]),
+               &arg);
 }
 
 XM_S32 XM_MPI_VI_SetExtChnAttr(VI_CHN ViChn,
