@@ -112,7 +112,7 @@
  * size, then phys. There is no free, only a reset of the whole zone, so
  * blocks from an earlier run are found again by name. */
 #define MMZ_CMD(dir, nr, size)                                                 \
-  (((dir) << 30) | ((size) << 16) | ('M' << 8) | (nr))
+  (((uint32_t)(dir) << 30) | ((size) << 16) | ('M' << 8) | (nr))
 #define MMZ_ALLOC 1
 #define MMZ_GET 3
 
@@ -383,7 +383,7 @@ struct vi_frame {
 #define VI_IOC_ENABLE_CHN _IOW('V', 2, uint32_t)
 #define VI_IOC_DISABLE_CHN _IOW('V', 3, uint32_t)
 #define VI_CMD(dir, nr, size)                                                  \
-  (((dir) << 30) | ((size) << 16) | ('V' << 8) | (nr))
+  (((uint32_t)(dir) << 30) | ((size) << 16) | ('V' << 8) | (nr))
 #define VI_IOC_GET_FRAME(size) VI_CMD(3, 4, size)
 #define VI_IOC_RELEASE_FRAME(size) VI_CMD(1, 5, size)
 
@@ -789,7 +789,8 @@ int main(int argc, char **argv) {
   if (regs[REG_ENC_CTRL / 4] & 1) {
     fprintf(stderr, "encoder busy: stop majestic first\n");
     return 1;
-  }  uint32_t max_width = regs[0x0fc / 4] & 0xfff;
+  }
+  uint32_t max_width = regs[0x0fc / 4] & 0xfff;
   const struct chip *chip = max_width <= 1280 ? &chip_xm510 : &chip_xm530;
   printf("%s profile, max width %u\n", chip->name, max_width);
   if ((uint32_t)width > max_width) {
