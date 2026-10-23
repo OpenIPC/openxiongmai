@@ -72,7 +72,8 @@ struct xmvenc_chn_attr {
   uint32_t min_luma;
 };
 
-/* Creates channel id (0-3; it names the channel's MMZ blocks). */
+/* Creates channel id (0-3; it names the channel's MMZ blocks, so each id
+ * has one channel at a time). */
 struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
                                      const struct xmvenc_chn_attr *attr);
 void xmvenc_chn_destroy(struct xmvenc_chn *chn);
@@ -98,8 +99,14 @@ struct xmvenc_frame {
 
 /* Encodes the NV12 picture at the given physical addresses. Blocks until
  * the frame is done; the input may be reused as soon as this returns.
- * Returns 0, or -1 when the encoder reports an error or the wait fails
- * (a signal interrupts it), with the encoder stopped. */
+ * Returns 0, or -1 when the encoder reports an error or the wait fails,
+ * with the encoder stopped (and the next frame an IDR).
+ *
+ * The wait has no deadline of its own: the encoder's timeout interrupt
+ * ends a stalled job. A signal to the waiting thread, from a handler
+ * installed without SA_RESTART, also ends the wait (pthread_kill, or
+ * alarm in a single-threaded program). If the encoder then doesn't stop,
+ * every later encode fails until it is reopened. */
 int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
                   struct xmvenc_frame *out);
 

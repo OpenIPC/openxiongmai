@@ -156,7 +156,10 @@ struct xmvenc {
   volatile uint32_t *regs;
   const struct chip *chip;
   uint32_t max_width;
-  pthread_mutex_t lock; /* one job at a time */
+  pthread_mutex_t lock;  /* one job at a time */
+  pthread_mutex_t setup; /* MMZ calls and the channel ids */
+  unsigned ids;          /* channels in use, by id */
+  int broken;            /* a job that wouldn't stop: no more jobs */
   void (*log)(const char *msg);
 };
 
@@ -240,10 +243,10 @@ static int mmz_call(struct xmvenc *enc, int nr, const char *name,
   return -1;
 }
 
-int xmvenc_mmz_alloc(struct xmvenc *enc, struct xmvenc_buf *b,
+static int mmz_alloc(struct xmvenc *enc, struct xmvenc_buf *b,
                      const char *name, uint32_t size, const char *vendor) {
   uint32_t got = size, phys;
-  int found = mmz_call(enc, MMZ_ALLOC, name, &got, &phys) == 0;
+  int found = mmz_call(enc, MMZ_ALLOC, name, &got, &phys) == 0 && got >= size;
 
   if (!found) {
     got = 0;
@@ -274,6 +277,14 @@ int xmvenc_mmz_alloc(struct xmvenc *enc, struct xmvenc_buf *b,
   return 0;
 }
 
+int xmvenc_mmz_alloc(struct xmvenc *enc, struct xmvenc_buf *b,
+                     const char *name, uint32_t size, const char *vendor) {
+  pthread_mutex_lock(&enc->setup);
+  int ret = mmz_alloc(enc, b, name, size, vendor);
+  pthread_mutex_unlock(&enc->setup);
+  return ret;
+}
+
 static void mmz_unmap(struct xmvenc_buf *b) {
   if (b->virt)
     munmap(b->virt, (b->size + 0xfff) & ~0xfff);
@@ -292,6 +303,7 @@ struct xmvenc *xmvenc_open(void (*log)(const char *msg)) {
   enc->mmz_abi = -1;
   enc->log = log;
   pthread_mutex_init(&enc->lock, NULL);
+  pthread_mutex_init(&enc->setup, NULL);
   if ((enc->fd_enc = open("/dev/h264", O_RDWR)) < 0) {
     logf_(enc, "/dev/h264: %s", strerror(errno));
     goto fail;
@@ -343,6 +355,7 @@ void xmvenc_close(struct xmvenc *enc) {
   if (enc->fd_mmz >= 0)
     close(enc->fd_mmz);
   pthread_mutex_destroy(&enc->lock);
+  pthread_mutex_destroy(&enc->setup);
   free(enc);
 }
 
@@ -687,7 +700,7 @@ static int chn_alloc(struct xmvenc_chn *chn, struct xmvenc_buf *b,
     snprintf(name, sizeof(name), "xmvenc_%s", what);
   if (vfmt)
     snprintf(vendor, sizeof(vendor), vfmt, chn->id);
-  return xmvenc_mmz_alloc(chn->enc, b, name, size, vfmt ? vendor : NULL);
+  return mmz_alloc(chn->enc, b, name, size, vfmt ? vendor : NULL);
 }
 
 struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
@@ -700,11 +713,14 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
   if (id < 0 || id > 3 || (a->codec != XMVENC_H264 && !jpeg) ||
       a->width < 96 || a->height < 96 || a->width > 4080 ||
       a->height > 4080 || a->width % 8 || a->height % 2 ||
-      (a->stride && (a->stride < a->width || a->stride % 8)) ||
+      (a->stride &&
+       (a->stride < a->width || a->stride > 4096 || a->stride % 8)) ||
       (jpeg && (a->quality < 1 || a->quality > 100)) ||
-      (!jpeg && (a->qp < 0 || a->qp > 51 || a->gop < 1 || a->kbps < 0 ||
-                 (a->kbps > 0 && (!(a->fps > 0) || a->qmin < 0 ||
-                                  a->qmax > 51 || a->qmin > a->qmax))))) {
+      (!jpeg &&
+       (a->qp < 0 || a->qp > 51 || a->gop < 1 || !(a->kbps >= 0) ||
+        !isfinite(a->kbps) ||
+        (a->kbps > 0 && (!(a->fps > 0) || !isfinite(a->fps) || a->qmin < 0 ||
+                         a->qmax > 51 || a->qmin > a->qmax))))) {
     logf_(enc, "channel %d: bad attributes", id);
     return NULL;
   }
@@ -715,6 +731,15 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
   }
   if (!(chn = calloc(1, sizeof(*chn))))
     return NULL;
+  /* The channel's MMZ blocks are named by its id: one channel per id */
+  pthread_mutex_lock(&enc->setup);
+  if (enc->ids & (1u << id)) {
+    pthread_mutex_unlock(&enc->setup);
+    logf_(enc, "channel %d is already in use", id);
+    free(chn);
+    return NULL;
+  }
+  enc->ids |= 1u << id;
   chn->enc = enc;
   chn->id = id;
   chn->attr = *a;
@@ -725,7 +750,10 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
 
   /* Buffers: stream, reconstruction and reference (separate luma and
    * chroma, as the vendor stack allocates them) */
-  uint32_t luma = chn->stride * chn->mbh * 16;
+  /* The reconstruction is written at the macroblock-aligned width */
+  uint32_t luma = (uint32_t)(chn->stride > chn->mbw * 16 ? chn->stride
+                                                          : chn->mbw * 16) *
+                  chn->mbh * 16;
   if (luma < a->min_luma)
     luma = a->min_luma;
   if (chn_alloc(chn, &chn->strm, "strm", enc->chip->strm_size, 0))
@@ -735,6 +763,7 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
     jpeg_scale_q(chn->jq_c, jpeg_q_chroma, a->quality);
     chn->hdr_len = write_jpeg_header(chn->hdr, a->width, a->height,
                                      chn->jq_y, chn->jq_c);
+    pthread_mutex_unlock(&enc->setup);
     return chn;
   }
   if (chn_alloc(chn, &chn->recon_y[0], "rec_y", luma, 1) ||
@@ -757,8 +786,10 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
     chn->rc.qp_i = chn->rc.qp_p = clampi(a->qp, a->qmin, a->qmax);
     chn->rc.gop = a->gop;
   }
+  pthread_mutex_unlock(&enc->setup);
   return chn;
 fail:
+  pthread_mutex_unlock(&enc->setup);
   xmvenc_chn_destroy(chn);
   return NULL;
 }
@@ -774,6 +805,9 @@ void xmvenc_chn_destroy(struct xmvenc_chn *chn) {
     mmz_unmap(&chn->recon_c[i]);
   }
   mmz_unmap(&chn->cabac_tbl);
+  pthread_mutex_lock(&chn->enc->setup);
+  chn->enc->ids &= ~(1u << chn->id);
+  pthread_mutex_unlock(&chn->enc->setup);
   free(chn);
 }
 
@@ -796,7 +830,11 @@ static int wait_frame(struct xmvenc *enc) {
     if (ret == 0 || errno != ENOTTY)
       return ret;
     enc->poll_status = 1;
-    signal(SIGIO, SIG_IGN);
+    /* SIGIO would kill the process by default; leave a handler alone */
+    struct sigaction old;
+    if (sigaction(SIGIO, NULL, &old) == 0 && old.sa_handler == SIG_DFL &&
+        !(old.sa_flags & SA_SIGINFO))
+      signal(SIGIO, SIG_IGN);
     fcntl(enc->fd_enc, F_SETOWN, getpid());
     fcntl(enc->fd_enc, F_SETFL, fcntl(enc->fd_enc, F_GETFL) | O_ASYNC);
   }
@@ -937,6 +975,12 @@ int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
   }
 
   pthread_mutex_lock(&enc->lock);
+  if (enc->broken) {
+    pthread_mutex_unlock(&enc->lock);
+    logf_(enc, "encoder stuck in an earlier job: reopen it");
+    xmvenc_chn_request_idr(chn);
+    return -1;
+  }
   if (jpeg)
     program_jpeg(chn, phys_y, phys_c);
   else
@@ -957,6 +1001,9 @@ int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
     W(REG_IRQ, 0);
     for (int i = 0; i < 100 && (regs[REG_ENC_CTRL / 4] & 1); i++)
       usleep(1000);
+    /* Still running: no other job may touch the registers */
+    if (regs[REG_ENC_CTRL / 4] & 1)
+      enc->broken = 1;
     pthread_mutex_unlock(&enc->lock);
     logf_(enc, "channel %d frame %d: wait %d, status 0x%08x, no frame:%s%s%s%s",
           chn->id, chn->n, ret, irq, irq & IRQ_BUS_ERROR ? " bus error" : "",
