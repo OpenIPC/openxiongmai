@@ -72,7 +72,7 @@ Some of the per-sensor code sits inside `#if (defined SOC_SYSTEM) || (defined SO
 
 ### `tools/xmvenc-test`
 
-`tools/xmvenc-test` is a static test program for the H.264 encoder, a Hantro 8290 laid out like Rockchip VEPU1 with the differences recorded in #13. It encodes IDR frames from a synthetic picture through `/dev/h264` and `/dev/mmz`, with majestic stopped. The XM530 `mmz.ko` takes 44-byte records (`_IOWR('M', 1, char[44])`; get-by-name returns size, then phys). `libmpi`'s 40-byte `XM_MPI_SYS_MmzAlloc`/`MmzGetAddr` records don't match it, and the module returns 0 even for commands it rejects.
+`tools/xmvenc-test` is a static test program for the H.264 encoder, a Hantro 8290 laid out like Rockchip VEPU1 with the differences recorded in #13. It encodes IDR and P frames (CAVLC or CABAC, fixed QP) from a synthetic picture through `/dev/h264` and `/dev/mmz`, with majestic stopped. Reconstruction and reference buffers ping-pong, and the CABAC context table (`cabac_tbl.c`, Apache-2.0, from Rockchip MPP) goes in MMZ at `0x0cc`. The XM530 `mmz.ko` takes 44-byte records (`_IOWR('M', 1, char[44])`; get-by-name returns size, then phys). `libmpi`'s 40-byte `XM_MPI_SYS_MmzAlloc`/`MmzGetAddr` records don't match it, and the module returns 0 even for commands it rejects.
 
 ### Kernel drivers
 
