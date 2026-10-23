@@ -11,6 +11,7 @@
  * Usage: xmvenc-test [-w width] [-h height] [-q qp] [-n frames]
  *                    [-g gop] [-c] [-v chn] [-d dump.nv12] [-j quality]
  *                    [-b kbps] [-f fps] [-Q qmin:qmax] [-o file]
+ *                    [-p [-J quality] [-r frames] [-S ms]] [-B kib]
  *
  * -g sets the IDR interval (1: every frame is IDR), -c selects CABAC.
  * The colour bars move 8 pixels a frame, so P frames carry motion.
@@ -23,6 +24,11 @@
  * -b turns on frame-level rate control for that bitrate at -f frames per
  * second (default 25), with the QP kept within -Q (default 20:45); -q is
  * then the starting QP and the PPS pic_init_qp.
+ * -p encodes the -v channel through a libxmvenc pipe (its own thread and
+ * queue); -J adds JPEG snapshots of VI channel 1 at that quality, about
+ * one a second, to <file>.jpg, -r requests an IDR once that many
+ * packets have been read, and -S makes the reader that much slower per packet, so that
+ * the queue fills. -B sets the stream buffer size in KiB.
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>
@@ -94,11 +100,17 @@ static void vi_release(void) {
   vi.held = 0;
 }
 
+/* -J: VI channel 1, enabled as well */
+static uint32_t vi_sub = 1;
+static int vi_sub_enabled;
+
 static void vi_cleanup(void) {
   if (vi.fd < 0)
     return;
   vi_release();
   ioctl(vi.fd, VI_IOC_DISABLE_CHN, &vi.chn);
+  if (vi_sub_enabled)
+    ioctl(vi.fd, VI_IOC_DISABLE_CHN, &vi_sub);
   close(vi.fd);
   vi.fd = -1;
 }
@@ -179,16 +191,117 @@ static void onalrm(int s) { (void)s; }
 
 static void log_stderr(const char *msg) { fprintf(stderr, "%s\n", msg); }
 
+static int read_delay_ms; /* -S */
+
+static int write_packet(FILE *f, const struct xmvenc_packet *pkt) {
+  return fwrite(pkt->hdr, 1, pkt->hdr_len, f) == pkt->hdr_len &&
+                 fwrite(pkt->data, 1, pkt->len, f) == pkt->len
+             ? 0
+             : -1;
+}
+
+/*
+ * -p: encode through a pipe, the library's own thread, while this thread
+ * writes the packets out. -J adds a second pipe taking JPEG snapshots of
+ * VI channel 1, about one a second, into <file>.jpg. -r requests an IDR
+ * after that many packets.
+ */
+static int run_pipes(struct xmvenc *enc, const struct xmvenc_chn_attr *attr,
+                     int vi_chn, int frames, int snap_q, int sub_w, int sub_h,
+                     int idr_at, const char *out) {
+  struct xmvenc_pipe *pm, *ps = NULL;
+  struct xmvenc_pipe_stats st;
+  struct xmvenc_packet pkt;
+  char jpg[256];
+  FILE *f, *fj = NULL;
+  uint64_t last_pts = 0, bytes = 0;
+  const uint8_t *first_data = NULL;
+  int n, snaps = 0, started = 0, every = attr->fps >= 1 ? (int)attr->fps : 1;
+
+  if (!(pm = xmvenc_pipe_create(enc, 0, vi_chn, attr)))
+    return 1;
+  if (snap_q) {
+    struct xmvenc_chn_attr ja = {.codec = XMVENC_JPEG,
+                                 .width = sub_w,
+                                 .height = sub_h,
+                                 .stride = sub_w,
+                                 .quality = snap_q};
+    snprintf(jpg, sizeof(jpg), "%s.jpg", out);
+    if (!(ps = xmvenc_pipe_create(enc, 1, vi_sub, &ja)) ||
+        !(fj = fopen(jpg, "wb")))
+      return 1;
+  }
+  if (!(f = fopen(out, "wb")) || xmvenc_pipe_start(pm, frames))
+    return 1;
+  for (n = 0; n < frames; n++) {
+    if (xmvenc_pipe_get(pm, &pkt, 2000)) {
+      fprintf(stderr, "packet %d: none within 2 s\n", n);
+      return 1;
+    }
+    if (!first_data)
+      first_data = pkt.data;
+    if (write_packet(f, &pkt)) {
+      perror(out);
+      return 1;
+    }
+    printf("packet %u (%c) qp %d: %u bytes at %+d, pts %llu (+%lld)\n",
+           pkt.seq, pkt.type, pkt.qp, pkt.hdr_len + pkt.len,
+           (int)(pkt.data - first_data),
+           (unsigned long long)pkt.pts,
+           last_pts ? (long long)(pkt.pts - last_pts) : 0LL);
+    last_pts = pkt.pts;
+    bytes += pkt.hdr_len + pkt.len;
+    /* the next frame encoded after this request is an IDR; with a slow
+     * reader (-S) that is a frame further on than packet n + 1 */
+    if (n + 1 == idr_at) {
+      printf("requesting an IDR\n");
+      xmvenc_chn_request_idr(xmvenc_pipe_chn(pm));
+    }
+    xmvenc_pipe_release(pm, &pkt);
+    if (read_delay_ms)
+      usleep(read_delay_ms * 1000);
+    if (ps && n % every == 0 && xmvenc_pipe_start(ps, 1) == 0)
+      started++;
+    /* the snapshots done so far, and at the end all of them */
+    while (ps && snaps < started &&
+           xmvenc_pipe_get(ps, &pkt, n + 1 < frames ? 0 : 2000) == 0) {
+      if (write_packet(fj, &pkt)) {
+        perror(jpg);
+        return 1;
+      }
+      printf("snapshot %d: %u bytes\n", snaps++, pkt.hdr_len + pkt.len);
+      xmvenc_pipe_release(ps, &pkt);
+    }
+  }
+  xmvenc_pipe_stats(pm, &st);
+  xmvenc_pipe_destroy(pm);
+  printf("wrote %s: %d packets, %llu bytes; encoded %u, skipped %u, failed "
+         "%u\n",
+         out, n, (unsigned long long)bytes, st.encoded, st.skipped, st.failed);
+  if (fclose(f))
+    return 1;
+  if (ps) {
+    xmvenc_pipe_stats(ps, &st);
+    xmvenc_pipe_destroy(ps);
+    printf("wrote %s: %d snapshots; encoded %u, skipped %u, failed %u\n", jpg,
+           snaps, st.encoded, st.skipped, st.failed);
+    if (fclose(fj))
+      return 1;
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
   int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
-      vi_chn = -1, jpeg_q = 0, qmin = 20, qmax = 45, opt;
+      vi_chn = -1, jpeg_q = 0, qmin = 20, qmax = 45, pipe = 0, snap_q = 0,
+      idr_at = 0, sub_w = 0, sub_h = 0, strm_kib = 0, opt;
   double kbps = 0, fps = 25;
   const char *out = "xmvenc-test.h264", *dump = NULL;
   struct xmvenc *enc;
   struct xmvenc_chn *chn;
   struct xmvenc_buf in;
 
-  while ((opt = getopt(argc, argv, "w:h:q:n:g:cv:d:j:b:f:Q:o:")) != -1) {
+  while ((opt = getopt(argc, argv, "w:h:q:n:g:cv:d:j:b:f:Q:o:pJ:r:B:S:")) != -1) {
     switch (opt) {
     case 'w': width = atoi(optarg); break;
     case 'h': height = atoi(optarg); break;
@@ -210,17 +323,26 @@ int main(int argc, char **argv) {
         qmin = -1;
       break;
     case 'o': out = optarg; break;
+    case 'p': pipe = 1; break;
+    case 'J': snap_q = atoi(optarg); break;
+    case 'r': idr_at = atoi(optarg); break;
+    case 'B': strm_kib = atoi(optarg); break;
+    case 'S': read_delay_ms = atoi(optarg); break;
     default:
       fprintf(stderr,
               "usage: %s [-w width] [-h height] [-q qp] [-n frames] "
               "[-g gop] [-c] [-v chn] [-d dump.nv12] [-j quality] "
-              "[-b kbps] [-f fps] [-Q qmin:qmax] [-o file]\n",
+              "[-b kbps] [-f fps] [-Q qmin:qmax] [-o file] "
+              "[-p [-J quality] [-r frames] [-S ms]] [-B kib]\n",
               argv[0]);
       return 2;
     }
   }
   if (frames < 1 || jpeg_q < 0 || jpeg_q > 100 || kbps < 0 || fps <= 0 ||
-      qmin < 0 || qmax > 51 || qmin > qmax) {
+      qmin < 0 || qmax > 51 || qmin > qmax || snap_q < 0 || snap_q > 100 ||
+      ((pipe || snap_q || idr_at) && (vi_chn < 0 || jpeg_q)) ||
+      ((snap_q || idr_at || read_delay_ms) && !pipe) || strm_kib < 0 ||
+      read_delay_ms < 0) {
     fprintf(stderr, "bad arguments\n");
     return 2;
   }
@@ -247,6 +369,21 @@ int main(int argc, char **argv) {
     width = vi.frame.width;
     height = vi.frame.height;
     printf("VI channel %d: %dx%d\n", vi_chn, width, height);
+    if (snap_q) {
+      if (ioctl(vi.fd, VI_IOC_ENABLE_CHN, &vi_sub)) {
+        perror("VI enable");
+        return 1;
+      }
+      vi_sub_enabled = 1;
+      vi.chn = vi_sub;
+      if (vi_get())
+        return 1;
+      vi_release();
+      sub_w = vi.frame.width;
+      sub_h = vi.frame.height;
+      vi.chn = vi_chn;
+      printf("VI channel %u: %dx%d\n", vi_sub, sub_w, sub_h);
+    }
   }
 
   if (!(enc = xmvenc_open(log_stderr)))
@@ -278,7 +415,11 @@ int main(int argc, char **argv) {
       .qmax = qmax,
       .quality = jpeg_q,
       .min_luma = luma_max,
+      .strm_size = (uint32_t)strm_kib * 1024,
   };
+  if (pipe)
+    return run_pipes(enc, &attr, vi_chn, frames, snap_q, sub_w, sub_h, idr_at,
+                     out);
   if (vi_chn < 0 &&
       xmvenc_mmz_alloc(enc, &in, "xmvenc_in", luma_max * 3 / 2, NULL))
     return 1;

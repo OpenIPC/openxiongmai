@@ -40,6 +40,7 @@
 
 #include "cabac_tbl.h"
 #include "xmvenc.h"
+#include "xmvenc_priv.h"
 
 /* Encoder registers (byte offsets) */
 #define REG_ID 0x000
@@ -192,10 +193,7 @@ struct xmvenc_chn {
   uint8_t jq_y[64], jq_c[64];
 };
 
-static void logf_(struct xmvenc *enc, const char *fmt, ...)
-    __attribute__((format(printf, 2, 3)));
-
-static void logf_(struct xmvenc *enc, const char *fmt, ...) {
+void xmvenc__log(struct xmvenc *enc, const char *fmt, ...) {
   char msg[256];
   va_list ap;
 
@@ -222,7 +220,7 @@ static int mmz_call(struct xmvenc *enc, int nr, const char *name,
   } arg;
 
   if (enc->fd_mmz < 0 && (enc->fd_mmz = open("/dev/mmz", O_RDWR)) < 0) {
-    logf_(enc, "/dev/mmz: %s", strerror(errno));
+    xmvenc__log(enc, "/dev/mmz: %s", strerror(errno));
     return -1;
   }
   for (int i = enc->mmz_abi < 0 ? 0 : enc->mmz_abi; i < 2; i++) {
@@ -256,10 +254,10 @@ static int mmz_alloc(struct xmvenc *enc, struct xmvenc_buf *b,
     got = 0;
     found = mmz_call(enc, MMZ_GET, vendor, &got, &phys) == 0 && got >= size;
     if (found)
-      logf_(enc, "mmz: using the vendor's idle %s for %s", vendor, name);
+      xmvenc__log(enc, "mmz: using the vendor's idle %s for %s", vendor, name);
   }
   if (!found) {
-    logf_(enc,
+    xmvenc__log(enc,
           "mmz: no %u-byte block for %s (a smaller one from an earlier run? "
           "restart majestic to reset MMZ)",
           size, name);
@@ -270,7 +268,7 @@ static int mmz_alloc(struct xmvenc *enc, struct xmvenc_buf *b,
   b->virt = mmap(0, (size + 0xfff) & ~0xfff, PROT_READ | PROT_WRITE,
                  MAP_SHARED, enc->fd_mem, b->phys);
   if (b->virt == MAP_FAILED) {
-    logf_(enc, "mmap mmz: %s", strerror(errno));
+    xmvenc__log(enc, "mmap mmz: %s", strerror(errno));
     b->virt = NULL;
     return -1;
   }
@@ -305,37 +303,37 @@ struct xmvenc *xmvenc_open(void (*log)(const char *msg)) {
   pthread_mutex_init(&enc->lock, NULL);
   pthread_mutex_init(&enc->setup, NULL);
   if ((enc->fd_enc = open("/dev/h264", O_RDWR)) < 0) {
-    logf_(enc, "/dev/h264: %s", strerror(errno));
+    xmvenc__log(enc, "/dev/h264: %s", strerror(errno));
     goto fail;
   }
   if (ioctl(enc->fd_enc, HX280ENC_IOCGHWOFFSET, &hwbase) ||
       ioctl(enc->fd_enc, HX280ENC_IOCGHWIOSIZE, &hwsize) ||
       hwsize < REG_WINDOW) {
-    logf_(enc, "encoder driver: no register window");
+    xmvenc__log(enc, "encoder driver: no register window");
     goto fail;
   }
   if ((enc->fd_mem = open("/dev/mem", O_RDWR | O_SYNC)) < 0) {
-    logf_(enc, "/dev/mem: %s", strerror(errno));
+    xmvenc__log(enc, "/dev/mem: %s", strerror(errno));
     goto fail;
   }
   regs = mmap(0, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, enc->fd_mem,
               hwbase);
   if (regs == MAP_FAILED) {
-    logf_(enc, "mmap regs: %s", strerror(errno));
+    xmvenc__log(enc, "mmap regs: %s", strerror(errno));
     goto fail;
   }
   enc->regs = regs;
   if ((enc->regs[REG_ID / 4] >> 16) != 0x8290) {
-    logf_(enc, "encoder id 0x%08x: not a Hantro 8290", enc->regs[REG_ID / 4]);
+    xmvenc__log(enc, "encoder id 0x%08x: not a Hantro 8290", enc->regs[REG_ID / 4]);
     goto fail;
   }
   if (enc->regs[REG_ENC_CTRL / 4] & 1) {
-    logf_(enc, "encoder busy: stop majestic first");
+    xmvenc__log(enc, "encoder busy: stop majestic first");
     goto fail;
   }
   enc->max_width = enc->regs[REG_SYNTH / 4] & 0xfff;
   enc->chip = enc->max_width <= 1280 ? &chip_xm510 : &chip_xm530;
-  logf_(enc, "encoder id 0x%08x at 0x%08lx: %s, max width %u",
+  xmvenc__log(enc, "encoder id 0x%08x at 0x%08lx: %s, max width %u",
         enc->regs[REG_ID / 4], hwbase, enc->chip->name, enc->max_width);
   return enc;
 fail:
@@ -715,17 +713,18 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
       a->height > 4080 || a->width % 8 || a->height % 2 ||
       (a->stride &&
        (a->stride < a->width || a->stride > 4096 || a->stride % 8)) ||
+      (a->strm_size && (a->strm_size < 65536 || a->strm_size > 64 << 20)) ||
       (jpeg && (a->quality < 1 || a->quality > 100)) ||
       (!jpeg &&
        (a->qp < 0 || a->qp > 51 || a->gop < 1 || !(a->kbps >= 0) ||
         !isfinite(a->kbps) ||
         (a->kbps > 0 && (!(a->fps > 0) || !isfinite(a->fps) || a->qmin < 0 ||
                          a->qmax > 51 || a->qmin > a->qmax))))) {
-    logf_(enc, "channel %d: bad attributes", id);
+    xmvenc__log(enc, "channel %d: bad attributes", id);
     return NULL;
   }
   if (a->width > (int)enc->max_width) {
-    logf_(enc, "%d is wider than this encoder's %u", a->width,
+    xmvenc__log(enc, "%d is wider than this encoder's %u", a->width,
           enc->max_width);
     return NULL;
   }
@@ -735,7 +734,7 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
   pthread_mutex_lock(&enc->setup);
   if (enc->ids & (1u << id)) {
     pthread_mutex_unlock(&enc->setup);
-    logf_(enc, "channel %d is already in use", id);
+    xmvenc__log(enc, "channel %d is already in use", id);
     free(chn);
     return NULL;
   }
@@ -756,7 +755,8 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
                   chn->mbh * 16;
   if (luma < a->min_luma)
     luma = a->min_luma;
-  if (chn_alloc(chn, &chn->strm, "strm", enc->chip->strm_size, 0))
+  if (chn_alloc(chn, &chn->strm, "strm",
+                a->strm_size ? a->strm_size : enc->chip->strm_size, 0))
     goto fail;
   if (jpeg) {
     jpeg_scale_q(chn->jq_y, jpeg_q_luma, a->quality);
@@ -848,8 +848,8 @@ static int wait_frame(struct xmvenc *enc) {
 
 #define W(off, val) (regs[(off) / 4] = (val))
 
-static void program_jpeg(struct xmvenc_chn *chn, uint32_t in_y,
-                         uint32_t in_c) {
+static void program_jpeg(struct xmvenc_chn *chn, uint32_t in_y, uint32_t in_c,
+                         uint32_t out, uint32_t limit) {
   volatile uint32_t *regs = chn->enc->regs;
   int mbw = chn->mbw, mbh = chn->mbh;
 
@@ -858,7 +858,7 @@ static void program_jpeg(struct xmvenc_chn *chn, uint32_t in_y,
   for (int off = REG_IRQ; off < 0x180; off += 4)
     W(off, 0);
   W(REG_AXI, 0x0000d01f);
-  W(REG_ADDR_OUT, chn->strm.phys);
+  W(REG_ADDR_OUT, out);
   W(REG_ADDR_IN_LUMA, in_y);
   W(REG_ADDR_IN_CB, in_c);
   W(REG_ADDR_IN_CR, in_c);
@@ -866,7 +866,8 @@ static void program_jpeg(struct xmvenc_chn *chn, uint32_t in_y,
   W(REG_IN_IMG_CTRL, (chn->stride << 12) |
                          (((mbw * 16 - chn->attr.width) / 4) << 10) |
                          ((mbh * 16 - chn->attr.height) << 6) | (1 << 2));
-  W(REG_STR_BUF_LIMIT, chn->strm.size);
+  /* in 8-byte units: the encoder stops writing there (buffer full) */
+  W(REG_STR_BUF_LIMIT, (limit >> 3) & ~7u);
   W(REG_RGB2YUV1, 0x962b4c85);
   W(REG_RGB2YUV2, 0x90901d50);
   W(REG_RGB_MASK, 0x0000b694);
@@ -886,7 +887,7 @@ static void program_jpeg(struct xmvenc_chn *chn, uint32_t in_y,
 }
 
 static void program_h264(struct xmvenc_chn *chn, uint32_t in_y, uint32_t in_c,
-                         int idr, int qp) {
+                         uint32_t out, uint32_t limit, int idr, int qp) {
   volatile uint32_t *regs = chn->enc->regs;
   const struct chip *chip = chn->enc->chip;
   /* The reconstruction of this frame is the reference of the next */
@@ -896,7 +897,7 @@ static void program_h264(struct xmvenc_chn *chn, uint32_t in_y, uint32_t in_c,
   W(REG_ENC_CTRL, 0);
   W(REG_IRQ, 0);
   W(REG_AXI, 0x0000d01f); /* burst 16, clock gating, all swaps (vendor) */
-  W(REG_ADDR_OUT, chn->strm.phys);
+  W(REG_ADDR_OUT, out);
   W(REG_ADDR_SIZE_TBL, 0);
   W(REG_ADDR_REF_LUMA, chn->recon_y[!cur].phys);
   W(REG_ADDR_REF_CHROMA, chn->recon_c[!cur].phys);
@@ -921,8 +922,8 @@ static void program_h264(struct xmvenc_chn *chn, uint32_t in_y, uint32_t in_c,
   W(REG_ENC_CTRL4, chip->ctrl4[!idr]);
   W(REG_STR_HDR_REM_MSB, 0);
   W(REG_STR_HDR_REM_LSB, 0);
-  /* as MPP's VEPU1 HAL */
-  W(REG_STR_BUF_LIMIT, (chn->strm.size >> 3) & ~7u);
+  /* in 8-byte units, as MPP's VEPU1 HAL */
+  W(REG_STR_BUF_LIMIT, (limit >> 3) & ~7u);
   W(REG_MAD_CTRL, 0);
   /* the frame's QP as init = min = max, no checkpoints; the hardware
    * writes slice_qp_delta against the pic_init_qp in 0x040 */
@@ -952,8 +953,9 @@ static void program_h264(struct xmvenc_chn *chn, uint32_t in_y, uint32_t in_c,
   W(0x1c0, chip->r1c0);
 }
 
-int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
-                  struct xmvenc_frame *out) {
+int xmvenc__encode_at(struct xmvenc_chn *chn, uint32_t phys_y,
+                      uint32_t phys_c, uint32_t off, uint32_t limit,
+                      struct xmvenc_frame *out) {
   struct xmvenc *enc = chn->enc;
   volatile uint32_t *regs = enc->regs;
   int jpeg = chn->attr.codec == XMVENC_JPEG, idr = 0, qp = 0, ret;
@@ -977,14 +979,14 @@ int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
   pthread_mutex_lock(&enc->lock);
   if (enc->broken) {
     pthread_mutex_unlock(&enc->lock);
-    logf_(enc, "encoder stuck in an earlier job: reopen it");
+    xmvenc__log(enc, "encoder stuck in an earlier job: reopen it");
     xmvenc_chn_request_idr(chn);
     return -1;
   }
   if (jpeg)
-    program_jpeg(chn, phys_y, phys_c);
+    program_jpeg(chn, phys_y, phys_c, chn->strm.phys + off, limit);
   else
-    program_h264(chn, phys_y, phys_c, idr, qp);
+    program_h264(chn, phys_y, phys_c, chn->strm.phys + off, limit, idr, qp);
   /* timeout IRQ, MB size, picture type (1 = IDR/intra), format (3 =
    * H.264, 2 = JPEG), enable */
   clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -1005,7 +1007,7 @@ int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
     if (regs[REG_ENC_CTRL / 4] & 1)
       enc->broken = 1;
     pthread_mutex_unlock(&enc->lock);
-    logf_(enc, "channel %d frame %d: wait %d, status 0x%08x, no frame:%s%s%s%s",
+    xmvenc__log(enc, "channel %d frame %d: wait %d, status 0x%08x, no frame:%s%s%s%s",
           chn->id, chn->n, ret, irq, irq & IRQ_BUS_ERROR ? " bus error" : "",
           irq & IRQ_BUFFER_FULL ? " buffer full" : "",
           irq & IRQ_TIMEOUT ? " timeout" : "", irq & IRQ_RESET ? " reset" : "");
@@ -1023,7 +1025,7 @@ int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
     out->hdr = chn->hdr;
     out->hdr_len = chn->hdr_len;
   }
-  out->data = chn->strm.virt;
+  out->data = chn->strm.virt + off;
   out->us = (t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_nsec - t0.tv_nsec) / 1000;
   if (chn->rc.on)
     rc_update(&chn->rc, idr, out->len * 8);
@@ -1032,3 +1034,10 @@ int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
   chn->n++;
   return 0;
 }
+
+int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
+                  struct xmvenc_frame *out) {
+  return xmvenc__encode_at(chn, phys_y, phys_c, 0, chn->strm.size, out);
+}
+
+uint32_t xmvenc__strm_size(const struct xmvenc_chn *chn) { return chn->strm.size; }

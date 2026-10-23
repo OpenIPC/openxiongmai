@@ -114,7 +114,10 @@ jobs:
           check libraries/libxmvenc/libxmvenc.a \
                 xmvenc_open xmvenc_close xmvenc_chip xmvenc_max_width \
                 xmvenc_mmz_alloc xmvenc_chn_create xmvenc_chn_destroy \
-                xmvenc_chn_request_idr xmvenc_encode
+                xmvenc_chn_request_idr xmvenc_encode \
+                xmvenc_pipe_create xmvenc_pipe_destroy xmvenc_pipe_start \
+                xmvenc_pipe_stop xmvenc_pipe_chn xmvenc_pipe_get \
+                xmvenc_pipe_release xmvenc_pipe_stats
           exit $fail
 
       - name: Assert no vendor libs in NEEDED
