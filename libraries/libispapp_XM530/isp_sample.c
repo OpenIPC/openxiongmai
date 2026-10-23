@@ -598,10 +598,15 @@ static void pllSet_5M(XM_PLL_ATTR *pstPllAttr, XM_U8 u8Venc, XM_U8 u8VstdType,
       pstPllAttr->B_postDiv_h265 = 4;
     } else {
       pstPllAttr->B_preDiv = 4;
-      pstPllAttr->B_Ni = 594;
+      pstPllAttr->B_Ni = 594; // 1782M
       pstPllAttr->B_Vco = 0;
-      pstPllAttr->B_postDiv_mipi = 12;
-      pstPllAttr->B_postDiv_sen0 = 66;
+      // The mipi clock must equal bMpDvpclk in GetProductInfo: SC5332 is
+      // set up for 118.8M, so 12 (148.5M) breaks the line timing (#10).
+      if (gstProductInfo.u32SensorType == SENSOR_CHIP_SC5332)
+        pstPllAttr->B_postDiv_mipi = 15; // 118.8M
+      else
+        pstPllAttr->B_postDiv_mipi = 12; // 148.5M
+      pstPllAttr->B_postDiv_sen0 = 66; // 27M
       pstPllAttr->B_postDiv_sen1 = 66;
       pstPllAttr->B_postDiv_ahd = 66;
       pstPllAttr->B_postDiv_isp_bus = 5;
