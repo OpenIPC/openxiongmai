@@ -336,7 +336,7 @@ int main(int argc, char **argv) {
       opt;
   const char *out = "xmvenc-test.h264";
   volatile uint32_t *regs;
-  struct buf in, strm, recon_y[2], recon_c[2], cabac_tbl;
+  struct buf in, strm, recon_y[2], recon_c[2], cabac_tbl = {0};
   unsigned long hwbase = 0;
   unsigned int hwsize = 0;
   int fd_enc, mbw, mbh, stride, ret;
@@ -410,10 +410,13 @@ int main(int argc, char **argv) {
       mmz_alloc(&recon_y[0], "xmvenc_rec_y", luma_max) ||
       mmz_alloc(&recon_c[0], "xmvenc_rec_c", luma_max / 2) ||
       mmz_alloc(&recon_y[1], "xmvenc_ref_y", luma_max) ||
-      mmz_alloc(&recon_c[1], "xmvenc_ref_c", luma_max / 2) ||
-      mmz_alloc(&cabac_tbl, "xmvenc_cabac", CABAC_TBL_SIZE))
+      mmz_alloc(&recon_c[1], "xmvenc_ref_c", luma_max / 2))
     return 1;
-  write_cabac_table(cabac_tbl.virt, 0);
+  if (cabac) {
+    if (mmz_alloc(&cabac_tbl, "xmvenc_cabac", CABAC_TBL_SIZE))
+      return 1;
+    write_cabac_table(cabac_tbl.virt, 0);
+  }
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = onalrm;
