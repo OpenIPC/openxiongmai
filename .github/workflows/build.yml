@@ -60,7 +60,8 @@ jobs:
           echo "::group::libmpi"
           make -C libraries/libmpi CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
           echo "::endgroup::"
-          echo "::group::tools/xmvenc-test"
+          # tools/xmvenc-test builds libraries/libxmvenc first
+          echo "::group::libxmvenc + tools/xmvenc-test"
           make -C tools/xmvenc-test CROSS_COMPILE="$CROSS_COMPILE"
           ${CROSS_COMPILE}readelf -h tools/xmvenc-test/xmvenc-test | grep -q 'Machine:.*ARM'
           if ${CROSS_COMPILE}readelf -d tools/xmvenc-test/xmvenc-test | grep -q NEEDED; then
@@ -74,7 +75,8 @@ jobs:
               libraries/libsns_X50_XM530/libsns_X50_XM530.so \
               libraries/libsns_X123_XM530/libsns_X123_XM530.so \
               libraries/libispapp_XM530/libispapp_XM530.so \
-              libraries/libmpi/libopenmpi.a; do
+              libraries/libmpi/libopenmpi.a \
+              libraries/libxmvenc/libxmvenc.a; do
             [ -f "$f" ] || { echo "MISSING: $f" >&2; exit 1; }
             echo "ok: $f ($(stat -c%s "$f") bytes)"
           done
@@ -109,6 +111,10 @@ jobs:
           check libraries/libmpi/libopenmpi.a \
                 XM_MPI_SYS_Init XM_MPI_SYS_MmzAlloc XM_MPI_VI_INIT \
                 XM_MPI_VENC_CreateChn XM_MPI_RGN_INIT
+          check libraries/libxmvenc/libxmvenc.a \
+                xmvenc_open xmvenc_close xmvenc_chip xmvenc_max_width \
+                xmvenc_mmz_alloc xmvenc_chn_create xmvenc_chn_destroy \
+                xmvenc_chn_request_idr xmvenc_encode
           exit $fail
 
       - name: Assert no vendor libs in NEEDED

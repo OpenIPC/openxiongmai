@@ -46,12 +46,13 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
     │   ├── mpi/                 SYS / VI / VO / AIO interfaces
     │   └── xm/                  Camera.h (SENSOR_CHIP_* enum), per-SoC register maps
     ├── libmpi/                  libopenmpi.a: MPI reimplementation
+    ├── libxmvenc/               libxmvenc.a: open H.264/JPEG encoding on the Hantro encoder (MIT)
     ├── libispapp_XM530/         libispapp_XM530.so: ISP application layer
     ├── libsns_X123_XM530/       libsns_X123_XM530.so: "X123" sensor family
     └── libsns_X50_XM530/        libsns_X50_XM530.so: "X50" sensor family
 
 tools/
-└── xmvenc-test/                 Encodes H.264 on the Hantro encoder without vendor libraries
+└── xmvenc-test/                 Encodes H.264 or JPEG with libxmvenc (MIT)
 ```
 
 ## Building
@@ -123,13 +124,19 @@ To add a sensor:
 | `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder | Same `/dev/h264` ABI as the vendor `xm530_h264.ko`; ran majestic on an XM550 in place of it |
 | `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
 
-## Tools
+## Open encoder
 
-`tools/xmvenc-test` drives the XM530/XM550 H.264 encoder (a Hantro 8290) directly. It needs no vendor userspace, and its output is checked with ffmpeg. It is milestone M1 of [#13](https://github.com/OpenIPC/openxiongmai/issues/13).
-- **Input:** a synthetic NV12 picture, colour bars that move 8 pixels per frame, so P frames carry motion.
-- **Headers:** software writes the SPS and PPS.
-- **Hardware:** programs the encoder registers, waits for the frame interrupt through `/dev/h264`, and writes the slice.
-- **Output:** a raw `.h264` file.
+`libraries/libxmvenc` drives the H.264/JPEG encoder of the XM530/XM550 and XM510 (a Hantro 8290) directly, with no vendor userspace ([#13](https://github.com/OpenIPC/openxiongmai/issues/13)). It is a static library, `libxmvenc.a`, under the MIT license, so that closed applications can link it too. The API is in `xmvenc.h`:
+- `xmvenc_open` opens the encoder and identifies the chip.
+- `xmvenc_chn_create` sets up a stream: H.264 (CAVLC or CABAC, fixed QP or frame-level rate control, IDR interval) or JPEG (quality).
+- `xmvenc_encode` encodes one NV12 picture, given by physical address, and returns the software-written headers (SPS and PPS before an IDR, the JPEG header) and the hardware-written slice or scan.
+- `xmvenc_chn_request_idr` makes the next frame an IDR.
+
+Encodes on different channels can come from different threads; they take turns on the hardware.
+
+`tools/xmvenc-test` exercises the library, and its output is checked with ffmpeg.
+- **Input:** a synthetic NV12 picture, colour bars that move 8 pixels per frame, so P frames carry motion, or a VI channel.
+- **Output:** a raw `.h264` file, or concatenated JPEGs.
 
 ```bash
 make -C tools/xmvenc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
@@ -140,7 +147,7 @@ make -C tools/xmvenc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
 
 `-v 0` (main) or `-v 1` (sub) takes the pictures from a VI channel instead, encoding straight from the capture buffers. With majestic stopped the capture hardware keeps running, but majestic has turned frame delivery off, so the tool turns it on for the run and back off at the end. `-d file.nv12` saves the first input picture, which you can compare against the decoded stream. `-j <quality>` encodes JPEG pictures (baseline, 4:2:0) instead of H.264; with more than one frame, the output is concatenated JPEGs.
 
-The tool encodes IDR and P frames, at a fixed QP by default. `-b <kbps>` turns on frame-level rate control at `-f <fps>`, keeping the QP within `-Q min:max`. `-g` sets the IDR interval (`-g 1` gives all IDR), and `-c` selects CABAC instead of CAVLC. It needs `/dev/mmz` and an encoder driver: the vendor `xm530_h264.ko`, `drivers/hx280enc`, or, on XM510, the vendor `xm510_h264.ko`. It runs on XM530/XM550 and XM510. On XM510 the vendor driver has no blocking wait, so the tool polls the status register, and the MMZ zone is too small for the tool's own buffers, so it reuses majestic's idle encoder buffers. VI on XM510 needs the vendor `isp` daemon, which majestic starts and stops with itself. `cabac_tbl.c` holds the H.264 CABAC init tables in the layout from Rockchip MPP, under the Apache License 2.0.
+The tool encodes IDR and P frames, at a fixed QP by default, with SPS and PPS before every IDR. `-b <kbps>` turns on frame-level rate control at `-f <fps>`, keeping the QP within `-Q min:max`. `-g` sets the IDR interval (`-g 1` gives all IDR), and `-c` selects CABAC instead of CAVLC. It needs `/dev/mmz` and an encoder driver: the vendor `xm530_h264.ko`, `drivers/hx280enc`, or, on XM510, the vendor `xm510_h264.ko`. It runs on XM530/XM550 and XM510. On XM510 the vendor driver has no blocking wait, so the tool polls the status register, and the MMZ zone is too small for the tool's own buffers, so it reuses majestic's idle encoder buffers. VI on XM510 needs the vendor `isp` daemon, which majestic starts and stops with itself. The library's `cabac_tbl.c` holds the H.264 CABAC init tables in the layout from Rockchip MPP, under the Apache License 2.0.
 
 Two cautions about MMZ:
 - **Blocks persist after the tool exits.** MMZ has no free, so a later run reuses the named blocks.
@@ -161,4 +168,6 @@ All external inputs are pinned: the kernel commits, the firmware commit, and the
 
 ## License
 
-GPL v3. See [LICENSE](LICENSE).
+GPL v3. See [LICENSE](LICENSE). The exceptions:
+- `libraries/libxmvenc` and `tools/xmvenc-test` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
+- `libraries/libxmvenc/cabac_tbl.c` and `cabac_tbl.h` are under the Apache License 2.0, from Rockchip MPP.
