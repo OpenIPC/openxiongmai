@@ -670,12 +670,14 @@ static const struct chip chip_xm510 = {
  * following P frames pay back over about a second. A frame's size
  * roughly halves for every 6 QP steps, so a P frame's QP moves by
  * 6*log2(actual/wanted), damped and capped at 2 per frame. IDR frames
- * aim at IDR_WEIGHT P budgets with a QP of their own.
+ * aim at IDR_WEIGHT P budgets with a QP of their own, when there are P
+ * frames to pay that back; with every frame an IDR (-g 1), they follow
+ * the buffer the way P frames do.
  */
 #define IDR_WEIGHT 4.0
 
 struct rc {
-  int on, qp_i, qp_p, qmin, qmax;
+  int on, qp_i, qp_p, qmin, qmax, gop;
   double budget, buffer, fps;
 };
 
@@ -683,25 +685,38 @@ static int clampi(int v, int lo, int hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+/* The size the next frame should have to pay the buffer back in about a
+ * second, but never below a quarter of the budget */
+static double rc_want(const struct rc *rc) {
+  double want = rc->budget - rc->buffer / rc->fps;
+
+  return want < rc->budget / 4 ? rc->budget / 4 : want;
+}
+
 static void rc_update(struct rc *rc, int idr, uint32_t bits) {
   rc->buffer += bits - rc->budget;
-  if (idr) {
+  if (idr && rc->gop > 1) {
     double d = 6 * log2(bits / (rc->budget * IDR_WEIGHT));
 
     rc->qp_i = clampi(rc->qp_i + clampi((int)lround(d / 2), -3, 3), rc->qmin,
                       rc->qmax);
   } else {
-    double want = rc->budget - rc->buffer / rc->fps;
+    int *qp = idr ? &rc->qp_i : &rc->qp_p;
 
-    if (want < rc->budget / 4)
-      want = rc->budget / 4;
-    rc->qp_p = clampi(
-        rc->qp_p + clampi((int)lround(3 * log2(bits / want)), -2, 2),
-        rc->qmin, rc->qmax);
+    *qp = clampi(*qp + clampi((int)lround(3 * log2(bits / rc_want(rc))), -2, 2),
+                 rc->qmin, rc->qmax);
   }
   /* keep IDR frames at least as good as P frames */
-  if (rc->qp_i > rc->qp_p)
+  if (rc->gop > 1 && rc->qp_i > rc->qp_p)
     rc->qp_i = rc->qp_p;
+}
+
+/* A positive finite number, all of the argument; -1 otherwise */
+static double parse_rate(const char *arg) {
+  char *end;
+  double v = strtod(arg, &end);
+
+  return end != arg && *end == '\0' && isfinite(v) && v > 0 ? v : -1;
 }
 
 static void onalrm(int s) { (void)s; }
@@ -742,7 +757,7 @@ static int wait_frame(int fd, volatile uint32_t *regs) {
 int main(int argc, char **argv) {
   int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
       vi_chn = -1, jpeg_q = 0, opt;
-  struct rc rc = {0, 0, 0, 20, 45, 0, 0, 25};
+  struct rc rc = {0, 0, 0, 20, 45, 0, 0, 0, 25};
   double kbps = 0;
   const char *out = "xmvenc-test.h264", *dump = NULL;
   volatile uint32_t *regs;
@@ -763,8 +778,12 @@ int main(int argc, char **argv) {
     case 'v': vi_chn = atoi(optarg); break;
     case 'd': dump = optarg; break;
     case 'j': jpeg_q = atoi(optarg); break;
-    case 'b': kbps = atof(optarg); break;
-    case 'f': rc.fps = atof(optarg); break;
+    case 'b':
+      kbps = parse_rate(optarg);
+      break;
+    case 'f':
+      rc.fps = parse_rate(optarg);
+      break;
     case 'Q':
       if (sscanf(optarg, "%d:%d", &rc.qmin, &rc.qmax) != 2)
         rc.qmin = -1;
@@ -816,6 +835,7 @@ int main(int argc, char **argv) {
     rc.on = 1;
     rc.budget = kbps * 1000 / rc.fps;
     rc.qp_i = rc.qp_p = clampi(qp, rc.qmin, rc.qmax);
+    rc.gop = gop;
   }
   mbw = (width + 15) / 16;
   mbh = (height + 15) / 16;
