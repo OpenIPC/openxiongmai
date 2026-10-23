@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: Apache-2.0 */
 #ifndef CABAC_TBL_H
 #define CABAC_TBL_H
 
