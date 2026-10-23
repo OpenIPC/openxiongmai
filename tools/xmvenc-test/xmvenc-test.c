@@ -1,10 +1,27 @@
 /*
- * xmvenc-test: encode one H.264 IDR frame on the XM530/XM550 Hantro 8290
+ * xmvenc-test: encode H.264 IDR frames on the XM530/XM550 Hantro 8290
  * (H1) encoder from a synthetic NV12 picture, without vendor libraries.
  *
  * Software writes SPS and PPS; the hardware writes the slice (start code,
- * NAL header, slice header and data). Register layout: Rockchip VEPU1 with
- * the 8290 differences measured in OpenIPC/openxiongmai#13.
+ * NAL header, slice header and data).
+ *
+ * Register layout: Rockchip VEPU1 (MPP hal_h264e_vepu1_reg_tbl.h), with
+ * these 8290 differences, measured on an XM550 (OpenIPC/openxiongmai#13):
+ *  - The window is 0x000-0x1c3 (HX280ENC_IOCGHWIOSIZE = 0x1c4); VEPU1's
+ *    tables at 0x200 and up don't exist.
+ *  - frame_num is in 0x048[15:0]; 0x044[15:0] is a per-frame-type constant
+ *    (0x11d for P, 0xeb for IDR in the vendor stream).
+ *  - 0x060 is written back with the coded size in bits.
+ *  - 0x0fc reads 0x0b6f2a80 in every job; it is probably the synthesis
+ *    configuration and is not decoded.
+ *  - 0x180-0x194 hold constants the vendor writes for every job; their
+ *    meaning is unknown (mainline H1 has a DMV penalty table there).
+ *  - 0x198-0x1ac are written by the hardware: twelve 16-bit counters that
+ *    add up to the macroblock count, a per-frame histogram.
+ *  - 0x1b8-0x1c0 are configuration: 0x1b8 differs between P and IDR
+ *    (plausibly per-bin QP deltas); 0x1bc and 0x1c0 are constant.
+ * Completion: _IO('k', 12) on /dev/h264 sleeps until the frame interrupt;
+ * the status is in 0x004 (bit 2 frame ready, bits 3-6 errors).
  *
  * Needs the encoder driver (/dev/h264, vendor xm530_h264.ko or hx280enc)
  * and /dev/mmz. Stop majestic first: the encoder serves one user at a time.
@@ -188,6 +205,18 @@ static int put_nal(uint8_t *out, uint8_t nal_hdr, const struct bw *w) {
   return n;
 }
 
+/* Lowest level whose MaxFS fits the frame (H.264 table A-1) */
+static int level_for(int mbs) {
+  static const struct {
+    int max_fs, level;
+  } levels[] = {{1620, 30}, {3600, 31}, {5120, 32}, {8192, 40}, {22080, 50}};
+
+  for (unsigned i = 0; i < sizeof(levels) / sizeof(levels[0]); i++)
+    if (mbs <= levels[i].max_fs)
+      return levels[i].level;
+  return 51;
+}
+
 /* SPS/PPS matching what the hardware slice header assumes: frame_num is
  * 16 bits (log2_max_frame_num_minus4 = 12) and pic_order_cnt_type is 2,
  * as in the vendor stream. */
@@ -198,7 +227,7 @@ static int write_sps_pps(uint8_t *out, int width, int height, int qp) {
   memset(&w, 0, sizeof(w));
   put_bits(&w, 77, 8); /* profile_idc: Main */
   put_bits(&w, 0, 8);  /* constraint flags */
-  put_bits(&w, 31, 8); /* level_idc 3.1 */
+  put_bits(&w, level_for(mbw * mbh), 8); /* level_idc */
   put_ue(&w, 0);       /* seq_parameter_set_id */
   put_ue(&w, 12);      /* log2_max_frame_num_minus4 */
   put_ue(&w, 2);       /* pic_order_cnt_type */
@@ -289,7 +318,9 @@ int main(int argc, char **argv) {
       return 2;
     }
   }
-  if (width < 96 || height < 96 || width % 8 || height % 2 || qp < 0 ||
+  /* The intra-area and ROI fields hold 8-bit macroblock counts. */
+  if (width < 96 || height < 96 || width > 4080 || height > 4080 ||
+      width % 8 || height % 2 || qp < 0 ||
       qp > 51 || frames < 1) {
     fprintf(stderr, "bad size or qp\n");
     return 2;
@@ -328,13 +359,17 @@ int main(int argc, char **argv) {
 
   /* Buffers: NV12 input, stream, reconstruction and reference (separate
    * luma and chroma, as the vendor stack allocates them). */
-  uint32_t luma = stride * mbh * 16;
-  if (mmz_alloc(&in, "xmvenc_in", luma * 3 / 2) ||
+  uint32_t luma = stride * mbh * 16, pic_size = luma * 3 / 2;
+  /* MMZ has no free and blocks are found again by name, so size them for
+   * at least the 5 MP sensor: later runs at any size up to that reuse
+   * them. With majestic stopped this is 23 MB of the 26 MB left. */
+  uint32_t luma_max = luma > 2592 * 1952 ? luma : 2592 * 1952;
+  if (mmz_alloc(&in, "xmvenc_in", luma_max * 3 / 2) ||
       mmz_alloc(&strm, "xmvenc_strm", 1 << 20) ||
-      mmz_alloc(&rec_y, "xmvenc_rec_y", luma) ||
-      mmz_alloc(&rec_c, "xmvenc_rec_c", luma / 2) ||
-      mmz_alloc(&ref_y, "xmvenc_ref_y", luma) ||
-      mmz_alloc(&ref_c, "xmvenc_ref_c", luma / 2))
+      mmz_alloc(&rec_y, "xmvenc_rec_y", luma_max) ||
+      mmz_alloc(&rec_c, "xmvenc_rec_c", luma_max / 2) ||
+      mmz_alloc(&ref_y, "xmvenc_ref_y", luma_max) ||
+      mmz_alloc(&ref_c, "xmvenc_ref_c", luma_max / 2))
     return 1;
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
@@ -352,7 +387,7 @@ int main(int argc, char **argv) {
 #define W(off, val) (regs[(off) / 4] = (val))
   /* The MMZ mapping is uncached: build each picture in normal memory and
    * copy it over, byte stores there take seconds per frame. */
-  uint8_t *pic = malloc(in.size);
+  uint8_t *pic = malloc(pic_size);
   if (!pic) {
     perror("malloc");
     return 1;
@@ -361,9 +396,9 @@ int main(int argc, char **argv) {
   for (int n = 0; n < frames; n++) {
     struct timespec t0, t1;
 
-    memset(pic, 0, in.size);
+    memset(pic, 0, pic_size);
     fill_pattern(pic, pic + luma, width, height, stride, n * 8);
-    memcpy(in.virt, pic, in.size);
+    memcpy(in.virt, pic, pic_size);
 
     W(REG_ENC_CTRL, 0);
     W(REG_IRQ, 0);
@@ -409,7 +444,8 @@ int main(int argc, char **argv) {
     W(REG_ROI1, outside);
     W(REG_ROI2, outside);
     W(REG_MVC, 0x80002000);
-    /* 8290 extension block, vendor values */
+    /* 8290-only registers: constants the vendor writes for every job
+     * (meaning unknown, see the top of this file); 0x1b8 is its IDR value */
     W(0x180, 0x00000003);
     W(0x184, 0x606a707a);
     W(0x188, 0x4148545a);
@@ -430,7 +466,8 @@ int main(int argc, char **argv) {
     clock_gettime(CLOCK_MONOTONIC, &t1);
     irq = regs[REG_IRQ / 4];
     bits = regs[REG_STR_BUF_LIMIT / 4];
-    if (!(irq & IRQ_FRAME_READY)) {
+    if (!(irq & IRQ_FRAME_READY) ||
+        (irq & (IRQ_BUS_ERROR | IRQ_RESET | IRQ_BUFFER_FULL | IRQ_TIMEOUT))) {
       fprintf(stderr, "frame %d: wait %d, irq 0x%08x, no frame:%s%s%s%s\n", n,
               ret, irq, irq & IRQ_BUS_ERROR ? " bus error" : "",
               irq & IRQ_BUFFER_FULL ? " buffer full" : "",
