@@ -70,6 +70,10 @@ struct xmvenc_chn_attr {
    * bytes, so that later channels of up to that size can reuse them
    * (0: the picture's own size) */
   uint32_t min_luma;
+  /* Stream buffer size, 64 KiB to 64 MiB (0: 1 MiB, or on XM510 what
+   * fits the vendor's idle stream buffer). A pipe keeps its queued
+   * frames there. */
+  uint32_t strm_size;
 };
 
 /* Creates channel id (0-3; it names the channel's MMZ blocks, so each id
@@ -109,6 +113,61 @@ struct xmvenc_frame {
  * every later encode fails until it is reopened. */
 int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
                   struct xmvenc_frame *out);
+
+/*
+ * Pipes: a channel fed from a VI channel by a thread of its own, with a
+ * queue of encoded frames in the channel's stream buffer. The
+ * application enables the VI channel; the pipe only takes its frames.
+ * A frame is skipped, not encoded, when the queue has no room for it, so
+ * the stream stays decodable when the reader falls behind.
+ */
+struct xmvenc_pipe;
+
+/* The pipe's channel encodes frames from VI channel vi_chn, which must
+ * deliver pictures of attr's size. attr->fps, if set, is the frame rate
+ * to keep: VI frames in between are skipped. */
+struct xmvenc_pipe *xmvenc_pipe_create(struct xmvenc *enc, int id, int vi_chn,
+                                       const struct xmvenc_chn_attr *attr);
+/* Stops the pipe; its packets must have been released */
+void xmvenc_pipe_destroy(struct xmvenc_pipe *pipe);
+
+/* Starts encoding: frames pictures (a JPEG snapshot, say), or until
+ * stopped when frames is 0. Starting a running pipe restarts its count. */
+int xmvenc_pipe_start(struct xmvenc_pipe *pipe, int frames);
+/* Stops encoding after the frame in progress; queued packets stay */
+void xmvenc_pipe_stop(struct xmvenc_pipe *pipe);
+
+/* The pipe's channel, for xmvenc_chn_request_idr */
+struct xmvenc_chn *xmvenc_pipe_chn(struct xmvenc_pipe *pipe);
+
+struct xmvenc_packet {
+  char type; /* 'I', 'P' or 'J' */
+  int qp;
+  /* SPS and PPS before an IDR, the JPEG header before a picture */
+  const uint8_t *hdr;
+  uint32_t hdr_len;
+  /* The slice or scan, valid until the packet is released */
+  const uint8_t *data;
+  uint32_t len;
+  /* Capture time in microseconds on the CLOCK_MONOTONIC scale: VI's
+   * timestamps on XM530, the time the pipe took the frame on XM510 */
+  uint64_t pts;
+  uint32_t seq; /* frame number in the pipe, gaps where frames were lost */
+};
+
+/* Takes the oldest packet not yet taken, waiting up to timeout_ms for one
+ * (-1: no limit). Returns 0, or -1 with errno ETIMEDOUT. */
+int xmvenc_pipe_get(struct xmvenc_pipe *pipe, struct xmvenc_packet *pkt,
+                    int timeout_ms);
+/* Gives back the oldest packet taken: packets are released in the order
+ * they were taken */
+void xmvenc_pipe_release(struct xmvenc_pipe *pipe,
+                         const struct xmvenc_packet *pkt);
+
+struct xmvenc_pipe_stats {
+  uint32_t encoded, skipped, failed;
+};
+void xmvenc_pipe_stats(struct xmvenc_pipe *pipe, struct xmvenc_pipe_stats *st);
 
 #ifdef __cplusplus
 }
