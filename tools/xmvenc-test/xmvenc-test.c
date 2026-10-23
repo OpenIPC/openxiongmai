@@ -28,10 +28,14 @@
  * and /dev/mmz. Stop majestic first: the encoder serves one user at a time.
  *
  * Usage: xmvenc-test [-w width] [-h height] [-q qp] [-n frames]
- *                    [-g gop] [-c] [-o file]
+ *                    [-g gop] [-c] [-v chn] [-d dump.nv12] [-o file]
  *
  * -g sets the IDR interval (1: every frame is IDR), -c selects CABAC.
  * The colour bars move 8 pixels a frame, so P frames carry motion.
+ * -v takes the pictures from a VI channel instead: frames are encoded
+ * straight from the capture buffers, at the size VI delivers. VI keeps
+ * capturing after majestic stops (channel 0 is the main stream).
+ * -d saves the input picture of the first frame, to compare against.
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>
@@ -329,12 +333,76 @@ static void write_cabac_table(uint8_t *dst, int cabac_init_idc) {
     }
 }
 
+/* VI frame record of the XM530 xm530_vi.ko: 32 bytes (XM510's has no
+ * timestamp). Getting a frame waits for one; it stays ours, and VI fills
+ * its other buffers, until it is released. */
+struct vi_frame {
+  uint32_t chn, pool, phys_y, phys_c, width, height;
+  uint64_t pts;
+};
+/* Frame delivery per channel: majestic turns it off when it exits, while
+ * the capture hardware itself keeps running. */
+#define VI_IOC_ENABLE_CHN _IOW('V', 2, uint32_t)
+#define VI_IOC_DISABLE_CHN _IOW('V', 3, uint32_t)
+#define VI_IOC_GET_FRAME _IOWR('V', 4, struct vi_frame)
+#define VI_IOC_RELEASE_FRAME _IOW('V', 5, struct vi_frame)
+
+static int vi_get(int fd, int chn, struct vi_frame *f) {
+  /* The driver waits only briefly for a new frame, and at 15 fps the
+   * next one can be 66 ms away: retry for up to a second. */
+  for (int tries = 0; tries < 100; tries++) {
+    memset(f, 0, sizeof(*f));
+    f->chn = chn;
+    alarm(2);
+    int ret = ioctl(fd, VI_IOC_GET_FRAME, f);
+    alarm(0);
+    if (!ret && f->phys_y && f->phys_c && f->width && f->height)
+      return 0;
+    usleep(10000);
+  }
+  fprintf(stderr, "VI channel %d: no frame\n", chn);
+  return -1;
+}
+
+/* Writes the NV12 picture at the given physical addresses, cropped to
+ * width x height, to a file. */
+static int dump_nv12(const char *path, uint32_t phys_y, uint32_t phys_c,
+                     int width, int height, int stride) {
+  FILE *f = fopen(path, "wb");
+  int ok = f != NULL;
+
+  for (int plane = 0; ok && plane < 2; plane++) {
+    uint32_t phys = plane ? phys_c : phys_y, base = phys & ~0xfffu;
+    size_t len = (size_t)stride * (plane ? height / 2 : height);
+    uint8_t *p = mmap(0, len + (phys - base), PROT_READ, MAP_SHARED, fd_mem,
+                      base);
+    uint8_t *row = malloc(width);
+
+    if (p == MAP_FAILED || !row) {
+      ok = 0;
+      break;
+    }
+    for (int j = 0; ok && j < (plane ? height / 2 : height); j++) {
+      memcpy(row, p + (phys - base) + (size_t)j * stride, width);
+      ok = fwrite(row, 1, width, f) == (size_t)width;
+    }
+    free(row);
+    munmap(p, len + (phys - base));
+  }
+  if (!f || fclose(f) || !ok) {
+    perror(path);
+    return -1;
+  }
+  return 0;
+}
+
 static void onalrm(int s) { (void)s; }
 
 int main(int argc, char **argv) {
   int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
-      opt;
-  const char *out = "xmvenc-test.h264";
+      vi_chn = -1, fd_vi = -1, opt;
+  struct vi_frame vf;
+  const char *out = "xmvenc-test.h264", *dump = NULL;
   volatile uint32_t *regs;
   struct buf in, strm, recon_y[2], recon_c[2], cabac_tbl = {0};
   unsigned long hwbase = 0;
@@ -342,7 +410,7 @@ int main(int argc, char **argv) {
   int fd_enc, mbw, mbh, stride, ret;
   uint32_t irq, bits;
 
-  while ((opt = getopt(argc, argv, "w:h:q:n:g:co:")) != -1) {
+  while ((opt = getopt(argc, argv, "w:h:q:n:g:cv:d:o:")) != -1) {
     switch (opt) {
     case 'w': width = atoi(optarg); break;
     case 'h': height = atoi(optarg); break;
@@ -350,15 +418,41 @@ int main(int argc, char **argv) {
     case 'n': frames = atoi(optarg); break;
     case 'g': gop = atoi(optarg); break;
     case 'c': cabac = 1; break;
+    case 'v': vi_chn = atoi(optarg); break;
+    case 'd': dump = optarg; break;
     case 'o': out = optarg; break;
     default:
       fprintf(stderr,
               "usage: %s [-w width] [-h height] [-q qp] [-n frames] "
-              "[-g gop] [-c] [-o file]\n",
+              "[-g gop] [-c] [-v chn] [-d dump.nv12] [-o file]\n",
               argv[0]);
       return 2;
     }
   }
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = onalrm;
+  sigaction(SIGALRM, &sa, 0);
+
+  if (vi_chn >= 0) {
+    uint32_t chn = vi_chn;
+
+    if ((fd_vi = open("/dev/vi", O_RDWR)) < 0) {
+      perror("/dev/vi");
+      return 1;
+    }
+    if (ioctl(fd_vi, VI_IOC_ENABLE_CHN, &chn)) {
+      perror("VI enable");
+      return 1;
+    }
+    if (vi_get(fd_vi, vi_chn, &vf))
+      return 1;
+    ioctl(fd_vi, VI_IOC_RELEASE_FRAME, &vf);
+    width = vf.width;
+    height = vf.height;
+    printf("VI channel %d: %dx%d\n", vi_chn, width, height);
+  }
+
   /* The intra-area and ROI fields hold 8-bit macroblock counts. */
   if (width < 96 || height < 96 || width > 4080 || height > 4080 ||
       width % 8 || height % 2 || qp < 0 ||
@@ -368,7 +462,8 @@ int main(int argc, char **argv) {
   }
   mbw = (width + 15) / 16;
   mbh = (height + 15) / 16;
-  stride = mbw * 16;
+  /* VI buffers are packed: the stride is the width */
+  stride = vi_chn >= 0 ? width : mbw * 16;
 
   if ((fd_enc = open("/dev/h264", O_RDWR)) < 0) {
     perror("/dev/h264");
@@ -405,7 +500,7 @@ int main(int argc, char **argv) {
    * at least the 5 MP sensor: later runs at any size up to that reuse
    * them. With majestic stopped this is 23 MB of the 26 MB left. */
   uint32_t luma_max = luma > 2592 * 1952 ? luma : 2592 * 1952;
-  if (mmz_alloc(&in, "xmvenc_in", luma_max * 3 / 2) ||
+  if ((vi_chn < 0 && mmz_alloc(&in, "xmvenc_in", luma_max * 3 / 2)) ||
       mmz_alloc(&strm, "xmvenc_strm", 1 << 20) ||
       mmz_alloc(&recon_y[0], "xmvenc_rec_y", luma_max) ||
       mmz_alloc(&recon_c[0], "xmvenc_rec_c", luma_max / 2) ||
@@ -417,11 +512,6 @@ int main(int argc, char **argv) {
       return 1;
     write_cabac_table(cabac_tbl.virt, 0);
   }
-  struct sigaction sa;
-  memset(&sa, 0, sizeof(sa));
-  sa.sa_handler = onalrm;
-  sigaction(SIGALRM, &sa, 0);
-
   uint8_t hdr[128];
   int hdr_len = write_sps_pps(hdr, width, height, qp, cabac);
   FILE *f = fopen(out, "wb");
@@ -433,8 +523,8 @@ int main(int argc, char **argv) {
 #define W(off, val) (regs[(off) / 4] = (val))
   /* The MMZ mapping is uncached: build each picture in normal memory and
    * copy it over, byte stores there take seconds per frame. */
-  uint8_t *pic = malloc(pic_size);
-  if (!pic) {
+  uint8_t *pic = vi_chn < 0 ? malloc(pic_size) : NULL;
+  if (vi_chn < 0 && !pic) {
     perror("malloc");
     return 1;
   }
@@ -452,9 +542,27 @@ int main(int argc, char **argv) {
       frame_num = (frame_num + 1) & 0xffff; /* log2_max_frame_num = 16 */
     }
 
-    memset(pic, 0, pic_size);
-    fill_pattern(pic, pic + luma, width, height, stride, n * 8);
-    memcpy(in.virt, pic, pic_size);
+    uint32_t in_y, in_c;
+
+    if (vi_chn >= 0) {
+      if (vi_get(fd_vi, vi_chn, &vf))
+        return 1;
+      if ((int)vf.width != width || (int)vf.height != height) {
+        fprintf(stderr, "VI size changed to %ux%u\n", vf.width, vf.height);
+        return 1;
+      }
+      in_y = vf.phys_y;
+      in_c = vf.phys_c;
+    } else {
+      memset(pic, 0, pic_size);
+      fill_pattern(pic, pic + luma, width, height, stride, n * 8);
+      memcpy(in.virt, pic, pic_size);
+      in_y = in.phys;
+      in_c = in.phys + luma;
+    }
+
+    if (n == 0 && dump && dump_nv12(dump, in_y, in_c, width, height, stride))
+      return 1;
 
     W(REG_ENC_CTRL, 0);
     W(REG_IRQ, 0);
@@ -465,9 +573,9 @@ int main(int argc, char **argv) {
     W(REG_ADDR_REF_CHROMA, recon_c[!cur].phys);
     W(REG_ADDR_REC_LUMA, recon_y[cur].phys);
     W(REG_ADDR_REC_CHROMA, recon_c[cur].phys);
-    W(REG_ADDR_IN_LUMA, in.phys);
-    W(REG_ADDR_IN_CB, in.phys + luma);
-    W(REG_ADDR_IN_CR, in.phys + luma + 1);
+    W(REG_ADDR_IN_LUMA, in_y);
+    W(REG_ADDR_IN_CB, in_c);
+    W(REG_ADDR_IN_CR, in_c + 1);
     /* row length, bottom overfill, input format 1 = NV12 */
     W(REG_IN_IMG_CTRL, (stride << 12) | ((mbh * 16 - height) << 6) | (1 << 2));
     /* pic_init_qp, idr_pic_id (P frames keep the last IDR's) */
@@ -525,6 +633,8 @@ int main(int argc, char **argv) {
     clock_gettime(CLOCK_MONOTONIC, &t1);
     irq = regs[REG_IRQ / 4];
     bits = regs[REG_STR_BUF_LIMIT / 4];
+    if (vi_chn >= 0)
+      ioctl(fd_vi, VI_IOC_RELEASE_FRAME, &vf);
     if (!(irq & IRQ_FRAME_READY) ||
         (irq & (IRQ_BUS_ERROR | IRQ_RESET | IRQ_BUFFER_FULL | IRQ_TIMEOUT))) {
       fprintf(stderr, "frame %d: wait %d, irq 0x%08x, no frame:%s%s%s%s\n", n,
@@ -552,6 +662,11 @@ int main(int argc, char **argv) {
   if (fclose(f)) {
     perror(out);
     return 1;
+  }
+  if (vi_chn >= 0) {
+    uint32_t chn = vi_chn;
+
+    ioctl(fd_vi, VI_IOC_DISABLE_CHN, &chn); /* as majestic left it */
   }
   printf("wrote %s: %d header + %llu slice bytes, %d frames (%dx%d, qp %d, "
          "gop %d, %s)\n",
