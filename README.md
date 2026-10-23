@@ -138,7 +138,7 @@ make -C tools/xmvenc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
 ./xmvenc-test -w 1920 -h 1080 -q 30 -n 60 -g 30 -c -o /tmp/test.h264
 ```
 
-`-v 0` (main) or `-v 1` (sub) takes the pictures from a VI channel instead, encoding straight from the capture buffers. With majestic stopped the capture hardware keeps running, but majestic has turned frame delivery off, so the tool turns it on for the run and back off at the end. `-d file.nv12` saves the first input picture, which you can compare against the decoded stream.
+`-v 0` (main) or `-v 1` (sub) takes the pictures from a VI channel instead, encoding straight from the capture buffers. With majestic stopped the capture hardware keeps running, but majestic has turned frame delivery off, so the tool turns it on for the run and back off at the end. `-d file.nv12` saves the first input picture, which you can compare against the decoded stream. `-j <quality>` encodes JPEG pictures (baseline, 4:2:0) instead of H.264; with more than one frame, the output is concatenated JPEGs.
 
 The tool encodes IDR and P frames at a fixed QP. `-g` sets the IDR interval (`-g 1` gives all IDR), and `-c` selects CABAC instead of CAVLC. It needs `/dev/mmz` and an encoder driver, either the vendor `xm530_h264.ko` or `drivers/hx280enc`. `cabac_tbl.c` holds the H.264 CABAC init tables in the layout from Rockchip MPP, under the Apache License 2.0.
 
