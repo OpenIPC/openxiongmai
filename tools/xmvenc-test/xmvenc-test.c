@@ -350,6 +350,26 @@ struct vi_frame {
 #define VI_IOC_GET_FRAME _IOWR('V', 4, struct vi_frame)
 #define VI_IOC_RELEASE_FRAME _IOW('V', 5, struct vi_frame)
 
+/* VI state for the exit handler: whatever path main() leaves by, a frame
+ * the tool still holds is given back and the channel is switched off
+ * again, as majestic left it. */
+static struct {
+  int fd, held;
+  uint32_t chn;
+  struct vi_frame frame;
+} vi = {-1, 0, 0, {0}};
+
+static void vi_cleanup(void) {
+  if (vi.fd < 0)
+    return;
+  if (vi.held)
+    ioctl(vi.fd, VI_IOC_RELEASE_FRAME, &vi.frame);
+  vi.held = 0;
+  ioctl(vi.fd, VI_IOC_DISABLE_CHN, &vi.chn);
+  close(vi.fd);
+  vi.fd = -1;
+}
+
 static int vi_get(int fd, int chn, struct vi_frame *f) {
   /* The driver waits only briefly for a new frame, and at 15 fps the
    * next one can be 66 ms away: retry for up to a second. */
@@ -542,8 +562,7 @@ static void onalrm(int s) { (void)s; }
 
 int main(int argc, char **argv) {
   int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
-      vi_chn = -1, fd_vi = -1, jpeg_q = 0, opt;
-  struct vi_frame vf;
+      vi_chn = -1, jpeg_q = 0, opt;
   const char *out = "xmvenc-test.h264", *dump = NULL;
   volatile uint32_t *regs;
   struct buf in, strm, recon_y[2], recon_c[2], cabac_tbl = {0};
@@ -579,21 +598,21 @@ int main(int argc, char **argv) {
   sigaction(SIGALRM, &sa, 0);
 
   if (vi_chn >= 0) {
-    uint32_t chn = vi_chn;
-
-    if ((fd_vi = open("/dev/vi", O_RDWR)) < 0) {
+    vi.chn = vi_chn;
+    if ((vi.fd = open("/dev/vi", O_RDWR)) < 0) {
       perror("/dev/vi");
       return 1;
     }
-    if (ioctl(fd_vi, VI_IOC_ENABLE_CHN, &chn)) {
+    if (ioctl(vi.fd, VI_IOC_ENABLE_CHN, &vi.chn)) {
       perror("VI enable");
       return 1;
     }
-    if (vi_get(fd_vi, vi_chn, &vf))
+    atexit(vi_cleanup);
+    if (vi_get(vi.fd, vi_chn, &vi.frame))
       return 1;
-    ioctl(fd_vi, VI_IOC_RELEASE_FRAME, &vf);
-    width = vf.width;
-    height = vf.height;
+    ioctl(vi.fd, VI_IOC_RELEASE_FRAME, &vi.frame);
+    width = vi.frame.width;
+    height = vi.frame.height;
     printf("VI channel %d: %dx%d\n", vi_chn, width, height);
   }
 
@@ -696,14 +715,16 @@ int main(int argc, char **argv) {
     uint32_t in_y, in_c;
 
     if (vi_chn >= 0) {
-      if (vi_get(fd_vi, vi_chn, &vf))
+      if (vi_get(vi.fd, vi_chn, &vi.frame))
         return 1;
-      if ((int)vf.width != width || (int)vf.height != height) {
-        fprintf(stderr, "VI size changed to %ux%u\n", vf.width, vf.height);
+      vi.held = 1;
+      if ((int)vi.frame.width != width || (int)vi.frame.height != height) {
+        fprintf(stderr, "VI size changed to %ux%u\n", vi.frame.width,
+                vi.frame.height);
         return 1;
       }
-      in_y = vf.phys_y;
-      in_c = vf.phys_c;
+      in_y = vi.frame.phys_y;
+      in_c = vi.frame.phys_c;
     } else {
       memset(pic, 0, pic_size);
       fill_pattern(pic, pic + luma, width, height, stride, n * 8);
@@ -817,8 +838,6 @@ int main(int argc, char **argv) {
     clock_gettime(CLOCK_MONOTONIC, &t1);
     irq = regs[REG_IRQ / 4];
     bits = regs[REG_STR_BUF_LIMIT / 4];
-    if (vi_chn >= 0)
-      ioctl(fd_vi, VI_IOC_RELEASE_FRAME, &vf);
     if (!(irq & IRQ_FRAME_READY) ||
         (irq & (IRQ_BUS_ERROR | IRQ_RESET | IRQ_BUFFER_FULL | IRQ_TIMEOUT))) {
       fprintf(stderr, "frame %d: wait %d, irq 0x%08x, no frame:%s%s%s%s\n", n,
@@ -826,11 +845,20 @@ int main(int argc, char **argv) {
               irq & IRQ_BUFFER_FULL ? " buffer full" : "",
               irq & IRQ_TIMEOUT ? " timeout" : "",
               irq & IRQ_RESET ? " reset" : "");
+      /* Stop the encoder before the exit handler gives a VI frame back:
+       * an interrupted wait doesn't mean it stopped reading. */
       W(REG_ENC_CTRL, 0);
       W(REG_IRQ, 0);
+      for (int i = 0; i < 100 && (regs[REG_ENC_CTRL / 4] & 1); i++)
+        usleep(1000);
       return 1;
     }
     W(REG_IRQ, 0);
+    /* The frame is done: the input picture can go back to VI */
+    if (vi.held) {
+      ioctl(vi.fd, VI_IOC_RELEASE_FRAME, &vi.frame);
+      vi.held = 0;
+    }
 
     uint32_t len = bits / 8;
     if (jpeg_q && fwrite(jhdr, 1, jhdr_len, f) != (size_t)jhdr_len) {
@@ -852,11 +880,7 @@ int main(int argc, char **argv) {
     perror(out);
     return 1;
   }
-  if (vi_chn >= 0) {
-    uint32_t chn = vi_chn;
-
-    ioctl(fd_vi, VI_IOC_DISABLE_CHN, &chn); /* as majestic left it */
-  }
+  vi_cleanup();
   if (jpeg_q)
     printf("wrote %s: %d JPEG pictures, %llu bytes (%dx%d, quality %d)\n", out,
            frames, (unsigned long long)total + frames * jhdr_len, width,
