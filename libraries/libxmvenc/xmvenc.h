@@ -132,7 +132,9 @@ struct xmvenc_pipe *xmvenc_pipe_create(struct xmvenc *enc, int id, int vi_chn,
 void xmvenc_pipe_destroy(struct xmvenc_pipe *pipe);
 
 /* Starts encoding: frames pictures (a JPEG snapshot, say), or until
- * stopped when frames is 0. Starting a running pipe restarts its count. */
+ * stopped when frames is 0. Starting a running pipe restarts its count.
+ * Start, stop and destroy may come from different threads, but destroy
+ * must not race a get or release. */
 int xmvenc_pipe_start(struct xmvenc_pipe *pipe, int frames);
 /* Stops encoding after the frame in progress; queued packets stay */
 void xmvenc_pipe_stop(struct xmvenc_pipe *pipe);
@@ -152,11 +154,15 @@ struct xmvenc_packet {
   /* Capture time in microseconds on the CLOCK_MONOTONIC scale: VI's
    * timestamps on XM530, the time the pipe took the frame on XM510 */
   uint64_t pts;
-  uint32_t seq; /* frame number in the pipe, gaps where frames were lost */
+  /* Frame number in the pipe, with gaps where frames were lost: skipped
+   * for want of queue room, or failed. Frames skipped to keep the frame
+   * rate leave no gap. */
+  uint32_t seq;
 };
 
 /* Takes the oldest packet not yet taken, waiting up to timeout_ms for one
- * (-1: no limit). Returns 0, or -1 with errno ETIMEDOUT. */
+ * (-1: no limit). Returns 0, or -1 with errno ETIMEDOUT, or EAGAIN when
+ * none is queued and the pipe isn't running (any more). */
 int xmvenc_pipe_get(struct xmvenc_pipe *pipe, struct xmvenc_packet *pkt,
                     int timeout_ms);
 /* Gives back the oldest packet taken: packets are released in the order

@@ -26,8 +26,8 @@
  * then the starting QP and the PPS pic_init_qp.
  * -p encodes the -v channel through a libxmvenc pipe (its own thread and
  * queue); -J adds JPEG snapshots of VI channel 1 at that quality, about
- * one a second, to <file>.jpg, -r requests an IDR after that many
- * frames, and -S makes the reader that much slower per packet, so that
+ * one a second, to <file>.jpg, -r requests an IDR once that many
+ * packets have been read, and -S makes the reader that much slower per packet, so that
  * the queue fills. -B sets the stream buffer size in KiB.
  */
 #define _DEFAULT_SOURCE
@@ -216,7 +216,7 @@ static int run_pipes(struct xmvenc *enc, const struct xmvenc_chn_attr *attr,
   FILE *f, *fj = NULL;
   uint64_t last_pts = 0, bytes = 0;
   const uint8_t *first_data = NULL;
-  int n, snaps = 0, every = attr->fps >= 1 ? (int)attr->fps : 1;
+  int n, snaps = 0, started = 0, every = attr->fps >= 1 ? (int)attr->fps : 1;
 
   if (!(pm = xmvenc_pipe_create(enc, 0, vi_chn, attr)))
     return 1;
@@ -251,16 +251,20 @@ static int run_pipes(struct xmvenc *enc, const struct xmvenc_chn_attr *attr,
            last_pts ? (long long)(pkt.pts - last_pts) : 0LL);
     last_pts = pkt.pts;
     bytes += pkt.hdr_len + pkt.len;
-    xmvenc_pipe_release(pm, &pkt);
-    if (read_delay_ms)
-      usleep(read_delay_ms * 1000);
+    /* the next frame encoded after this request is an IDR; with a slow
+     * reader (-S) that is a frame further on than packet n + 1 */
     if (n + 1 == idr_at) {
       printf("requesting an IDR\n");
       xmvenc_chn_request_idr(xmvenc_pipe_chn(pm));
     }
-    if (ps && n % every == 0)
-      xmvenc_pipe_start(ps, 1);
-    while (ps && xmvenc_pipe_get(ps, &pkt, 0) == 0) {
+    xmvenc_pipe_release(pm, &pkt);
+    if (read_delay_ms)
+      usleep(read_delay_ms * 1000);
+    if (ps && n % every == 0 && xmvenc_pipe_start(ps, 1) == 0)
+      started++;
+    /* the snapshots done so far, and at the end all of them */
+    while (ps && snaps < started &&
+           xmvenc_pipe_get(ps, &pkt, n + 1 < frames ? 0 : 2000) == 0) {
       if (write_packet(fj, &pkt)) {
         perror(jpg);
         return 1;

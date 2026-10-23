@@ -11,6 +11,7 @@
 #define _DEFAULT_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <time.h>
@@ -71,10 +72,19 @@ int xmvenc__vi_get(struct xmvenc_vi *vi) {
        * 32-bit value that wraps every 71 minutes: carry its steps on
        * from the clock at the first frame. XM510 has none: take the
        * time of the get. */
+      uint64_t now = now_us();
+
       if (size == 32 && vi->pts) {
         vi->pts += (uint32_t)r.pts - vi->pts32;
+        /* After a pause of more than one wrap (a snapshot pipe, say), the
+         * steps are short by whole wraps: the clock says how many */
+        int64_t lag = (int64_t)(now - vi->pts);
+        if (lag > INT32_MAX || lag < INT32_MIN)
+          vi->pts += (uint64_t)((lag + (lag > 0 ? 1 : -1) * (1LL << 31)) /
+                                (1LL << 32))
+                     << 32;
       } else {
-        vi->pts = now_us();
+        vi->pts = now;
       }
       vi->pts32 = (uint32_t)r.pts;
       return 0;

@@ -34,6 +34,7 @@ struct xmvenc_pipe {
   uint64_t period; /* microseconds between frames, 0: every VI frame */
   uint32_t ring;   /* the stream buffer's size */
 
+  pthread_mutex_t ctl; /* start, stop and destroy, one at a time */
   pthread_mutex_t lock;
   pthread_cond_t cond;
   pthread_t thread;
@@ -127,8 +128,10 @@ static void *feeder(void *arg) {
     pthread_mutex_lock(&p->lock);
     ret = reserve(p, &off, &limit);
     if (ret) {
-      /* The reader is behind: skip the frame, the stream stays valid */
+      /* The reader is behind: skip the frame, the stream stays valid;
+       * the gap in seq shows it */
       p->stats.skipped++;
+      p->seq++;
       pthread_mutex_unlock(&p->lock);
       xmvenc__vi_release(&p->vi);
       pthread_mutex_lock(&p->lock);
@@ -159,12 +162,14 @@ static void *feeder(void *arg) {
       p->head = off + ((fr.len + ALIGN - 1) & ~(ALIGN - 1u));
       p->put++;
       p->stats.encoded++;
-      pthread_cond_broadcast(&p->cond);
       if (p->frames && --p->frames == 0)
         p->run = 0;
     }
     p->seq++;
+    pthread_cond_broadcast(&p->cond);
   }
+  /* wake readers waiting on a pipe that no longer runs */
+  pthread_cond_broadcast(&p->cond);
   pthread_mutex_unlock(&p->lock);
   return NULL;
 }
@@ -191,6 +196,7 @@ struct xmvenc_pipe *xmvenc_pipe_create(struct xmvenc *enc, int id, int vi_chn,
     return NULL;
   }
   p->ring = xmvenc__strm_size(p->chn) & ~(ALIGN - 1u);
+  pthread_mutex_init(&p->ctl, NULL);
   pthread_mutex_init(&p->lock, NULL);
   pthread_condattr_init(&ca);
   pthread_condattr_setclock(&ca, CLOCK_MONOTONIC);
@@ -207,14 +213,19 @@ void xmvenc_pipe_destroy(struct xmvenc_pipe *p) {
   xmvenc_chn_destroy(p->chn);
   pthread_cond_destroy(&p->cond);
   pthread_mutex_destroy(&p->lock);
+  pthread_mutex_destroy(&p->ctl);
   free(p);
 }
 
 int xmvenc_pipe_start(struct xmvenc_pipe *p, int frames) {
+  int ret = 0;
+
+  pthread_mutex_lock(&p->ctl);
   pthread_mutex_lock(&p->lock);
   p->frames = frames > 0 ? frames : 0;
   if (p->run) {
     pthread_mutex_unlock(&p->lock);
+    pthread_mutex_unlock(&p->ctl);
     return 0;
   }
   pthread_mutex_unlock(&p->lock);
@@ -223,24 +234,33 @@ int xmvenc_pipe_start(struct xmvenc_pipe *p, int frames) {
     pthread_join(p->thread, NULL);
     p->joinable = 0;
   }
+  pthread_mutex_lock(&p->lock);
   p->run = 1;
+  pthread_mutex_unlock(&p->lock);
   if (pthread_create(&p->thread, NULL, feeder, p)) {
+    pthread_mutex_lock(&p->lock);
     p->run = 0;
+    pthread_mutex_unlock(&p->lock);
     xmvenc__log(p->enc, "pipe: no thread");
-    return -1;
+    ret = -1;
+  } else {
+    p->joinable = 1;
   }
-  p->joinable = 1;
-  return 0;
+  pthread_mutex_unlock(&p->ctl);
+  return ret;
 }
 
 void xmvenc_pipe_stop(struct xmvenc_pipe *p) {
+  pthread_mutex_lock(&p->ctl);
   pthread_mutex_lock(&p->lock);
   p->run = 0;
+  pthread_cond_broadcast(&p->cond);
   pthread_mutex_unlock(&p->lock);
   if (p->joinable) {
     pthread_join(p->thread, NULL);
     p->joinable = 0;
   }
+  pthread_mutex_unlock(&p->ctl);
 }
 
 struct xmvenc_chn *xmvenc_pipe_chn(struct xmvenc_pipe *p) { return p->chn; }
@@ -260,6 +280,11 @@ int xmvenc_pipe_get(struct xmvenc_pipe *p, struct xmvenc_packet *pkt,
   }
   pthread_mutex_lock(&p->lock);
   while (p->got == p->put) {
+    if (!p->run) {
+      pthread_mutex_unlock(&p->lock);
+      errno = EAGAIN;
+      return -1;
+    }
     if (timeout_ms == 0 ||
         (timeout_ms > 0 &&
          pthread_cond_timedwait(&p->cond, &p->lock, &ts) == ETIMEDOUT &&

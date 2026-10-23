@@ -152,7 +152,7 @@ make -C tools/xmvenc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
 ./xmvenc-test -w 1920 -h 1080 -q 30 -n 60 -g 30 -c -o /tmp/test.h264
 ```
 
-`-p` runs the `-v` channel through a pipe. `-J <quality>` adds JPEG snapshots of VI channel 1 (about one a second, into `<file>.jpg`), `-r <n>` requests an IDR after n frames, and `-S <ms>` slows the reader so the queue fills. `-B <KiB>` sets the stream buffer size.
+`-p` runs the `-v` channel through a pipe. `-J <quality>` adds JPEG snapshots of VI channel 1 (about one a second, into `<file>.jpg`), `-r <n>` requests an IDR once n packets have been read, and `-S <ms>` slows the reader so the queue fills. `-B <KiB>` sets the stream buffer size.
 
 `-v 0` (main) or `-v 1` (sub) takes the pictures from a VI channel instead, encoding straight from the capture buffers. With majestic stopped the capture hardware keeps running, but majestic has turned frame delivery off, so the tool turns it on for the run and back off at the end. `-d file.nv12` saves the first input picture, which you can compare against the decoded stream. `-j <quality>` encodes JPEG pictures (baseline, 4:2:0) instead of H.264; with more than one frame, the output is concatenated JPEGs.
 
