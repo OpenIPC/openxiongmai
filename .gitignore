@@ -8,3 +8,4 @@ modules.order
 .tmp_versions/
 compile_flags.txt
 *.so
+tools/xmvenc-test/xmvenc-test
