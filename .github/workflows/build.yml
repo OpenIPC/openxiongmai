@@ -126,8 +126,6 @@ jobs:
   # OpenIPC firmware ships, the same way firmware does: the pinned
   # openipc/linux branch, the firmware's <soc>.generic.config, and the
   # firmware's generic kernel patches (gcc 8/12/13 compiler headers, etc.).
-  # hx280enc is not built yet: its source references struct JpegProcType,
-  # which is never defined.
   #
   kernel-modules:
     name: Kernel modules (${{ matrix.soc }})
@@ -190,9 +188,14 @@ jobs:
           make -C drivers/xm_i2c KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
+      - name: Build hx280enc
+        run: |
+          make -C drivers/hx280enc KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
       - name: Verify modules
         run: |
-          for ko in drivers/xm_i2c/xm_i2c.ko; do
+          for ko in drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/hx280enc.ko; do
             [ -f "$ko" ] || { echo "MISSING: $ko" >&2; exit 1; }
             ${CROSS_COMPILE}readelf -h "$ko" | grep -q 'Machine:.*ARM' \
               || { echo "$ko is not an ARM object" >&2; exit 1; }

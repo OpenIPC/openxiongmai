@@ -22,6 +22,7 @@
 #include <linux/moduleparam.h>
 #include <linux/pci.h>
 #include <linux/platform_device.h>
+#include <linux/sched.h>
 #include <linux/signal.h>
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -48,10 +49,17 @@ MODULE_DESCRIPTION("Hantro 6280/7280/8270/8290 Encoder driver");
 
 #define VIDEO_ENC_CHRDEV_NAME "h264"
 
-char *encirq = "plat";
+/* Same parameter names as the vendor xm530_h264.ko, which defaults to 77 */
+static unsigned long base_port = 0x20070000;
+#ifdef CONFIG_ARCH_XM530
+static int irq = 77;
+#else
+static int irq = 0x1A; /* XM510 */
+#endif
 
 /* module_param(name, type, perm) */
-module_param(encirq, charp, 0);
+module_param(base_port, ulong, 0);
+module_param(irq, int, 0);
 
 /* and this is our MAJOR; use 0 for dynamic allocation (recommended)*/
 static int hx280enc_major;
@@ -565,11 +573,33 @@ struct H264ProcType {
 	u32 overFlowCnt;
 };
 
-static unsigned int counter_22192;
+/*
+ * The record behind HX280ENC_IOCSJPEGPROC. Only the fields the vendor
+ * module's /proc/umap/h264 JPEG section prints are known; the rest is kept
+ * as padding so the size matches the ioctl.
+ */
+struct JpegProcType {
+	struct stream_s stream;		/* 0x000 */
+	struct preProcess_s preProcess;	/* 0x030: size, rotation */
+	u32 rsvd0[29];			/* 0x06c */
+	u32 codedSize;			/* 0x0e0 */
+	u32 rsvd1[294];			/* 0x0e4 */
+	u32 codingType;			/* 0x57c: 1 = slice */
+	u32 rsvd2[45];			/* 0x580 */
+};
+
 static struct hx280enc_t hx280enc_data;
-static struct H264ProcType H264Proc[3];
+static DECLARE_WAIT_QUEUE_HEAD(hx280enc_wait);
+static int hx280enc_done;
+/*
+ * struct H264ProcType (2568 bytes, ChannelNum at 0xa00) and struct VencInfo
+ * (84 bytes) don't match the records xm530_h264.ko takes (2572 bytes with the
+ * channel at 0xa04, and 76 bytes), so those are stored as raw bytes.
+ */
+#define H264PROC_CHANNEL_OFFSET 0xa04
+static u8 H264Proc[3][_IOC_SIZE(HX280ENC_IOCSH264PROC)];
 static struct JpegProcType JpegProc;
-static struct VencInfo VencProc[4];
+static u8 VencProc[4][_IOC_SIZE(HX280ENC_IOCSVENCINFO)];
 static int hx280enc_major;
 
 static int ReserveIO(void);
@@ -653,6 +683,44 @@ static long hx280enc_ioctl(struct file *filp, unsigned int cmd,
 	case HX280ENC_IOCGHWIOSIZE:
 		__put_user(hx280enc_data.iosize, (unsigned int *)arg);
 		break;
+
+	case HX280ENC_IOCSH264PROC: {
+		void __user *p = (void __user *)arg;
+		u32 ch;
+
+		if (get_user(ch, (u32 __user *)(p + H264PROC_CHANNEL_OFFSET)))
+			return -EFAULT;
+		/* the vendor module ignores out-of-range channels */
+		if (ch < ARRAY_SIZE(H264Proc) &&
+		    copy_from_user(H264Proc[ch], p, sizeof(H264Proc[ch])))
+			return -EFAULT;
+		break;
+	}
+
+	case HX280ENC_IOCSJPEGPROC:
+		if (copy_from_user(&JpegProc, (void __user *)arg,
+				   sizeof(JpegProc)))
+			return -EFAULT;
+		break;
+
+	case HX280ENC_IOCSVENCINFO: {
+		void __user *p = (void __user *)arg;
+		u32 idx;
+
+		if (get_user(idx, (u32 __user *)p))
+			return -EFAULT;
+		if (idx < ARRAY_SIZE(VencProc) &&
+		    copy_from_user(VencProc[idx], p, sizeof(VencProc[idx])))
+			return -EFAULT;
+		break;
+	}
+
+	case HX280ENC_IOCWAITDONE:
+		/* -EPERM on a signal is what xm530_h264.ko returns */
+		if (wait_event_interruptible(hx280enc_wait, hx280enc_done))
+			return -EPERM;
+		hx280enc_done = 0;
+		break;
 	}
 	return 0;
 }
@@ -718,20 +786,25 @@ static int __init hx280_video_enc_init(void)
 		return -ENOMEM;
 #endif
 
+	/* the ABI of HX280ENC_IOCSJPEGPROC */
+	BUILD_BUG_ON(sizeof(struct JpegProcType) !=
+		     _IOC_SIZE(HX280ENC_IOCSJPEGPROC));
+	BUILD_BUG_ON(offsetof(struct JpegProcType, codingType) != 0x57c);
+
 	hx280enc_data.iosize = 0x1C4;
 	hx280enc_data.async_queue = 0;
 	hx280enc_data.hwregs = 0;
-	hx280enc_data.iobaseaddr = 0x20070000;
-	// XM510 specific
-	hx280enc_data.irq = 0x1A;
-
-	if (misc_register(&xm_h264_dev) < 0) {
-		pr_err("Unable to register driver\n");
-		return -1;
-	}
+	hx280enc_data.iobaseaddr = base_port;
+	hx280enc_data.irq = irq;
 
 	if (ReserveIO() < 0) {
 		pr_err("Unable reserve IO\n");
+		return -1;
+	}
+
+	if (misc_register(&xm_h264_dev) < 0) {
+		pr_err("Unable to register driver\n");
+		ReleaseIO();
 		return -1;
 	}
 
@@ -749,6 +822,7 @@ static int __init hx280_video_enc_init(void)
 				       hx280enc_data.irq);
 			}
 
+			misc_deregister(&xm_h264_dev);
 			ReleaseIO();
 			return -1;
 		}
@@ -844,13 +918,19 @@ irqreturn_t hx280enc_isr(int irq, void *dev_id)
 			return IRQ_HANDLED;
 		}
 
-		/* All other interrupts will be signaled to EWL. */
+		/* A reset is not a finished frame: clear it and wake nobody,
+		 * as xm530_h264.ko does. */
+		if (irq_status & 0x10) {
+			writel(0, dev->hwregs + 0x04);
+			return IRQ_HANDLED;
+		}
+
+		/* All other interrupts complete the frame: wake
+		 * HX280ENC_IOCWAITDONE and signal the reference EWL. */
+		hx280enc_done = 1;
+		wake_up_interruptible(&hx280enc_wait);
 		if (dev->async_queue)
 			kill_fasync(&dev->async_queue, SIGIO, POLL_IN);
-		else {
-			printk(KERN_WARNING
-			       "hx280enc: IRQ received w/o anybody waiting for it!\n");
-		}
 
 		PDEBUG("IRQ handled!\n");
 		return IRQ_HANDLED;

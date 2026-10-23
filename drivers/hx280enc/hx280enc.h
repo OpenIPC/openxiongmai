@@ -52,7 +52,23 @@
 
 #define HX280ENC_IOCHARDRESET	_IO(HX280ENC_IOC_MAGIC, 8) /* debugging tool */
 
-#define HX280ENC_IOC_MAXNR 8
+/*
+ * Xiongmai extensions, as implemented by the vendor xm530_h264.ko. The sizes
+ * are part of the ioctl numbers userspace already uses, so they are spelled
+ * out instead of taken from sizeof.
+ */
+/* Statistics shown in /proc/umap/h264, one record per channel (0-2) */
+#define HX280ENC_IOCSH264PROC \
+	_IOC(_IOC_WRITE, HX280ENC_IOC_MAGIC, 9, 2572)
+#define HX280ENC_IOCSJPEGPROC \
+	_IOC(_IOC_WRITE, HX280ENC_IOC_MAGIC, 10, 1588)
+/* Per-channel stream state, indexed by its first word (0-3) */
+#define HX280ENC_IOCSVENCINFO \
+	_IOC(_IOC_WRITE, HX280ENC_IOC_MAGIC, 11, 76)
+/* Sleep until the encoder raises its frame interrupt */
+#define HX280ENC_IOCWAITDONE	_IO(HX280ENC_IOC_MAGIC, 12)
+
+#define HX280ENC_IOC_MAXNR 12
 
 struct hx280enc_dev {
 	struct cdev cdev;
