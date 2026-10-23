@@ -4,6 +4,7 @@
 #include <re_vi.h>
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -47,8 +48,8 @@ struct mmz_rec {
   XM_U32 u32Rsvd; /* XM530 only */
 };
 
-static XM_S32 mmz_call(int nr, const XM_CHAR *name, XM_U32 *pu32Size,
-                       XM_U32 *pu32PhyAddr) {
+static XM_S32 mmz_call_locked(int nr, const XM_CHAR *name, XM_U32 *pu32Size,
+                              XM_U32 *pu32PhyAddr) {
   static const XM_U32 sizes[] = {sizeof(struct mmz_rec),
                                  sizeof(struct mmz_rec) - sizeof(XM_U32)};
   static int abi = -1;
@@ -78,16 +79,29 @@ static XM_S32 mmz_call(int nr, const XM_CHAR *name, XM_U32 *pu32Size,
   return XM_FAILURE;
 }
 
+/* Serialises the record-size probe, its cache and the /dev/mmz open */
+static XM_S32 mmz_call(int nr, const XM_CHAR *name, XM_U32 *pu32Size,
+                       XM_U32 *pu32PhyAddr) {
+  static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+  XM_S32 ret;
+
+  pthread_mutex_lock(&lock);
+  ret = mmz_call_locked(nr, name, pu32Size, pu32PhyAddr);
+  pthread_mutex_unlock(&lock);
+  return ret;
+}
+
 XM_S32 XM_MPI_SYS_MmzAlloc(XM_U32 *pu32PhyAddr, XM_VOID **ppVirtAddr,
                            const XM_CHAR *strMmb, const XM_CHAR *strZone,
                            XM_U32 u32Len) {
   XM_U32 u32Size = u32Len;
 
-  if (mmz_call(MMZ_ALLOC, strMmb, &u32Size, pu32PhyAddr) != XM_SUCCESS) {
+  if (mmz_call(MMZ_ALLOC, strMmb, &u32Size, pu32PhyAddr) != XM_SUCCESS ||
+      u32Size < u32Len) {
     FATAL("mmz alloc failed");
     return XM_FAILURE;
   }
-  *ppVirtAddr = XM_MPI_SYS_Mmap(*pu32PhyAddr, u32Len);
+  *ppVirtAddr = XM_MPI_SYS_Mmap(*pu32PhyAddr, u32Size);
   return XM_SUCCESS;
 }
 
