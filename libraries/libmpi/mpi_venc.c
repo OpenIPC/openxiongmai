@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 199506L
+#include <fcntl.h>
 #include <signal.h>
+#include <sys/ioctl.h>
 
 #include <stdio.h>
 #include <pthread.h>
@@ -19,7 +21,14 @@ static VENC_CHN_PARAM_S chn_params[VENC_MAX_CHN_NUM];
 static int h264_msk_chn;
 static int jpeg_msk_chn;
 
-int venc_ioctl(XM_U32 cmd, void *arg);
+static int fd_venc = -1;
+
+static int venc_ioctl(XM_U32 cmd, void *arg) {
+  if ((fd_venc == -1) && (fd_venc = open("/dev/h264", O_RDWR), fd_venc < 0)) {
+    return XM_FAILURE;
+  }
+  return ioctl(fd_venc, cmd, arg);
+}
 
 int XM_MPI_VENC_Init() {
   sigset_t set;
