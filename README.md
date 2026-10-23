@@ -126,7 +126,7 @@ To add a sensor:
 ## Tools
 
 `tools/xmvenc-test` drives the XM530/XM550 H.264 encoder (a Hantro 8290) directly. It needs no vendor userspace, and its output is checked with ffmpeg. It is milestone M1 of [#13](https://github.com/OpenIPC/openxiongmai/issues/13).
-- **Input:** a synthetic NV12 picture, colour bars that move 8 pixels per frame.
+- **Input:** a synthetic NV12 picture, colour bars that move 8 pixels per frame, so P frames carry motion.
 - **Headers:** software writes the SPS and PPS.
 - **Hardware:** programs the encoder registers, waits for the frame interrupt through `/dev/h264`, and writes the slice.
 - **Output:** a raw `.h264` file.
@@ -135,10 +135,10 @@ To add a sensor:
 make -C tools/xmvenc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
 # on the camera: the encoder serves one user, so stop majestic first
 /etc/init.d/S95majestic stop
-./xmvenc-test -w 1920 -h 1080 -q 30 -n 30 -o /tmp/test.h264
+./xmvenc-test -w 1920 -h 1080 -q 30 -n 60 -g 30 -c -o /tmp/test.h264
 ```
 
-Every frame is an IDR picture with CAVLC and a fixed QP. It needs `/dev/mmz` and an encoder driver, either the vendor `xm530_h264.ko` or `drivers/hx280enc`.
+The tool encodes IDR and P frames at a fixed QP. `-g` sets the IDR interval (`-g 1` gives all IDR), and `-c` selects CABAC instead of CAVLC. It needs `/dev/mmz` and an encoder driver, either the vendor `xm530_h264.ko` or `drivers/hx280enc`. `cabac_tbl.c` holds the H.264 CABAC init tables in the layout from Rockchip MPP, under the Apache License 2.0.
 
 Two cautions about MMZ:
 - **Blocks persist after the tool exits.** MMZ has no free, so a later run reuses the named blocks.

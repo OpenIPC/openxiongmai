@@ -1,6 +1,7 @@
 /*
- * xmvenc-test: encode H.264 IDR frames on the XM530/XM550 Hantro 8290
- * (H1) encoder from a synthetic NV12 picture, without vendor libraries.
+ * xmvenc-test: encode H.264 on the XM530/XM550 Hantro 8290 (H1) encoder
+ * from a synthetic NV12 picture, without vendor libraries. IDR and P
+ * frames, CAVLC or CABAC, fixed QP.
  *
  * Software writes SPS and PPS; the hardware writes the slice (start code,
  * NAL header, slice header and data).
@@ -26,9 +27,11 @@
  * Needs the encoder driver (/dev/h264, vendor xm530_h264.ko or hx280enc)
  * and /dev/mmz. Stop majestic first: the encoder serves one user at a time.
  *
- * Usage: xmvenc-test [-w width] [-h height] [-q qp] [-n frames] [-o file]
+ * Usage: xmvenc-test [-w width] [-h height] [-q qp] [-n frames]
+ *                    [-g gop] [-c] [-o file]
  *
- * Every frame is an IDR picture; the colour bars move 8 pixels a frame.
+ * -g sets the IDR interval (1: every frame is IDR), -c selects CABAC.
+ * The colour bars move 8 pixels a frame, so P frames carry motion.
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>
@@ -42,6 +45,8 @@
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
+
+#include "cabac_tbl.h"
 
 /* Encoder registers (byte offsets) */
 #define REG_ID 0x000
@@ -220,7 +225,8 @@ static int level_for(int mbs) {
 /* SPS/PPS matching what the hardware slice header assumes: frame_num is
  * 16 bits (log2_max_frame_num_minus4 = 12) and pic_order_cnt_type is 2,
  * as in the vendor stream. */
-static int write_sps_pps(uint8_t *out, int width, int height, int qp) {
+static int write_sps_pps(uint8_t *out, int width, int height, int qp,
+                         int cabac) {
   struct bw w;
   int mbw = (width + 15) / 16, mbh = (height + 15) / 16, n;
 
@@ -253,7 +259,7 @@ static int write_sps_pps(uint8_t *out, int width, int height, int qp) {
   memset(&w, 0, sizeof(w));
   put_ue(&w, 0);      /* pic_parameter_set_id */
   put_ue(&w, 0);      /* seq_parameter_set_id */
-  put_bits(&w, 0, 1); /* entropy_coding_mode_flag: CAVLC */
+  put_bits(&w, cabac, 1); /* entropy_coding_mode_flag */
   put_bits(&w, 0, 1); /* bottom_field_pic_order_in_frame_present_flag */
   put_ue(&w, 0);      /* num_slice_groups_minus1 */
   put_ue(&w, 0);      /* num_ref_idx_l0_default_active_minus1 */
@@ -293,27 +299,62 @@ static void fill_pattern(uint8_t *y, uint8_t *uv, int w, int h, int stride,
     }
 }
 
+/* CABAC context tables for every QP, intra then inter (cabac_init_idc),
+ * 464 bytes each, in the word order the encoder reads. Matches the table
+ * the vendor stack builds, apart from the 4 padding bytes per block. */
+#define CABAC_TBL_SIZE (52 * 2 * 464)
+
+static void write_cabac_table(uint8_t *dst, int cabac_init_idc) {
+  static uint8_t t[CABAC_TBL_SIZE];
+
+  memset(t, 0, sizeof(t));
+  for (int qp = 0; qp < 52; qp++)
+    for (int j = 0; j < 2; j++) {
+      const signed char(*ctx)[2] =
+          j ? h264_context_init[cabac_init_idc] : h264_context_init_intra;
+
+      for (int i = 0; i < 460; i++) {
+        int pre = ((ctx[i][0] * qp) >> 4) + ctx[i][1];
+
+        pre = pre < 1 ? 1 : pre > 126 ? 126 : pre;
+        t[qp * 928 + j * 464 + i] =
+            pre <= 63 ? (63 - pre) << 1 : ((pre - 64) << 1) | 1;
+      }
+    }
+  /* each pair of 32-bit words: swapped, and each byte-reversed */
+  for (int k = 0; k < CABAC_TBL_SIZE; k += 8)
+    for (int b = 0; b < 4; b++) {
+      dst[k + b] = t[k + 7 - b];
+      dst[k + 4 + b] = t[k + 3 - b];
+    }
+}
+
 static void onalrm(int s) { (void)s; }
 
 int main(int argc, char **argv) {
-  int width = 704, height = 576, qp = 26, frames = 1, opt;
+  int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
+      opt;
   const char *out = "xmvenc-test.h264";
   volatile uint32_t *regs;
-  struct buf in, strm, rec_y, rec_c, ref_y, ref_c;
+  struct buf in, strm, recon_y[2], recon_c[2], cabac_tbl;
   unsigned long hwbase = 0;
   unsigned int hwsize = 0;
   int fd_enc, mbw, mbh, stride, ret;
   uint32_t irq, bits;
 
-  while ((opt = getopt(argc, argv, "w:h:q:n:o:")) != -1) {
+  while ((opt = getopt(argc, argv, "w:h:q:n:g:co:")) != -1) {
     switch (opt) {
     case 'w': width = atoi(optarg); break;
     case 'h': height = atoi(optarg); break;
     case 'q': qp = atoi(optarg); break;
     case 'n': frames = atoi(optarg); break;
+    case 'g': gop = atoi(optarg); break;
+    case 'c': cabac = 1; break;
     case 'o': out = optarg; break;
     default:
-      fprintf(stderr, "usage: %s [-w width] [-h height] [-q qp] [-n frames] [-o file]\n",
+      fprintf(stderr,
+              "usage: %s [-w width] [-h height] [-q qp] [-n frames] "
+              "[-g gop] [-c] [-o file]\n",
               argv[0]);
       return 2;
     }
@@ -321,7 +362,7 @@ int main(int argc, char **argv) {
   /* The intra-area and ROI fields hold 8-bit macroblock counts. */
   if (width < 96 || height < 96 || width > 4080 || height > 4080 ||
       width % 8 || height % 2 || qp < 0 ||
-      qp > 51 || frames < 1) {
+      qp > 51 || frames < 1 || gop < 1) {
     fprintf(stderr, "bad size or qp\n");
     return 2;
   }
@@ -366,18 +407,20 @@ int main(int argc, char **argv) {
   uint32_t luma_max = luma > 2592 * 1952 ? luma : 2592 * 1952;
   if (mmz_alloc(&in, "xmvenc_in", luma_max * 3 / 2) ||
       mmz_alloc(&strm, "xmvenc_strm", 1 << 20) ||
-      mmz_alloc(&rec_y, "xmvenc_rec_y", luma_max) ||
-      mmz_alloc(&rec_c, "xmvenc_rec_c", luma_max / 2) ||
-      mmz_alloc(&ref_y, "xmvenc_ref_y", luma_max) ||
-      mmz_alloc(&ref_c, "xmvenc_ref_c", luma_max / 2))
+      mmz_alloc(&recon_y[0], "xmvenc_rec_y", luma_max) ||
+      mmz_alloc(&recon_c[0], "xmvenc_rec_c", luma_max / 2) ||
+      mmz_alloc(&recon_y[1], "xmvenc_ref_y", luma_max) ||
+      mmz_alloc(&recon_c[1], "xmvenc_ref_c", luma_max / 2) ||
+      mmz_alloc(&cabac_tbl, "xmvenc_cabac", CABAC_TBL_SIZE))
     return 1;
+  write_cabac_table(cabac_tbl.virt, 0);
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = onalrm;
   sigaction(SIGALRM, &sa, 0);
 
   uint8_t hdr[128];
-  int hdr_len = write_sps_pps(hdr, width, height, qp);
+  int hdr_len = write_sps_pps(hdr, width, height, qp, cabac);
   FILE *f = fopen(out, "wb");
   if (!f || fwrite(hdr, 1, hdr_len, f) != (size_t)hdr_len) {
     perror(out);
@@ -393,8 +436,18 @@ int main(int argc, char **argv) {
     return 1;
   }
   uint64_t total = 0;
+  int frame_num = 0, idr_pic_id = -1;
   for (int n = 0; n < frames; n++) {
     struct timespec t0, t1;
+    /* The reconstruction of this frame is the reference of the next */
+    int cur = n & 1, idr = n % gop == 0;
+
+    if (idr) {
+      frame_num = 0;
+      idr_pic_id = (idr_pic_id + 1) % 16; /* consecutive IDRs differ */
+    } else {
+      frame_num = (frame_num + 1) & 0xffff; /* log2_max_frame_num = 16 */
+    }
 
     memset(pic, 0, pic_size);
     fill_pattern(pic, pic + luma, width, height, stride, n * 8);
@@ -405,23 +458,25 @@ int main(int argc, char **argv) {
     W(REG_AXI, 0x0000d01f); /* burst 16, clock gating, all swaps (vendor) */
     W(REG_ADDR_OUT, strm.phys);
     W(REG_ADDR_SIZE_TBL, 0);
-    W(REG_ADDR_REF_LUMA, ref_y.phys);
-    W(REG_ADDR_REF_CHROMA, ref_c.phys);
-    W(REG_ADDR_REC_LUMA, rec_y.phys);
-    W(REG_ADDR_REC_CHROMA, rec_c.phys);
+    W(REG_ADDR_REF_LUMA, recon_y[!cur].phys);
+    W(REG_ADDR_REF_CHROMA, recon_c[!cur].phys);
+    W(REG_ADDR_REC_LUMA, recon_y[cur].phys);
+    W(REG_ADDR_REC_CHROMA, recon_c[cur].phys);
     W(REG_ADDR_IN_LUMA, in.phys);
     W(REG_ADDR_IN_CB, in.phys + luma);
     W(REG_ADDR_IN_CR, in.phys + luma + 1);
     /* row length, bottom overfill, input format 1 = NV12 */
     W(REG_IN_IMG_CTRL, (stride << 12) | ((mbh * 16 - height) << 6) | (1 << 2));
-    /* pic_init_qp; consecutive IDRs need different idr_pic_id */
-    W(REG_ENC_CTRL0, ((uint32_t)qp << 26) | ((n % 16) << 1));
-    /* 8290: per-frame-type constant, IDR value from the vendor */
-    W(REG_ENC_CTRL1, 0x006a00eb);
-    /* deblocking mode as vendor, quarter-pel MV off, CAVLC, frame_num 0 */
-    W(REG_ENC_CTRL2, 0xc0400000);
-    W(REG_ENC_CTRL3, 0x00009c28);
-    W(REG_ENC_CTRL4, 0x2d000087);
+    /* pic_init_qp, idr_pic_id (P frames keep the last IDR's) */
+    W(REG_ENC_CTRL0, ((uint32_t)qp << 26) | (idr_pic_id << 1));
+    /* 8290: per-frame-type constant, vendor values */
+    W(REG_ENC_CTRL1, idr ? 0x006a00eb : 0x0081011d);
+    /* deblocking mode as vendor, quarter-pel MV off, CABAC with
+     * cabac_init_idc 0 or CAVLC, and (8290) frame_num */
+    W(REG_ENC_CTRL2, 0xc0400000 | (cabac << 18) | frame_num);
+    /* MV penalties and skip/inter favour, vendor values per frame type */
+    W(REG_ENC_CTRL3, idr ? 0x00009c28 : 0x0000c433);
+    W(REG_ENC_CTRL4, idr ? 0x2d000087 : 0x33000087);
     W(REG_STR_HDR_REM_MSB, 0);
     W(REG_STR_HDR_REM_LSB, 0);
     W(REG_STR_BUF_LIMIT, (strm.size >> 3) & ~7u); /* as MPP's VEPU1 HAL */
@@ -432,7 +487,7 @@ int main(int argc, char **argv) {
       W(off, 0);
     W(REG_RLC_CTRL, 0); /* stream starts at bit 0 */
     W(REG_MB_CTRL, 0);
-    W(REG_ADDR_CABAC_TBL, 0);
+    W(REG_ADDR_CABAC_TBL, cabac ? cabac_tbl.phys : 0);
     W(REG_ADDR_MV_OUT, 0);
     W(REG_RGB2YUV1, 0x962b4c85);
     W(REG_RGB2YUV2, 0x90901d50);
@@ -445,20 +500,21 @@ int main(int argc, char **argv) {
     W(REG_ROI2, outside);
     W(REG_MVC, 0x80002000);
     /* 8290-only registers: constants the vendor writes for every job
-     * (meaning unknown, see the top of this file); 0x1b8 is its IDR value */
+     * (meaning unknown, see the top of this file); 0x1b8 differs per
+     * frame type */
     W(0x180, 0x00000003);
     W(0x184, 0x606a707a);
     W(0x188, 0x4148545a);
     W(0x18c, 0x10112131);
     W(0x190, 0x11111100);
     W(0x194, 0x11111100);
-    W(0x1b8, 0x000abcdd);
+    W(0x1b8, idr ? 0x000abcdd : 0x999acdee);
     W(0x1bc, 0x64209bdf);
     W(0x1c0, 0x1b6db6db);
 
-    /* timeout IRQ, MB size, IDR, H.264, enable */
+    /* timeout IRQ, MB size, picture type (1 = IDR), H.264, enable */
     clock_gettime(CLOCK_MONOTONIC, &t0);
-    W(REG_ENC_CTRL, (1u << 31) | (mbw << 19) | (mbh << 10) | (1 << 3) |
+    W(REG_ENC_CTRL, (1u << 31) | (mbw << 19) | (mbh << 10) | (idr << 3) |
                         (3 << 1) | 1);
     alarm(2);
     ret = ioctl(fd_enc, HX280ENC_IOCWAITDONE);
@@ -485,7 +541,8 @@ int main(int argc, char **argv) {
       return 1;
     }
     total += len;
-    printf("frame %d: irq 0x%08x, %u bytes, %ld us\n", n, irq, len,
+    printf("frame %d (%c): irq 0x%08x, %u bytes, %ld us\n", n, idr ? 'I' : 'P',
+           irq, len,
            (long)((t1.tv_sec - t0.tv_sec) * 1000000 +
                   (t1.tv_nsec - t0.tv_nsec) / 1000));
   }
@@ -493,7 +550,9 @@ int main(int argc, char **argv) {
     perror(out);
     return 1;
   }
-  printf("wrote %s: %d header + %llu slice bytes, %d frames (%dx%d, qp %d)\n",
-         out, hdr_len, (unsigned long long)total, frames, width, height, qp);
+  printf("wrote %s: %d header + %llu slice bytes, %d frames (%dx%d, qp %d, "
+         "gop %d, %s)\n",
+         out, hdr_len, (unsigned long long)total, frames, width, height, qp,
+         gop, cabac ? "CABAC" : "CAVLC");
   return 0;
 }
