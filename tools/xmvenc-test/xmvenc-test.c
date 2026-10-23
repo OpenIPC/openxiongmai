@@ -105,13 +105,16 @@
 #define HX280ENC_IOCGHWIOSIZE _IOR('k', 4, unsigned int *)
 #define HX280ENC_IOCWAITDONE _IO('k', 12)
 
-/* /dev/mmz allocation. The XM530 mmz.ko takes a 44-byte record:
- * name[32], size, phys and a trailing word. Unknown commands print
- * "ioctl cmd error" but still return 0, so the address is checked. */
-#define MMZ_IOC_ALLOC _IOWR('M', 1, char[44])
-/* Look up an existing block by name: there is no free, only a reset of
- * the whole zone, so blocks from an earlier run are reused. */
-#define MMZ_IOC_GET _IOR('M', 3, char[44])
+/* /dev/mmz allocation. mmz.ko takes a record of name[32], size, phys and,
+ * on XM530 only, a trailing word: 44 bytes there, 40 on XM510. Unknown
+ * commands print "ioctl cmd error" but still return 0, so the address is
+ * checked; the record size that works is remembered. Get-by-name fills
+ * size, then phys. There is no free, only a reset of the whole zone, so
+ * blocks from an earlier run are found again by name. */
+#define MMZ_CMD(dir, nr, size)                                                 \
+  (((dir) << 30) | ((size) << 16) | ('M' << 8) | (nr))
+#define MMZ_ALLOC 1
+#define MMZ_GET 3
 
 struct buf {
   uint32_t phys;
@@ -121,8 +124,10 @@ struct buf {
 
 static int fd_mem = -1;
 
-static int mmz_alloc(struct buf *b, const char *name, uint32_t size) {
-  static int fd_mmz = -1;
+static int mmz_call(int nr, const char *name, uint32_t *size,
+                    uint32_t *phys) {
+  static const uint32_t sizes[] = {44, 40};
+  static int fd_mmz = -1, abi = -1;
   struct {
     char name[32];
     uint32_t size;
@@ -134,21 +139,51 @@ static int mmz_alloc(struct buf *b, const char *name, uint32_t size) {
     perror("/dev/mmz");
     return -1;
   }
-  memset(&arg, 0, sizeof(arg));
-  strncpy(arg.name, name, sizeof(arg.name) - 1);
-  arg.size = size;
-  if (ioctl(fd_mmz, MMZ_IOC_ALLOC, &arg) || arg.phys < 0x80000000u) {
-    arg.phys = 0;
-    if (ioctl(fd_mmz, MMZ_IOC_GET, &arg) || arg.phys < 0x80000000u ||
-        arg.size < size) {
-      fprintf(stderr,
-              "mmz: no %u-byte block for %s (a smaller one from an earlier "
-              "run? reset MMZ with majestic stopped)\n",
-              size, arg.name);
-      return -1;
+  for (int i = abi < 0 ? 0 : abi; i < 2; i++) {
+    memset(&arg, 0, sizeof(arg));
+    strncpy(arg.name, name, sizeof(arg.name) - 1);
+    arg.size = *size;
+    if (ioctl(fd_mmz, MMZ_CMD(nr == MMZ_ALLOC ? 3 : 2, nr, sizes[i]), &arg) ==
+            0 &&
+        arg.phys >= 0x80000000u) {
+      abi = i;
+      *size = arg.size;
+      *phys = arg.phys;
+      return 0;
     }
+    if (abi >= 0)
+      break;
   }
-  b->phys = arg.phys;
+  return -1;
+}
+
+/* Allocates a named block, or finds it again by name. Failing that, and
+ * if given, takes the vendor stack's block of that name: majestic's
+ * encoder buffers are idle while it is stopped, and on XM510 the zone has
+ * no room for our own. */
+static int mmz_alloc(struct buf *b, const char *name, uint32_t size,
+                     const char *vendor) {
+  uint32_t got = size, phys;
+  int found = mmz_call(MMZ_ALLOC, name, &got, &phys) == 0;
+
+  if (!found) {
+    got = 0;
+    found = mmz_call(MMZ_GET, name, &got, &phys) == 0 && got >= size;
+  }
+  if (!found && vendor) {
+    got = 0;
+    found = mmz_call(MMZ_GET, vendor, &got, &phys) == 0 && got >= size;
+    if (found)
+      printf("mmz: using the vendor's idle %s for %s\n", vendor, name);
+  }
+  if (!found) {
+    fprintf(stderr,
+            "mmz: no %u-byte block for %s (a smaller one from an earlier run? "
+            "restart majestic to reset MMZ)\n",
+            size, name);
+    return -1;
+  }
+  b->phys = phys;
   b->size = size;
   b->virt = mmap(0, (size + 0xfff) & ~0xfff, PROT_READ | PROT_WRITE,
                  MAP_SHARED, fd_mem, b->phys);
@@ -336,9 +371,9 @@ static void write_cabac_table(uint8_t *dst, int cabac_init_idc) {
     }
 }
 
-/* VI frame record of the XM530 xm530_vi.ko: 32 bytes (XM510's has no
- * timestamp). Getting a frame waits for one; it stays ours, and VI fills
- * its other buffers, until it is released. */
+/* VI frame record: 32 bytes on XM530 (xm530_vi.ko), 24 on XM510, which
+ * has no timestamp. Getting a frame waits briefly for one; it stays ours,
+ * and VI fills its other buffers, until it is released. */
 struct vi_frame {
   uint32_t chn, pool, phys_y, phys_c, width, height;
   uint64_t pts;
@@ -347,43 +382,64 @@ struct vi_frame {
  * the capture hardware itself keeps running. */
 #define VI_IOC_ENABLE_CHN _IOW('V', 2, uint32_t)
 #define VI_IOC_DISABLE_CHN _IOW('V', 3, uint32_t)
-#define VI_IOC_GET_FRAME _IOWR('V', 4, struct vi_frame)
-#define VI_IOC_RELEASE_FRAME _IOW('V', 5, struct vi_frame)
+#define VI_CMD(dir, nr, size)                                                  \
+  (((dir) << 30) | ((size) << 16) | ('V' << 8) | (nr))
+#define VI_IOC_GET_FRAME(size) VI_CMD(3, 4, size)
+#define VI_IOC_RELEASE_FRAME(size) VI_CMD(1, 5, size)
 
 /* VI state for the exit handler: whatever path main() leaves by, a frame
  * the tool still holds is given back and the channel is switched off
  * again, as majestic left it. */
 static struct {
   int fd, held;
-  uint32_t chn;
+  uint32_t chn, rec_size; /* rec_size: 0 until a get has worked */
   struct vi_frame frame;
-} vi = {-1, 0, 0, {0}};
+} vi = {-1, 0, 0, 0, {0}};
+
+static void vi_release(void) {
+  if (vi.held)
+    ioctl(vi.fd, VI_IOC_RELEASE_FRAME(vi.rec_size), &vi.frame);
+  vi.held = 0;
+}
 
 static void vi_cleanup(void) {
   if (vi.fd < 0)
     return;
-  if (vi.held)
-    ioctl(vi.fd, VI_IOC_RELEASE_FRAME, &vi.frame);
-  vi.held = 0;
+  vi_release();
   ioctl(vi.fd, VI_IOC_DISABLE_CHN, &vi.chn);
   close(vi.fd);
   vi.fd = -1;
 }
 
-static int vi_get(int fd, int chn, struct vi_frame *f) {
-  /* The driver waits only briefly for a new frame, and at 15 fps the
-   * next one can be 66 ms away: retry for up to a second. */
+/* Takes the next frame of the channel into vi.frame. The record size is
+ * settled by the first get that returns a frame: the other size is
+ * rejected, but so is a get when no frame is ready yet. */
+static int vi_get(void) {
+  static const uint32_t sizes[] = {32, 24};
+
+  /* At 15 fps the next frame can be 66 ms away, and the driver waits only
+   * briefly: retry for up to a second. */
   for (int tries = 0; tries < 100; tries++) {
-    memset(f, 0, sizeof(*f));
-    f->chn = chn;
-    alarm(2);
-    int ret = ioctl(fd, VI_IOC_GET_FRAME, f);
-    alarm(0);
-    if (!ret && f->phys_y && f->phys_c && f->width && f->height)
-      return 0;
+    for (int i = 0; i < 2; i++) {
+      uint32_t size = vi.rec_size ? vi.rec_size : sizes[i];
+
+      memset(&vi.frame, 0, sizeof(vi.frame));
+      vi.frame.chn = vi.chn;
+      alarm(2);
+      int ret = ioctl(vi.fd, VI_IOC_GET_FRAME(size), &vi.frame);
+      alarm(0);
+      if (!ret && vi.frame.phys_y && vi.frame.phys_c && vi.frame.width &&
+          vi.frame.height) {
+        vi.rec_size = size;
+        vi.held = 1;
+        return 0;
+      }
+      if (vi.rec_size)
+        break;
+    }
     usleep(10000);
   }
-  fprintf(stderr, "VI channel %d: no frame\n", chn);
+  fprintf(stderr, "VI channel %u: no frame\n", vi.chn);
   return -1;
 }
 
@@ -558,7 +614,86 @@ static const uint8_t jpeg_q_reg_order[64] = {
     4, 12, 20, 28, 5, 13, 21, 29, 36, 44, 52, 60, 37, 45, 53, 61,
     6, 14, 22, 30, 7, 15, 23, 31, 38, 46, 54, 62, 39, 47, 55, 63};
 
+/* Vendor values for the registers whose meaning isn't decoded, per chip
+ * and frame type ([0] IDR, [1] P), as the vendor stack writes them
+ * (OpenIPC/openxiongmai#13). The chips tell themselves apart by the
+ * maximum picture width in 0x0fc[11:0]: 1280 on XM510, 2688 on XM550. */
+struct chip {
+  const char *name;
+  uint32_t ctrl1[2], ctrl3[2], ctrl4[2], mvc;
+  uint32_t ext[2][6]; /* 0x180-0x194 */
+  uint32_t r1b8[2], r1bc, r1c0;
+  uint32_t strm_size;    /* fits the vendor's stream buffer on XM510 */
+  const char *vendor[6]; /* idle vendor blocks: stream, rec/ref, CABAC */
+};
+
+static const struct chip chip_xm530 = {
+    "XM530/XM550",
+    {0x006a00eb, 0x0081011d},
+    {0x00009c28, 0x0000c433},
+    {0x2d000087, 0x33000087},
+    0x80002000,
+    {{0x00000003, 0x606a707a, 0x4148545a, 0x10112131, 0x11111100, 0x11111100},
+     {0x00000003, 0x606a707a, 0x4148545a, 0x10112131, 0x11111100,
+      0x11111100}},
+    {0x000abcdd, 0x999acdee},
+    0x64209bdf,
+    0x1b6db6db,
+    1 << 20,
+    {NULL, NULL, NULL, NULL, NULL, NULL},
+};
+
+static const struct chip chip_xm510 = {
+    "XM510",
+    {0x005c014a, 0x006302ee},
+    {0x00013851, 0x00013851},
+    {0x400000aa, 0x400000aa},
+    0x00002000,
+    {{0xa87088e8, 0xc8081070, 0x070b0b01, 0x800cba98, 0x76543210, 0},
+     {0x6098ff28, 0x08406040, 0x070bff06, 0x800cba98, 0x76543210, 0}},
+    {0, 0},
+    0,
+    0,
+    0xfd000,
+    {"h264buf_0", "LumRefBuffs_0:num[0]", "ChrRefBuffs_0:num[0]",
+     "LumRefBuffs_0:num[1]", "ChrRefBuffs_0:num[1]",
+     "CABAC_context_tables_0"},
+};
+
 static void onalrm(int s) { (void)s; }
+
+/*
+ * Waits for the frame. xm530_h264.ko and hx280enc have a blocking wait,
+ * _IO('k', 12). xm510_h264.ko doesn't (its ioctls stop at 11): it signals
+ * SIGIO through fasync instead. There the status register is polled; it
+ * keeps its frame-ready and error bits after the driver's IRQ handler.
+ * SIGIO is turned on only then, so that it can't interrupt the blocking
+ * wait, and only so the driver has someone to signal.
+ */
+static int wait_frame(int fd, volatile uint32_t *regs) {
+  static int poll_status;
+  int ret = -1;
+
+  if (!poll_status) {
+    alarm(2);
+    ret = ioctl(fd, HX280ENC_IOCWAITDONE);
+    alarm(0);
+    if (ret == 0 || errno != ENOTTY)
+      return ret;
+    poll_status = 1;
+    signal(SIGIO, SIG_IGN);
+    fcntl(fd, F_SETOWN, getpid());
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_ASYNC);
+  }
+  for (int i = 0; i < 2000; i++) {
+    if (regs[REG_IRQ / 4] &
+        (IRQ_FRAME_READY | IRQ_BUS_ERROR | IRQ_RESET | IRQ_BUFFER_FULL |
+         IRQ_TIMEOUT))
+      return 0;
+    usleep(1000);
+  }
+  return -1;
+}
 
 int main(int argc, char **argv) {
   int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
@@ -608,9 +743,9 @@ int main(int argc, char **argv) {
       return 1;
     }
     atexit(vi_cleanup);
-    if (vi_get(vi.fd, vi_chn, &vi.frame))
+    if (vi_get())
       return 1;
-    ioctl(vi.fd, VI_IOC_RELEASE_FRAME, &vi.frame);
+    vi_release();
     width = vi.frame.width;
     height = vi.frame.height;
     printf("VI channel %d: %dx%d\n", vi_chn, width, height);
@@ -654,7 +789,15 @@ int main(int argc, char **argv) {
   if (regs[REG_ENC_CTRL / 4] & 1) {
     fprintf(stderr, "encoder busy: stop majestic first\n");
     return 1;
+  }  uint32_t max_width = regs[0x0fc / 4] & 0xfff;
+  const struct chip *chip = max_width <= 1280 ? &chip_xm510 : &chip_xm530;
+  printf("%s profile, max width %u\n", chip->name, max_width);
+  if ((uint32_t)width > max_width) {
+    fprintf(stderr, "%d is wider than this encoder's %u\n", width,
+            max_width);
+    return 1;
   }
+
 
   /* Buffers: NV12 input, stream, reconstruction and reference (separate
    * luma and chroma, as the vendor stack allocates them). */
@@ -662,16 +805,18 @@ int main(int argc, char **argv) {
   /* MMZ has no free and blocks are found again by name, so size them for
    * at least the 5 MP sensor: later runs at any size up to that reuse
    * them. With majestic stopped this is 23 MB of the 26 MB left. */
-  uint32_t luma_max = luma > 2592 * 1952 ? luma : 2592 * 1952;
-  if ((vi_chn < 0 && mmz_alloc(&in, "xmvenc_in", luma_max * 3 / 2)) ||
-      mmz_alloc(&strm, "xmvenc_strm", 1 << 20) ||
-      mmz_alloc(&recon_y[0], "xmvenc_rec_y", luma_max) ||
-      mmz_alloc(&recon_c[0], "xmvenc_rec_c", luma_max / 2) ||
-      mmz_alloc(&recon_y[1], "xmvenc_ref_y", luma_max) ||
-      mmz_alloc(&recon_c[1], "xmvenc_ref_c", luma_max / 2))
+  uint32_t luma_max = max_width < 2592 || luma > 2592 * 1952 ? luma
+                                                             : 2592 * 1952;
+  if ((vi_chn < 0 && mmz_alloc(&in, "xmvenc_in", luma_max * 3 / 2, NULL)) ||
+      mmz_alloc(&strm, "xmvenc_strm", chip->strm_size, chip->vendor[0]) ||
+      mmz_alloc(&recon_y[0], "xmvenc_rec_y", luma_max, chip->vendor[1]) ||
+      mmz_alloc(&recon_c[0], "xmvenc_rec_c", luma_max / 2, chip->vendor[2]) ||
+      mmz_alloc(&recon_y[1], "xmvenc_ref_y", luma_max, chip->vendor[3]) ||
+      mmz_alloc(&recon_c[1], "xmvenc_ref_c", luma_max / 2, chip->vendor[4]))
     return 1;
   if (cabac) {
-    if (mmz_alloc(&cabac_tbl, "xmvenc_cabac", CABAC_TBL_SIZE))
+    if (mmz_alloc(&cabac_tbl, "xmvenc_cabac", CABAC_TBL_SIZE,
+                  chip->vendor[5]))
       return 1;
     write_cabac_table(cabac_tbl.virt, 0);
   }
@@ -715,9 +860,8 @@ int main(int argc, char **argv) {
     uint32_t in_y, in_c;
 
     if (vi_chn >= 0) {
-      if (vi_get(vi.fd, vi_chn, &vi.frame))
+      if (vi_get())
         return 1;
-      vi.held = 1;
       if ((int)vi.frame.width != width || (int)vi.frame.height != height) {
         fprintf(stderr, "VI size changed to %ux%u\n", vi.frame.width,
                 vi.frame.height);
@@ -784,13 +928,13 @@ int main(int argc, char **argv) {
       /* pic_init_qp, idr_pic_id (P frames keep the last IDR's) */
       W(REG_ENC_CTRL0, ((uint32_t)qp << 26) | (idr_pic_id << 1));
       /* 8290: per-frame-type constant, vendor values */
-      W(REG_ENC_CTRL1, idr ? 0x006a00eb : 0x0081011d);
+      W(REG_ENC_CTRL1, chip->ctrl1[!idr]);
       /* deblocking mode as vendor, quarter-pel MV off, CABAC with
        * cabac_init_idc 0 or CAVLC, and (8290) frame_num */
       W(REG_ENC_CTRL2, 0xc0400000 | (cabac << 18) | frame_num);
       /* MV penalties and skip/inter favour, vendor values per frame type */
-      W(REG_ENC_CTRL3, idr ? 0x00009c28 : 0x0000c433);
-      W(REG_ENC_CTRL4, idr ? 0x2d000087 : 0x33000087);
+      W(REG_ENC_CTRL3, chip->ctrl3[!idr]);
+      W(REG_ENC_CTRL4, chip->ctrl4[!idr]);
       W(REG_STR_HDR_REM_MSB, 0);
       W(REG_STR_HDR_REM_LSB, 0);
       W(REG_STR_BUF_LIMIT, (strm.size >> 3) & ~7u); /* as MPP's VEPU1 HAL */
@@ -812,19 +956,15 @@ int main(int argc, char **argv) {
       W(REG_INTRA_AREA, outside);
       W(REG_ROI1, outside);
       W(REG_ROI2, outside);
-      W(REG_MVC, 0x80002000);
+      W(REG_MVC, chip->mvc);
       /* 8290-only registers: constants the vendor writes for every job
        * (meaning unknown, see the top of this file); 0x1b8 differs per
        * frame type */
-      W(0x180, 0x00000003);
-      W(0x184, 0x606a707a);
-      W(0x188, 0x4148545a);
-      W(0x18c, 0x10112131);
-      W(0x190, 0x11111100);
-      W(0x194, 0x11111100);
-      W(0x1b8, idr ? 0x000abcdd : 0x999acdee);
-      W(0x1bc, 0x64209bdf);
-      W(0x1c0, 0x1b6db6db);
+      for (int i = 0; i < 6; i++)
+        W(0x180 + i * 4, chip->ext[!idr][i]);
+      W(0x1b8, chip->r1b8[!idr]);
+      W(0x1bc, chip->r1bc);
+      W(0x1c0, chip->r1c0);
     }
 
     /* timeout IRQ, MB size, picture type (1 = IDR/intra), format (3 =
@@ -832,9 +972,7 @@ int main(int argc, char **argv) {
     clock_gettime(CLOCK_MONOTONIC, &t0);
     W(REG_ENC_CTRL, (1u << 31) | (mbw << 19) | (mbh << 10) |
                         ((jpeg_q || idr) << 3) | ((jpeg_q ? 2 : 3) << 1) | 1);
-    alarm(2);
-    ret = ioctl(fd_enc, HX280ENC_IOCWAITDONE);
-    alarm(0);
+    ret = wait_frame(fd_enc, regs);
     clock_gettime(CLOCK_MONOTONIC, &t1);
     irq = regs[REG_IRQ / 4];
     bits = regs[REG_STR_BUF_LIMIT / 4];
@@ -855,10 +993,7 @@ int main(int argc, char **argv) {
     }
     W(REG_IRQ, 0);
     /* The frame is done: the input picture can go back to VI */
-    if (vi.held) {
-      ioctl(vi.fd, VI_IOC_RELEASE_FRAME, &vi.frame);
-      vi.held = 0;
-    }
+    vi_release();
 
     uint32_t len = bits / 8;
     if (jpeg_q && fwrite(jhdr, 1, jhdr_len, f) != (size_t)jhdr_len) {
