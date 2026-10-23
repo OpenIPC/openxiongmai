@@ -111,7 +111,8 @@ typedef struct {
   XM_U64 u64Pts; /* XM530 only */
 } vi_frame_t;
 
-#define VI_CMD(dir, nr, size) (((dir) << 30) | ((size) << 16) | ('V' << 8) | (nr))
+#define VI_CMD(dir, nr, size)                                                  \
+  (((XM_U32)(dir) << 30) | ((size) << 16) | ('V' << 8) | (nr))
 #define VI_GET_FRAME 4
 #define VI_RELEASE_FRAME 5
 

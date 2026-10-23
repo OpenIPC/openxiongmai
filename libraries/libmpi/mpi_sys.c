@@ -37,7 +37,8 @@ XM_S32 XM_MPI_SYS_Init(XM_VOID) {
  * but still returns 0, so a zero address means the call failed. The
  * record size that worked is remembered.
  */
-#define MMZ_CMD(dir, nr, size) (((dir) << 30) | ((size) << 16) | ('M' << 8) | (nr))
+#define MMZ_CMD(dir, nr, size)                                                 \
+  (((XM_U32)(dir) << 30) | ((size) << 16) | ('M' << 8) | (nr))
 #define MMZ_ALLOC 1
 #define MMZ_GET 3
 
