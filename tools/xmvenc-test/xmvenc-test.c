@@ -29,7 +29,7 @@
  *
  * Usage: xmvenc-test [-w width] [-h height] [-q qp] [-n frames]
  *                    [-g gop] [-c] [-v chn] [-d dump.nv12] [-j quality]
- *                    [-o file]
+ *                    [-b kbps] [-f fps] [-Q qmin:qmax] [-o file]
  *
  * -g sets the IDR interval (1: every frame is IDR), -c selects CABAC.
  * The colour bars move 8 pixels a frame, so P frames carry motion.
@@ -39,9 +39,13 @@
  * -d saves the input picture of the first frame, to compare against.
  * -j encodes JPEG pictures at that quality (1-100) instead of H.264;
  * more than one frame gives concatenated JPEGs.
+ * -b turns on frame-level rate control for that bitrate at -f frames per
+ * second (default 25), with the QP kept within -Q (default 20:45); -q is
+ * then the starting QP and the PPS pic_init_qp.
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>
+#include <math.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdint.h>
@@ -660,6 +664,46 @@ static const struct chip chip_xm510 = {
      "CABAC_context_tables_0"},
 };
 
+/*
+ * Frame-level rate control. Each frame has a budget of bitrate/fps bits,
+ * and the bits spent over or under budget accumulate in a buffer that the
+ * following P frames pay back over about a second. A frame's size
+ * roughly halves for every 6 QP steps, so a P frame's QP moves by
+ * 6*log2(actual/wanted), damped and capped at 2 per frame. IDR frames
+ * aim at IDR_WEIGHT P budgets with a QP of their own.
+ */
+#define IDR_WEIGHT 4.0
+
+struct rc {
+  int on, qp_i, qp_p, qmin, qmax;
+  double budget, buffer, fps;
+};
+
+static int clampi(int v, int lo, int hi) {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+static void rc_update(struct rc *rc, int idr, uint32_t bits) {
+  rc->buffer += bits - rc->budget;
+  if (idr) {
+    double d = 6 * log2(bits / (rc->budget * IDR_WEIGHT));
+
+    rc->qp_i = clampi(rc->qp_i + clampi((int)lround(d / 2), -3, 3), rc->qmin,
+                      rc->qmax);
+  } else {
+    double want = rc->budget - rc->buffer / rc->fps;
+
+    if (want < rc->budget / 4)
+      want = rc->budget / 4;
+    rc->qp_p = clampi(
+        rc->qp_p + clampi((int)lround(3 * log2(bits / want)), -2, 2),
+        rc->qmin, rc->qmax);
+  }
+  /* keep IDR frames at least as good as P frames */
+  if (rc->qp_i > rc->qp_p)
+    rc->qp_i = rc->qp_p;
+}
+
 static void onalrm(int s) { (void)s; }
 
 /*
@@ -698,6 +742,8 @@ static int wait_frame(int fd, volatile uint32_t *regs) {
 int main(int argc, char **argv) {
   int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
       vi_chn = -1, jpeg_q = 0, opt;
+  struct rc rc = {0, 0, 0, 20, 45, 0, 0, 25};
+  double kbps = 0;
   const char *out = "xmvenc-test.h264", *dump = NULL;
   volatile uint32_t *regs;
   struct buf in, strm, recon_y[2], recon_c[2], cabac_tbl = {0};
@@ -706,7 +752,7 @@ int main(int argc, char **argv) {
   int fd_enc, mbw, mbh, stride, ret;
   uint32_t irq, bits;
 
-  while ((opt = getopt(argc, argv, "w:h:q:n:g:cv:d:j:o:")) != -1) {
+  while ((opt = getopt(argc, argv, "w:h:q:n:g:cv:d:j:b:f:Q:o:")) != -1) {
     switch (opt) {
     case 'w': width = atoi(optarg); break;
     case 'h': height = atoi(optarg); break;
@@ -717,12 +763,18 @@ int main(int argc, char **argv) {
     case 'v': vi_chn = atoi(optarg); break;
     case 'd': dump = optarg; break;
     case 'j': jpeg_q = atoi(optarg); break;
+    case 'b': kbps = atof(optarg); break;
+    case 'f': rc.fps = atof(optarg); break;
+    case 'Q':
+      if (sscanf(optarg, "%d:%d", &rc.qmin, &rc.qmax) != 2)
+        rc.qmin = -1;
+      break;
     case 'o': out = optarg; break;
     default:
       fprintf(stderr,
               "usage: %s [-w width] [-h height] [-q qp] [-n frames] "
               "[-g gop] [-c] [-v chn] [-d dump.nv12] [-j quality] "
-              "[-o file]\n",
+              "[-b kbps] [-f fps] [-Q qmin:qmax] [-o file]\n",
               argv[0]);
       return 2;
     }
@@ -754,9 +806,16 @@ int main(int argc, char **argv) {
   /* The intra-area and ROI fields hold 8-bit macroblock counts. */
   if (width < 96 || height < 96 || width > 4080 || height > 4080 ||
       width % 8 || height % 2 || qp < 0 ||
-      qp > 51 || frames < 1 || gop < 1 || jpeg_q < 0 || jpeg_q > 100) {
+      qp > 51 || frames < 1 || gop < 1 || jpeg_q < 0 || jpeg_q > 100 ||
+      kbps < 0 || rc.fps <= 0 || rc.qmin < 0 || rc.qmax > 51 ||
+      rc.qmin > rc.qmax) {
     fprintf(stderr, "bad size or qp\n");
     return 2;
+  }
+  if (kbps > 0 && !jpeg_q) {
+    rc.on = 1;
+    rc.budget = kbps * 1000 / rc.fps;
+    rc.qp_i = rc.qp_p = clampi(qp, rc.qmin, rc.qmax);
   }
   mbw = (width + 15) / 16;
   mbh = (height + 15) / 16;
@@ -859,6 +918,7 @@ int main(int argc, char **argv) {
     }
 
     uint32_t in_y, in_c;
+    int fqp = rc.on ? (idr ? rc.qp_i : rc.qp_p) : qp;
 
     if (vi_chn >= 0) {
       if (vi_get())
@@ -941,7 +1001,9 @@ int main(int argc, char **argv) {
       W(REG_STR_BUF_LIMIT, (strm.size >> 3) & ~7u); /* as MPP's VEPU1 HAL */
       W(REG_MAD_CTRL, 0);
       /* fixed QP: init = min = max, no checkpoints */
-      W(REG_QP_VAL, ((uint32_t)qp << 26) | (qp << 20) | (qp << 14));
+      /* the frame's QP; the hardware writes slice_qp_delta against the
+       * pic_init_qp in 0x040 */
+      W(REG_QP_VAL, ((uint32_t)fqp << 26) | (fqp << 20) | (fqp << 14));
       for (int off = 0x070; off <= 0x090; off += 4)
         W(off, 0);
       W(REG_RLC_CTRL, 0); /* stream starts at bit 0 */
@@ -1006,9 +1068,10 @@ int main(int argc, char **argv) {
       return 1;
     }
     total += len;
-    printf("frame %d (%c): irq 0x%08x, %u bytes, %ld us\n", n,
-           jpeg_q ? 'J' : idr ? 'I' : 'P',
-           irq, len,
+    if (rc.on)
+      rc_update(&rc, idr, len * 8);
+    printf("frame %d (%c) qp %d: irq 0x%08x, %u bytes, %ld us\n", n,
+           jpeg_q ? 'J' : idr ? 'I' : 'P', jpeg_q ? 0 : fqp, irq, len,
            (long)((t1.tv_sec - t0.tv_sec) * 1000000 +
                   (t1.tv_nsec - t0.tv_nsec) / 1000));
   }
@@ -1026,5 +1089,8 @@ int main(int argc, char **argv) {
            "gop %d, %s)\n",
            out, hdr_len, (unsigned long long)total, frames, width, height, qp,
            gop, cabac ? "CABAC" : "CAVLC");
+  if (rc.on)
+    printf("rate control: target %.0f kbps at %.2f fps, got %.0f kbps\n", kbps,
+           rc.fps, total * 8.0 * rc.fps / frames / 1000);
   return 0;
 }
