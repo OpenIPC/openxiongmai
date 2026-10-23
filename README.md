@@ -49,6 +49,9 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
     ├── libispapp_XM530/         libispapp_XM530.so: ISP application layer
     ├── libsns_X123_XM530/       libsns_X123_XM530.so: "X123" sensor family
     └── libsns_X50_XM530/        libsns_X50_XM530.so: "X50" sensor family
+
+tools/
+└── xmvenc-test/                 Encodes H.264 on the Hantro encoder without vendor libraries
 ```
 
 ## Building
@@ -119,6 +122,29 @@ To add a sensor:
 |--------|----------|--------|
 | `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder | Same `/dev/h264` ABI as the vendor `xm530_h264.ko`; ran majestic on an XM550 in place of it |
 | `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
+
+## Tools
+
+`tools/xmvenc-test` drives the XM530/XM550 H.264 encoder (a Hantro 8290) directly. It needs no vendor userspace, and its output is checked with ffmpeg. It is milestone M1 of [#13](https://github.com/OpenIPC/openxiongmai/issues/13).
+- **Input:** a synthetic NV12 picture, colour bars that move 8 pixels per frame.
+- **Headers:** software writes the SPS and PPS.
+- **Hardware:** programs the encoder registers, waits for the frame interrupt through `/dev/h264`, and writes the slice.
+- **Output:** a raw `.h264` file.
+
+```bash
+make -C tools/xmvenc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
+# on the camera: the encoder serves one user, so stop majestic first
+/etc/init.d/S95majestic stop
+./xmvenc-test -w 1920 -h 1080 -q 30 -n 30 -o /tmp/test.h264
+```
+
+Every frame is an IDR picture with CAVLC and a fixed QP. It needs `/dev/mmz` and an encoder driver, either the vendor `xm530_h264.ko` or `drivers/hx280enc`.
+
+Two cautions about MMZ:
+- **Blocks persist after the tool exits.** MMZ has no free, so a later run reuses the named blocks.
+- **Never reset MMZ while the capture pipeline is configured.** That includes when majestic is stopped: VI keeps writing into its old buffers.
+
+Restarting majestic resets MMZ cleanly.
 
 ## CI
 

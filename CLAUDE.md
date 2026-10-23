@@ -70,6 +70,10 @@ Some of the per-sensor code sits inside `#if (defined SOC_SYSTEM) || (defined SO
 
 `libispapp_XM530` is the ISP application layer. It handles PLL and VI window setup per resolution, product info, the ISP run loop (`ISP_Run_SocSystem`), the UART/MCU link and VDA. It contains the I2C implementation (`i2c.c`) that the sensor libraries call.
 
+### `tools/xmvenc-test`
+
+`tools/xmvenc-test` is a static test program for the H.264 encoder, a Hantro 8290 laid out like Rockchip VEPU1 with the differences recorded in #13. It encodes IDR frames from a synthetic picture through `/dev/h264` and `/dev/mmz`, with majestic stopped. The XM530 `mmz.ko` takes 44-byte records (`_IOWR('M', 1, char[44])`; get-by-name returns size, then phys). `libmpi`'s 40-byte `XM_MPI_SYS_MmzAlloc`/`MmzGetAddr` records don't match it, and the module returns 0 even for commands it rejects.
+
 ### Kernel drivers
 
 - `drivers/xm_i2c`: a misc-device stub. Its read, write and ioctl handlers are placeholders that only print "not supported".

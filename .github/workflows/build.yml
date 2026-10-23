@@ -60,6 +60,13 @@ jobs:
           echo "::group::libmpi"
           make -C libraries/libmpi CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
           echo "::endgroup::"
+          echo "::group::tools/xmvenc-test"
+          make -C tools/xmvenc-test CROSS_COMPILE="$CROSS_COMPILE"
+          ${CROSS_COMPILE}readelf -h tools/xmvenc-test/xmvenc-test | grep -q 'Machine:.*ARM'
+          if ${CROSS_COMPILE}readelf -d tools/xmvenc-test/xmvenc-test | grep -q NEEDED; then
+            echo "xmvenc-test is not static" >&2; exit 1
+          fi
+          echo "::endgroup::"
 
       - name: Verify outputs exist
         run: |
