@@ -590,7 +590,11 @@ struct JpegProcType {
 
 static struct hx280enc_t hx280enc_data;
 static DECLARE_WAIT_QUEUE_HEAD(hx280enc_wait);
-static int hx280enc_done;
+/* A finished frame not yet claimed by HX280ENC_IOCWAITDONE: at most one is
+ * kept, as in the vendor module, and each is handed to a single waiter. */
+static atomic_t hx280enc_done = ATOMIC_INIT(0);
+static atomic_t hx280enc_users = ATOMIC_INIT(0);
+static bool hx280enc_irq_requested;
 /*
  * struct H264ProcType (2568 bytes, ChannelNum at 0xa00) and struct VencInfo
  * (84 bytes) don't match the records xm530_h264.ko takes (2572 bytes with the
@@ -717,9 +721,9 @@ static long hx280enc_ioctl(struct file *filp, unsigned int cmd,
 
 	case HX280ENC_IOCWAITDONE:
 		/* -EPERM on a signal is what xm530_h264.ko returns */
-		if (wait_event_interruptible(hx280enc_wait, hx280enc_done))
+		if (wait_event_interruptible(hx280enc_wait,
+					     atomic_xchg(&hx280enc_done, 0)))
 			return -EPERM;
-		hx280enc_done = 0;
 		break;
 	}
 	return 0;
@@ -731,6 +735,11 @@ static int hx280enc_open(struct inode *inode, struct file *filp)
 	struct hx280enc_t *dev = &hx280enc_data;
 
 	filp->private_data = (void *)dev;
+
+	/* The first user must not inherit a frame that finished for an
+	 * earlier one. Later opens keep it: it may be another user's. */
+	if (atomic_inc_return(&hx280enc_users) == 1)
+		atomic_set(&hx280enc_done, 0);
 
 	PDEBUG("dev opened\n");
 	return result;
@@ -749,6 +758,7 @@ static int hx280enc_release(struct inode *inode, struct file *filp)
 {
 	/* remove this filp from the asynchronusly notified filp's */
 	hx280enc_fasync(-1, filp, 0);
+	atomic_dec(&hx280enc_users);
 
 	PDEBUG("dev closed\n");
 	return 0;
@@ -810,7 +820,7 @@ static int __init hx280_video_enc_init(void)
 
 	ResetAsic(&hx280enc_data); /* reset hardware */
 	/* get the IRQ line */
-	if (hx280enc_data.irq > 0) {
+	if (irq > 0) {
 		result = request_irq(hx280enc_data.irq, hx280enc_isr,
 				     IRQF_DISABLED | IRQF_SHARED, "hx280enc",
 				     (void *)&hx280enc_data);
@@ -826,6 +836,7 @@ static int __init hx280_video_enc_init(void)
 			ReleaseIO();
 			return -1;
 		}
+		hx280enc_irq_requested = true;
 	} else {
 		pr_info("IRQ not in use!\n");
 	}
@@ -844,7 +855,7 @@ static void __exit hx280_video_enc_cleanup(void)
 	writel(0, hx280enc_data.hwregs + X280_INTERRUPT_REGISTER_ENC);
 
 	/* free the encoder IRQ */
-	if (hx280enc_data.irq != -1)
+	if (hx280enc_irq_requested)
 		free_irq(hx280enc_data.irq, (void *)&hx280enc_data);
 
 	ReleaseIO();
@@ -927,7 +938,7 @@ irqreturn_t hx280enc_isr(int irq, void *dev_id)
 
 		/* All other interrupts complete the frame: wake
 		 * HX280ENC_IOCWAITDONE and signal the reference EWL. */
-		hx280enc_done = 1;
+		atomic_set(&hx280enc_done, 1);
 		wake_up_interruptible(&hx280enc_wait);
 		if (dev->async_queue)
 			kill_fasync(&dev->async_queue, SIGIO, POLL_IN);
