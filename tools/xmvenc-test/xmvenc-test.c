@@ -28,10 +28,17 @@
  * and /dev/mmz. Stop majestic first: the encoder serves one user at a time.
  *
  * Usage: xmvenc-test [-w width] [-h height] [-q qp] [-n frames]
- *                    [-g gop] [-c] [-o file]
+ *                    [-g gop] [-c] [-v chn] [-d dump.nv12] [-j quality]
+ *                    [-o file]
  *
  * -g sets the IDR interval (1: every frame is IDR), -c selects CABAC.
  * The colour bars move 8 pixels a frame, so P frames carry motion.
+ * -v takes the pictures from a VI channel instead: frames are encoded
+ * straight from the capture buffers, at the size VI delivers. VI keeps
+ * capturing after majestic stops (channel 0 is the main stream).
+ * -d saves the input picture of the first frame, to compare against.
+ * -j encodes JPEG pictures at that quality (1-100) instead of H.264;
+ * more than one frame gives concatenated JPEGs.
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>
@@ -329,12 +336,234 @@ static void write_cabac_table(uint8_t *dst, int cabac_init_idc) {
     }
 }
 
+/* VI frame record of the XM530 xm530_vi.ko: 32 bytes (XM510's has no
+ * timestamp). Getting a frame waits for one; it stays ours, and VI fills
+ * its other buffers, until it is released. */
+struct vi_frame {
+  uint32_t chn, pool, phys_y, phys_c, width, height;
+  uint64_t pts;
+};
+/* Frame delivery per channel: majestic turns it off when it exits, while
+ * the capture hardware itself keeps running. */
+#define VI_IOC_ENABLE_CHN _IOW('V', 2, uint32_t)
+#define VI_IOC_DISABLE_CHN _IOW('V', 3, uint32_t)
+#define VI_IOC_GET_FRAME _IOWR('V', 4, struct vi_frame)
+#define VI_IOC_RELEASE_FRAME _IOW('V', 5, struct vi_frame)
+
+/* VI state for the exit handler: whatever path main() leaves by, a frame
+ * the tool still holds is given back and the channel is switched off
+ * again, as majestic left it. */
+static struct {
+  int fd, held;
+  uint32_t chn;
+  struct vi_frame frame;
+} vi = {-1, 0, 0, {0}};
+
+static void vi_cleanup(void) {
+  if (vi.fd < 0)
+    return;
+  if (vi.held)
+    ioctl(vi.fd, VI_IOC_RELEASE_FRAME, &vi.frame);
+  vi.held = 0;
+  ioctl(vi.fd, VI_IOC_DISABLE_CHN, &vi.chn);
+  close(vi.fd);
+  vi.fd = -1;
+}
+
+static int vi_get(int fd, int chn, struct vi_frame *f) {
+  /* The driver waits only briefly for a new frame, and at 15 fps the
+   * next one can be 66 ms away: retry for up to a second. */
+  for (int tries = 0; tries < 100; tries++) {
+    memset(f, 0, sizeof(*f));
+    f->chn = chn;
+    alarm(2);
+    int ret = ioctl(fd, VI_IOC_GET_FRAME, f);
+    alarm(0);
+    if (!ret && f->phys_y && f->phys_c && f->width && f->height)
+      return 0;
+    usleep(10000);
+  }
+  fprintf(stderr, "VI channel %d: no frame\n", chn);
+  return -1;
+}
+
+/* Writes the NV12 picture at the given physical addresses, cropped to
+ * width x height, to a file. */
+static int dump_nv12(const char *path, uint32_t phys_y, uint32_t phys_c,
+                     int width, int height, int stride) {
+  FILE *f = fopen(path, "wb");
+  int ok = f != NULL;
+
+  for (int plane = 0; ok && plane < 2; plane++) {
+    uint32_t phys = plane ? phys_c : phys_y, base = phys & ~0xfffu;
+    size_t len = (size_t)stride * (plane ? height / 2 : height);
+    uint8_t *p = mmap(0, len + (phys - base), PROT_READ, MAP_SHARED, fd_mem,
+                      base);
+    uint8_t *row = malloc(width);
+
+    if (p == MAP_FAILED || !row) {
+      ok = 0;
+      break;
+    }
+    for (int j = 0; ok && j < (plane ? height / 2 : height); j++) {
+      memcpy(row, p + (phys - base) + (size_t)j * stride, width);
+      ok = fwrite(row, 1, width, f) == (size_t)width;
+    }
+    free(row);
+    munmap(p, len + (phys - base));
+  }
+  if (!f || fclose(f) || !ok) {
+    perror(path);
+    return -1;
+  }
+  return 0;
+}
+
+/*
+ * JPEG (baseline, 4:2:0, ITU-T T.81). Software writes the header up to
+ * and including SOS; the hardware writes the entropy-coded scan. The
+ * quantisation tables are the T.81 Annex K examples scaled the IJG way,
+ * and the Huffman tables are the Annex K ones, which the encoder uses.
+ */
+static const uint8_t jpeg_q_luma[64] = {
+    16, 11, 10, 16, 24,  40,  51,  61,  12, 12, 14, 19, 26,  58,  60,  55,
+    14, 13, 16, 24, 40,  57,  69,  56,  14, 17, 22, 29, 51,  87,  80,  62,
+    18, 22, 37, 56, 68,  109, 103, 77,  24, 35, 55, 64, 81,  104, 113, 92,
+    49, 64, 78, 87, 103, 121, 120, 101, 72, 92, 95, 98, 112, 100, 103, 99};
+static const uint8_t jpeg_q_chroma[64] = {
+    17, 18, 24, 47, 99, 99, 99, 99, 18, 21, 26, 66, 99, 99, 99, 99,
+    24, 26, 56, 99, 99, 99, 99, 99, 47, 66, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+    99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99};
+static const uint8_t jpeg_zigzag[64] = {
+    0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18, 11, 4,  5,
+    12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6,  7,  14, 21, 28,
+    35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+    58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+/* Huffman tables: 16 code-length counts, then the values */
+static const uint8_t jpeg_dc_luma[] = {
+    0, 1, 5, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
+static const uint8_t jpeg_dc_chroma[] = {
+    0, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
+static const uint8_t jpeg_ac_luma[] = {
+    0,    2,    1,    3,    3,    2,    4,    3,    5,    5,    4,    4,
+    0,    0,    1,    0x7d, 0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12,
+    0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32,
+    0x81, 0x91, 0xa1, 0x08, 0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0,
+    0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a,
+    0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
+    0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55,
+    0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+    0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x83, 0x84, 0x85,
+    0x86, 0x87, 0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98,
+    0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2,
+    0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5,
+    0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8,
+    0xd9, 0xda, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea,
+    0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa};
+static const uint8_t jpeg_ac_chroma[] = {
+    0,    2,    1,    2,    4,    4,    3,    4,    7,    5,    4,    4,
+    0,    1,    2,    0x77, 0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21,
+    0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71, 0x13, 0x22, 0x32, 0x81,
+    0x08, 0x14, 0x42, 0x91, 0xa1, 0xb1, 0xc1, 0x09, 0x23, 0x33, 0x52, 0xf0,
+    0x15, 0x62, 0x72, 0xd1, 0x0a, 0x16, 0x24, 0x34, 0xe1, 0x25, 0xf1, 0x17,
+    0x18, 0x19, 0x1a, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x35, 0x36, 0x37, 0x38,
+    0x39, 0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54,
+    0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+    0x69, 0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x82, 0x83,
+    0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96,
+    0x97, 0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9,
+    0xaa, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3,
+    0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6,
+    0xd7, 0xd8, 0xd9, 0xda, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9,
+    0xea, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa};
+
+/* Quality 1-100 to a table in raster order, as libjpeg does */
+static void jpeg_scale_q(uint8_t *q, const uint8_t *base, int quality) {
+  int scale = quality < 50 ? 5000 / quality : 200 - 2 * quality;
+
+  for (int i = 0; i < 64; i++) {
+    int v = (base[i] * scale + 50) / 100;
+    q[i] = v < 1 ? 1 : v > 255 ? 255 : v;
+  }
+}
+
+static uint8_t *put16(uint8_t *p, int v) {
+  *p++ = v >> 8;
+  *p++ = v;
+  return p;
+}
+
+static uint8_t *put_dht(uint8_t *p, int class_id, const uint8_t *tbl) {
+  int n = 0;
+
+  for (int i = 0; i < 16; i++)
+    n += tbl[i];
+  p = put16(p, 0xffc4);
+  p = put16(p, 2 + 1 + 16 + n);
+  *p++ = class_id;
+  memcpy(p, tbl, 16 + n);
+  return p + 16 + n;
+}
+
+/* SOI, DQT, SOF0, DHT and SOS for a 4:2:0 picture; returns the length */
+static int write_jpeg_header(uint8_t *out, int width, int height,
+                             const uint8_t *qy, const uint8_t *qc) {
+  uint8_t *p = out;
+
+  p = put16(p, 0xffd8);
+  for (int t = 0; t < 2; t++) {
+    p = put16(p, 0xffdb);
+    p = put16(p, 2 + 1 + 64);
+    *p++ = t;
+    for (int i = 0; i < 64; i++)
+      *p++ = (t ? qc : qy)[jpeg_zigzag[i]];
+  }
+  p = put16(p, 0xffc0);
+  p = put16(p, 2 + 6 + 3 * 3);
+  *p++ = 8;
+  p = put16(p, height);
+  p = put16(p, width);
+  *p++ = 3;
+  const uint8_t comps[3][3] = {{1, 0x22, 0}, {2, 0x11, 1}, {3, 0x11, 1}};
+  for (int c = 0; c < 3; c++) {
+    memcpy(p, comps[c], 3);
+    p += 3;
+  }
+  p = put_dht(p, 0x00, jpeg_dc_luma);
+  p = put_dht(p, 0x10, jpeg_ac_luma);
+  p = put_dht(p, 0x01, jpeg_dc_chroma);
+  p = put_dht(p, 0x11, jpeg_ac_chroma);
+  p = put16(p, 0xffda);
+  p = put16(p, 2 + 1 + 3 * 2 + 3);
+  *p++ = 3;
+  const uint8_t sel[3][2] = {{1, 0x00}, {2, 0x11}, {3, 0x11}};
+  for (int c = 0; c < 3; c++) {
+    memcpy(p, sel[c], 2);
+    p += 2;
+  }
+  *p++ = 0;  /* Ss */
+  *p++ = 63; /* Se */
+  *p++ = 0;  /* Ah, Al */
+  return p - out;
+}
+
+/* The encoder's quantisation registers (0x100 luma, 0x140 chroma) hold
+ * each table in this order, four entries per word, first in the MSB. */
+static const uint8_t jpeg_q_reg_order[64] = {
+    0, 8,  16, 24, 1, 9,  17, 25, 32, 40, 48, 56, 33, 41, 49, 57,
+    2, 10, 18, 26, 3, 11, 19, 27, 34, 42, 50, 58, 35, 43, 51, 59,
+    4, 12, 20, 28, 5, 13, 21, 29, 36, 44, 52, 60, 37, 45, 53, 61,
+    6, 14, 22, 30, 7, 15, 23, 31, 38, 46, 54, 62, 39, 47, 55, 63};
+
 static void onalrm(int s) { (void)s; }
 
 int main(int argc, char **argv) {
   int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
-      opt;
-  const char *out = "xmvenc-test.h264";
+      vi_chn = -1, jpeg_q = 0, opt;
+  const char *out = "xmvenc-test.h264", *dump = NULL;
   volatile uint32_t *regs;
   struct buf in, strm, recon_y[2], recon_c[2], cabac_tbl = {0};
   unsigned long hwbase = 0;
@@ -342,7 +571,7 @@ int main(int argc, char **argv) {
   int fd_enc, mbw, mbh, stride, ret;
   uint32_t irq, bits;
 
-  while ((opt = getopt(argc, argv, "w:h:q:n:g:co:")) != -1) {
+  while ((opt = getopt(argc, argv, "w:h:q:n:g:cv:d:j:o:")) != -1) {
     switch (opt) {
     case 'w': width = atoi(optarg); break;
     case 'h': height = atoi(optarg); break;
@@ -350,25 +579,54 @@ int main(int argc, char **argv) {
     case 'n': frames = atoi(optarg); break;
     case 'g': gop = atoi(optarg); break;
     case 'c': cabac = 1; break;
+    case 'v': vi_chn = atoi(optarg); break;
+    case 'd': dump = optarg; break;
+    case 'j': jpeg_q = atoi(optarg); break;
     case 'o': out = optarg; break;
     default:
       fprintf(stderr,
               "usage: %s [-w width] [-h height] [-q qp] [-n frames] "
-              "[-g gop] [-c] [-o file]\n",
+              "[-g gop] [-c] [-v chn] [-d dump.nv12] [-j quality] "
+              "[-o file]\n",
               argv[0]);
       return 2;
     }
   }
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = onalrm;
+  sigaction(SIGALRM, &sa, 0);
+
+  if (vi_chn >= 0) {
+    vi.chn = vi_chn;
+    if ((vi.fd = open("/dev/vi", O_RDWR)) < 0) {
+      perror("/dev/vi");
+      return 1;
+    }
+    if (ioctl(vi.fd, VI_IOC_ENABLE_CHN, &vi.chn)) {
+      perror("VI enable");
+      return 1;
+    }
+    atexit(vi_cleanup);
+    if (vi_get(vi.fd, vi_chn, &vi.frame))
+      return 1;
+    ioctl(vi.fd, VI_IOC_RELEASE_FRAME, &vi.frame);
+    width = vi.frame.width;
+    height = vi.frame.height;
+    printf("VI channel %d: %dx%d\n", vi_chn, width, height);
+  }
+
   /* The intra-area and ROI fields hold 8-bit macroblock counts. */
   if (width < 96 || height < 96 || width > 4080 || height > 4080 ||
       width % 8 || height % 2 || qp < 0 ||
-      qp > 51 || frames < 1 || gop < 1) {
+      qp > 51 || frames < 1 || gop < 1 || jpeg_q < 0 || jpeg_q > 100) {
     fprintf(stderr, "bad size or qp\n");
     return 2;
   }
   mbw = (width + 15) / 16;
   mbh = (height + 15) / 16;
-  stride = mbw * 16;
+  /* VI buffers are packed: the stride is the width */
+  stride = vi_chn >= 0 ? width : mbw * 16;
 
   if ((fd_enc = open("/dev/h264", O_RDWR)) < 0) {
     perror("/dev/h264");
@@ -405,7 +663,7 @@ int main(int argc, char **argv) {
    * at least the 5 MP sensor: later runs at any size up to that reuse
    * them. With majestic stopped this is 23 MB of the 26 MB left. */
   uint32_t luma_max = luma > 2592 * 1952 ? luma : 2592 * 1952;
-  if (mmz_alloc(&in, "xmvenc_in", luma_max * 3 / 2) ||
+  if ((vi_chn < 0 && mmz_alloc(&in, "xmvenc_in", luma_max * 3 / 2)) ||
       mmz_alloc(&strm, "xmvenc_strm", 1 << 20) ||
       mmz_alloc(&recon_y[0], "xmvenc_rec_y", luma_max) ||
       mmz_alloc(&recon_c[0], "xmvenc_rec_c", luma_max / 2) ||
@@ -417,13 +675,15 @@ int main(int argc, char **argv) {
       return 1;
     write_cabac_table(cabac_tbl.virt, 0);
   }
-  struct sigaction sa;
-  memset(&sa, 0, sizeof(sa));
-  sa.sa_handler = onalrm;
-  sigaction(SIGALRM, &sa, 0);
-
   uint8_t hdr[128];
-  int hdr_len = write_sps_pps(hdr, width, height, qp, cabac);
+  int hdr_len = jpeg_q ? 0 : write_sps_pps(hdr, width, height, qp, cabac);
+  uint8_t jq_y[64], jq_c[64], jhdr[1024];
+  int jhdr_len = 0;
+  if (jpeg_q) {
+    jpeg_scale_q(jq_y, jpeg_q_luma, jpeg_q);
+    jpeg_scale_q(jq_c, jpeg_q_chroma, jpeg_q);
+    jhdr_len = write_jpeg_header(jhdr, width, height, jq_y, jq_c);
+  }
   FILE *f = fopen(out, "wb");
   if (!f || fwrite(hdr, 1, hdr_len, f) != (size_t)hdr_len) {
     perror(out);
@@ -433,8 +693,8 @@ int main(int argc, char **argv) {
 #define W(off, val) (regs[(off) / 4] = (val))
   /* The MMZ mapping is uncached: build each picture in normal memory and
    * copy it over, byte stores there take seconds per frame. */
-  uint8_t *pic = malloc(pic_size);
-  if (!pic) {
+  uint8_t *pic = vi_chn < 0 ? malloc(pic_size) : NULL;
+  if (vi_chn < 0 && !pic) {
     perror("malloc");
     return 1;
   }
@@ -452,73 +712,126 @@ int main(int argc, char **argv) {
       frame_num = (frame_num + 1) & 0xffff; /* log2_max_frame_num = 16 */
     }
 
-    memset(pic, 0, pic_size);
-    fill_pattern(pic, pic + luma, width, height, stride, n * 8);
-    memcpy(in.virt, pic, pic_size);
+    uint32_t in_y, in_c;
 
-    W(REG_ENC_CTRL, 0);
-    W(REG_IRQ, 0);
-    W(REG_AXI, 0x0000d01f); /* burst 16, clock gating, all swaps (vendor) */
-    W(REG_ADDR_OUT, strm.phys);
-    W(REG_ADDR_SIZE_TBL, 0);
-    W(REG_ADDR_REF_LUMA, recon_y[!cur].phys);
-    W(REG_ADDR_REF_CHROMA, recon_c[!cur].phys);
-    W(REG_ADDR_REC_LUMA, recon_y[cur].phys);
-    W(REG_ADDR_REC_CHROMA, recon_c[cur].phys);
-    W(REG_ADDR_IN_LUMA, in.phys);
-    W(REG_ADDR_IN_CB, in.phys + luma);
-    W(REG_ADDR_IN_CR, in.phys + luma + 1);
-    /* row length, bottom overfill, input format 1 = NV12 */
-    W(REG_IN_IMG_CTRL, (stride << 12) | ((mbh * 16 - height) << 6) | (1 << 2));
-    /* pic_init_qp, idr_pic_id (P frames keep the last IDR's) */
-    W(REG_ENC_CTRL0, ((uint32_t)qp << 26) | (idr_pic_id << 1));
-    /* 8290: per-frame-type constant, vendor values */
-    W(REG_ENC_CTRL1, idr ? 0x006a00eb : 0x0081011d);
-    /* deblocking mode as vendor, quarter-pel MV off, CABAC with
-     * cabac_init_idc 0 or CAVLC, and (8290) frame_num */
-    W(REG_ENC_CTRL2, 0xc0400000 | (cabac << 18) | frame_num);
-    /* MV penalties and skip/inter favour, vendor values per frame type */
-    W(REG_ENC_CTRL3, idr ? 0x00009c28 : 0x0000c433);
-    W(REG_ENC_CTRL4, idr ? 0x2d000087 : 0x33000087);
-    W(REG_STR_HDR_REM_MSB, 0);
-    W(REG_STR_HDR_REM_LSB, 0);
-    W(REG_STR_BUF_LIMIT, (strm.size >> 3) & ~7u); /* as MPP's VEPU1 HAL */
-    W(REG_MAD_CTRL, 0);
-    /* fixed QP: init = min = max, no checkpoints */
-    W(REG_QP_VAL, ((uint32_t)qp << 26) | (qp << 20) | (qp << 14));
-    for (int off = 0x070; off <= 0x090; off += 4)
-      W(off, 0);
-    W(REG_RLC_CTRL, 0); /* stream starts at bit 0 */
-    W(REG_MB_CTRL, 0);
-    W(REG_ADDR_CABAC_TBL, cabac ? cabac_tbl.phys : 0);
-    W(REG_ADDR_MV_OUT, 0);
-    W(REG_RGB2YUV1, 0x962b4c85);
-    W(REG_RGB2YUV2, 0x90901d50);
-    W(REG_RGB_MASK, 0x0000b694);
-    /* intra area and ROIs outside the picture */
-    /* left, right, top, bottom */
-    uint32_t outside = (mbw << 24) | (mbw << 16) | (mbh << 8) | mbh;
-    W(REG_INTRA_AREA, outside);
-    W(REG_ROI1, outside);
-    W(REG_ROI2, outside);
-    W(REG_MVC, 0x80002000);
-    /* 8290-only registers: constants the vendor writes for every job
-     * (meaning unknown, see the top of this file); 0x1b8 differs per
-     * frame type */
-    W(0x180, 0x00000003);
-    W(0x184, 0x606a707a);
-    W(0x188, 0x4148545a);
-    W(0x18c, 0x10112131);
-    W(0x190, 0x11111100);
-    W(0x194, 0x11111100);
-    W(0x1b8, idr ? 0x000abcdd : 0x999acdee);
-    W(0x1bc, 0x64209bdf);
-    W(0x1c0, 0x1b6db6db);
+    if (vi_chn >= 0) {
+      if (vi_get(vi.fd, vi_chn, &vi.frame))
+        return 1;
+      vi.held = 1;
+      if ((int)vi.frame.width != width || (int)vi.frame.height != height) {
+        fprintf(stderr, "VI size changed to %ux%u\n", vi.frame.width,
+                vi.frame.height);
+        return 1;
+      }
+      in_y = vi.frame.phys_y;
+      in_c = vi.frame.phys_c;
+    } else {
+      memset(pic, 0, pic_size);
+      fill_pattern(pic, pic + luma, width, height, stride, n * 8);
+      memcpy(in.virt, pic, pic_size);
+      in_y = in.phys;
+      in_c = in.phys + luma;
+    }
 
-    /* timeout IRQ, MB size, picture type (1 = IDR), H.264, enable */
+    if (n == 0 && dump && dump_nv12(dump, in_y, in_c, width, height, stride))
+      return 1;
+
+    if (jpeg_q) {
+      /* A JPEG job leaves the H.264-only registers alone, so clear the
+       * window first (0x180 and up are the vendor's constants, kept). */
+      for (int off = REG_IRQ; off < 0x180; off += 4)
+        W(off, 0);
+      W(REG_AXI, 0x0000d01f);
+      W(REG_ADDR_OUT, strm.phys);
+      W(REG_ADDR_IN_LUMA, in_y);
+      W(REG_ADDR_IN_CB, in_c);
+      W(REG_ADDR_IN_CR, in_c);
+      /* row length, right fill in 4-pixel units, bottom fill, NV12 */
+      W(REG_IN_IMG_CTRL, (stride << 12) | (((mbw * 16 - width) / 4) << 10) |
+                             ((mbh * 16 - height) << 6) | (1 << 2));
+      W(REG_STR_BUF_LIMIT, strm.size);
+      W(REG_RGB2YUV1, 0x962b4c85);
+      W(REG_RGB2YUV2, 0x90901d50);
+      W(REG_RGB_MASK, 0x0000b694);
+      /* The quantisation tables share 0x100-0x17c with other formats'
+       * tables: select JPEG (not yet enabled) before writing them. */
+      W(REG_ENC_CTRL, (1u << 31) | (mbw << 19) | (mbh << 10) | (1 << 3) |
+                          (2 << 1));
+      for (int i = 0; i < 16; i++) {
+        const uint8_t *o = &jpeg_q_reg_order[i * 4];
+
+        W(0x100 + i * 4, jq_y[o[0]] << 24 | jq_y[o[1]] << 16 |
+                             jq_y[o[2]] << 8 | jq_y[o[3]]);
+        W(0x140 + i * 4, jq_c[o[0]] << 24 | jq_c[o[1]] << 16 |
+                             jq_c[o[2]] << 8 | jq_c[o[3]]);
+      }
+    } else {
+      W(REG_ENC_CTRL, 0);
+      W(REG_IRQ, 0);
+      W(REG_AXI, 0x0000d01f); /* burst 16, clock gating, all swaps (vendor) */
+      W(REG_ADDR_OUT, strm.phys);
+      W(REG_ADDR_SIZE_TBL, 0);
+      W(REG_ADDR_REF_LUMA, recon_y[!cur].phys);
+      W(REG_ADDR_REF_CHROMA, recon_c[!cur].phys);
+      W(REG_ADDR_REC_LUMA, recon_y[cur].phys);
+      W(REG_ADDR_REC_CHROMA, recon_c[cur].phys);
+      W(REG_ADDR_IN_LUMA, in_y);
+      W(REG_ADDR_IN_CB, in_c);
+      W(REG_ADDR_IN_CR, in_c + 1);
+      /* row length, bottom overfill, input format 1 = NV12 */
+      W(REG_IN_IMG_CTRL,
+        (stride << 12) | ((mbh * 16 - height) << 6) | (1 << 2));
+      /* pic_init_qp, idr_pic_id (P frames keep the last IDR's) */
+      W(REG_ENC_CTRL0, ((uint32_t)qp << 26) | (idr_pic_id << 1));
+      /* 8290: per-frame-type constant, vendor values */
+      W(REG_ENC_CTRL1, idr ? 0x006a00eb : 0x0081011d);
+      /* deblocking mode as vendor, quarter-pel MV off, CABAC with
+       * cabac_init_idc 0 or CAVLC, and (8290) frame_num */
+      W(REG_ENC_CTRL2, 0xc0400000 | (cabac << 18) | frame_num);
+      /* MV penalties and skip/inter favour, vendor values per frame type */
+      W(REG_ENC_CTRL3, idr ? 0x00009c28 : 0x0000c433);
+      W(REG_ENC_CTRL4, idr ? 0x2d000087 : 0x33000087);
+      W(REG_STR_HDR_REM_MSB, 0);
+      W(REG_STR_HDR_REM_LSB, 0);
+      W(REG_STR_BUF_LIMIT, (strm.size >> 3) & ~7u); /* as MPP's VEPU1 HAL */
+      W(REG_MAD_CTRL, 0);
+      /* fixed QP: init = min = max, no checkpoints */
+      W(REG_QP_VAL, ((uint32_t)qp << 26) | (qp << 20) | (qp << 14));
+      for (int off = 0x070; off <= 0x090; off += 4)
+        W(off, 0);
+      W(REG_RLC_CTRL, 0); /* stream starts at bit 0 */
+      W(REG_MB_CTRL, 0);
+      W(REG_ADDR_CABAC_TBL, cabac ? cabac_tbl.phys : 0);
+      W(REG_ADDR_MV_OUT, 0);
+      W(REG_RGB2YUV1, 0x962b4c85);
+      W(REG_RGB2YUV2, 0x90901d50);
+      W(REG_RGB_MASK, 0x0000b694);
+      /* intra area and ROIs outside the picture */
+      /* left, right, top, bottom */
+      uint32_t outside = (mbw << 24) | (mbw << 16) | (mbh << 8) | mbh;
+      W(REG_INTRA_AREA, outside);
+      W(REG_ROI1, outside);
+      W(REG_ROI2, outside);
+      W(REG_MVC, 0x80002000);
+      /* 8290-only registers: constants the vendor writes for every job
+       * (meaning unknown, see the top of this file); 0x1b8 differs per
+       * frame type */
+      W(0x180, 0x00000003);
+      W(0x184, 0x606a707a);
+      W(0x188, 0x4148545a);
+      W(0x18c, 0x10112131);
+      W(0x190, 0x11111100);
+      W(0x194, 0x11111100);
+      W(0x1b8, idr ? 0x000abcdd : 0x999acdee);
+      W(0x1bc, 0x64209bdf);
+      W(0x1c0, 0x1b6db6db);
+    }
+
+    /* timeout IRQ, MB size, picture type (1 = IDR/intra), format (3 =
+     * H.264, 2 = JPEG), enable */
     clock_gettime(CLOCK_MONOTONIC, &t0);
-    W(REG_ENC_CTRL, (1u << 31) | (mbw << 19) | (mbh << 10) | (idr << 3) |
-                        (3 << 1) | 1);
+    W(REG_ENC_CTRL, (1u << 31) | (mbw << 19) | (mbh << 10) |
+                        ((jpeg_q || idr) << 3) | ((jpeg_q ? 2 : 3) << 1) | 1);
     alarm(2);
     ret = ioctl(fd_enc, HX280ENC_IOCWAITDONE);
     alarm(0);
@@ -532,19 +845,33 @@ int main(int argc, char **argv) {
               irq & IRQ_BUFFER_FULL ? " buffer full" : "",
               irq & IRQ_TIMEOUT ? " timeout" : "",
               irq & IRQ_RESET ? " reset" : "");
+      /* Stop the encoder before the exit handler gives a VI frame back:
+       * an interrupted wait doesn't mean it stopped reading. */
       W(REG_ENC_CTRL, 0);
       W(REG_IRQ, 0);
+      for (int i = 0; i < 100 && (regs[REG_ENC_CTRL / 4] & 1); i++)
+        usleep(1000);
       return 1;
     }
     W(REG_IRQ, 0);
+    /* The frame is done: the input picture can go back to VI */
+    if (vi.held) {
+      ioctl(vi.fd, VI_IOC_RELEASE_FRAME, &vi.frame);
+      vi.held = 0;
+    }
 
     uint32_t len = bits / 8;
+    if (jpeg_q && fwrite(jhdr, 1, jhdr_len, f) != (size_t)jhdr_len) {
+      perror(out);
+      return 1;
+    }
     if (fwrite(strm.virt, 1, len, f) != len) {
       perror(out);
       return 1;
     }
     total += len;
-    printf("frame %d (%c): irq 0x%08x, %u bytes, %ld us\n", n, idr ? 'I' : 'P',
+    printf("frame %d (%c): irq 0x%08x, %u bytes, %ld us\n", n,
+           jpeg_q ? 'J' : idr ? 'I' : 'P',
            irq, len,
            (long)((t1.tv_sec - t0.tv_sec) * 1000000 +
                   (t1.tv_nsec - t0.tv_nsec) / 1000));
@@ -553,9 +880,15 @@ int main(int argc, char **argv) {
     perror(out);
     return 1;
   }
-  printf("wrote %s: %d header + %llu slice bytes, %d frames (%dx%d, qp %d, "
-         "gop %d, %s)\n",
-         out, hdr_len, (unsigned long long)total, frames, width, height, qp,
-         gop, cabac ? "CABAC" : "CAVLC");
+  vi_cleanup();
+  if (jpeg_q)
+    printf("wrote %s: %d JPEG pictures, %llu bytes (%dx%d, quality %d)\n", out,
+           frames, (unsigned long long)total + frames * jhdr_len, width,
+           height, jpeg_q);
+  else
+    printf("wrote %s: %d header + %llu slice bytes, %d frames (%dx%d, qp %d, "
+           "gop %d, %s)\n",
+           out, hdr_len, (unsigned long long)total, frames, width, height, qp,
+           gop, cabac ? "CABAC" : "CAVLC");
   return 0;
 }
