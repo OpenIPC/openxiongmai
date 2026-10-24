@@ -329,7 +329,13 @@ int main(int argc, char **argv) {
     case 'r': idr_at = atoi(optarg); break;
     case 'B': strm_kib = atoi(optarg); break;
     case 'S': read_delay_ms = atoi(optarg); break;
-    case 'G': gop_ms = atoi(optarg); break;
+    case 'G': {
+      char *end;
+      long v = strtol(optarg, &end, 10);
+
+      gop_ms = end != optarg && *end == '\0' && v > 0 && v <= 3600000 ? v : -1;
+      break;
+    }
     default:
       fprintf(stderr,
               "usage: %s [-w width] [-h height] [-q qp] [-n frames] "

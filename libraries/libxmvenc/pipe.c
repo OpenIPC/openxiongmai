@@ -165,10 +165,13 @@ static void *feeder(void *arg) {
     pthread_mutex_unlock(&p->lock);
 
     /* The region is ours: the reader only frees others */
-    /* Due a keyframe: half a frame early rather than one frame late */
+    /* Due a keyframe: half a frame early rather than one frame late. Time
+     * running backwards (VI's timestamps restarting) makes one due too, and
+     * restarts the interval from there. Compared as elapsed time, which
+     * cannot overflow the way last_idr + gop_us can. */
     if (p->gop_us &&
-        (!p->last_idr ||
-         p->vi.pts + (uint64_t)(p->interval / 2) >= p->last_idr + p->gop_us))
+        (!p->last_idr || p->vi.pts < p->last_idr ||
+         p->vi.pts - p->last_idr + (uint64_t)(p->interval / 2) >= p->gop_us))
       xmvenc_chn_request_idr(p->chn);
     ret = xmvenc__encode_at(p->chn, p->vi.phys_y, p->vi.phys_c, off, limit,
                             &fr);
