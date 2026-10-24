@@ -1104,6 +1104,38 @@ static XM_S32 sensorType_get(XM_VOID) {
   }
   return XM_SUCCESS;
 }
+/* TEST ONLY (OpenIPC/openxiongmai#11): override the SC5332 MIPI receiver
+ * timing from the environment, to find what the sensor really sends.
+ * Not for merging. */
+static XM_U32 env_u32(const char *name, XM_U32 def) {
+  const char *v = getenv(name);
+  return v && *v ? (XM_U32)strtoul(v, NULL, 0) : def;
+}
+
+static void sc5332_test_knobs(COMBO_DEV_ATTR_S *a) {
+  a->mipi_attr.snsAllPixs =
+      env_u32("SC5332_ALLPIXS", a->mipi_attr.snsAllPixs);
+  a->mipi_attr.bAllPixs =
+      env_u32("SC5332_BALLPIXS", a->mipi_attr.snsAllPixs);
+  a->mipi_attr.snsAllLine =
+      env_u32("SC5332_ALLLINE", a->mipi_attr.snsAllLine);
+  a->mipi_attr.snsActivePixs =
+      env_u32("SC5332_ACTPIXS", a->mipi_attr.snsActivePixs);
+  a->mipi_attr.snsActiveLine =
+      env_u32("SC5332_ACTLINE", a->mipi_attr.snsActiveLine);
+  a->mipi_attr.delay =
+      env_u32("SC5332_DELAY", a->mipi_attr.delay);
+  gstProductInfo.bHsyncRecEn =
+      env_u32("SC5332_HSYNCREC", gstProductInfo.bHsyncRecEn);
+  printf("SC5332 test knobs: allpixs %u ballpixs %u allline %u actpixs %u "
+         "actline %u delay 0x%08x hsyncrec %u dvpclk %u\n",
+         a->mipi_attr.snsAllPixs, a->mipi_attr.bAllPixs,
+         a->mipi_attr.snsAllLine,
+         a->mipi_attr.snsActivePixs,
+         a->mipi_attr.snsActiveLine, a->mipi_attr.delay,
+         gstProductInfo.bHsyncRecEn, a->mipi_attr.bMpDvpclk);
+}
+
 
 static void GetProductInfo() {
   XM_U8 au8Bit[4] = {8, 10, 12, 16};
@@ -1653,6 +1685,7 @@ static void GetProductInfo() {
         SLOBYTE(stComboDevAttr.mipi_attr.lane);*/
     }
     stComboDevAttr.mipi_attr.delay = 0x1010101;
+    sc5332_test_knobs(&stComboDevAttr);
     break;
   case SENSOR_CHIP_SC4236:
     gstProductInfo.u8StdType =
