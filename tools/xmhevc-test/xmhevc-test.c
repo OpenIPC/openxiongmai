@@ -29,6 +29,8 @@
 #include "xmvenc.h"
 
 static int fd_mv = -1, verbose;
+/* status[0] of the last command the driver turned down, 0 otherwise */
+static uint32_t last_status;
 
 /* Room for the largest request (8 + 208) and reply (12 + 4 + 120) */
 static union {
@@ -45,6 +47,7 @@ static int mvb(uint32_t cmd, const void *payload, uint32_t size,
   struct mvb_req *req = (struct mvb_req *)io.b;
   struct mvb_reply *rep = (struct mvb_reply *)io.b;
 
+  last_status = 0;
   if (size > sizeof(io) - sizeof(*req))
     return -1;
   memset(io.b, 0, sizeof(io));
@@ -57,9 +60,14 @@ static int mvb(uint32_t cmd, const void *payload, uint32_t size,
     return -1;
   }
   if (rep->status[0] || rep->status[1]) {
+    last_status = rep->status[0] ? rep->status[0] : ~0u;
     if (rep->status[0] != quiet_status || rep->status[1])
       fprintf(stderr, "mv500 command %u: status %#x %#x\n", cmd, rep->status[0],
               rep->status[1]);
+    return -1;
+  }
+  if (rep->size > sizeof(io) - sizeof(*rep)) {
+    fprintf(stderr, "mv500 command %u: %u-byte reply\n", cmd, rep->size);
     return -1;
   }
   return rep->size;
@@ -76,12 +84,11 @@ static int fw_msg(uint32_t cmd, uint32_t size, int n, const uint32_t *w) {
   /* Until the session is first switched in, the driver turns these down
    * with status 8: take events until it is, then try again */
   for (int tries = 0;; tries++) {
-    struct mvb_reply *rep = (struct mvb_reply *)io.b;
     uint32_t timeout = 100;
 
     if (mvb(cmd, msg, size, MVB_STATUS_NOT_SCHEDULED) >= 0)
       return 0;
-    if (rep->status[0] != MVB_STATUS_NOT_SCHEDULED)
+    if (last_status != MVB_STATUS_NOT_SCHEDULED)
       return -1;
     if (tries == 20) {
       fprintf(stderr, "mv500 command %u: session never switched in\n", cmd);
@@ -189,8 +196,9 @@ int main(int argc, char **argv) {
               argv[0]);
       return 2;
     }
-  if (w < 64 || h < 64 || w % 16 || h % 2 || frames < 1 || gop < 1 || fps < 1 ||
-      fps > 240 || kbps < 1 || kbps > 100000) {
+  if (w < 64 || h < 64 || w > 4096 || h > 4096 || w % 16 || h % 2 ||
+      frames < 1 || gop < 1 || fps < 1 || fps > 240 || kbps < 1 ||
+      kbps > 100000) {
     fprintf(stderr, "bad size, frame count, gop, fps or bitrate\n");
     return 2;
   }
@@ -320,8 +328,9 @@ int main(int argc, char **argv) {
       continue;
     }
     idle = 0;
-    if (ev.size < sizeof(b)) {
-      fprintf(stderr, "event %u: short buffer, %u bytes\n", ev.code, ev.size);
+    if (ev.size < sizeof(b) || n < (int)(sizeof(ev) + sizeof(b))) {
+      fprintf(stderr, "event %u: short buffer, %u bytes in a %d-byte reply\n",
+              ev.code, ev.size, n);
       goto close_mv;
     }
     memcpy(&b, reply_data() + sizeof(ev), sizeof(b));
