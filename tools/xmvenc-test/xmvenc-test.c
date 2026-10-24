@@ -11,7 +11,7 @@
  * Usage: xmvenc-test [-w width] [-h height] [-q qp] [-n frames]
  *                    [-g gop] [-c] [-v chn] [-d dump.nv12] [-j quality]
  *                    [-b kbps] [-f fps] [-Q qmin:qmax] [-o file]
- *                    [-p [-J quality] [-r frames] [-S ms]] [-B kib]
+ *                    [-p [-J quality] [-r frames] [-S ms] [-G ms]] [-B kib]
  *
  * -g sets the IDR interval (1: every frame is IDR), -c selects CABAC.
  * The colour bars move 8 pixels a frame, so P frames carry motion.
@@ -28,7 +28,8 @@
  * queue); -J adds JPEG snapshots of VI channel 1 at that quality, about
  * one a second, to <file>.jpg, -r requests an IDR once that many
  * packets have been read, and -S makes the reader that much slower per packet, so that
- * the queue fills. -B sets the stream buffer size in KiB.
+ * the queue fills, and -G sets the keyframe interval in milliseconds of
+ * capture time instead of -g frames. -B sets the stream buffer size in KiB.
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>
@@ -294,14 +295,14 @@ static int run_pipes(struct xmvenc *enc, const struct xmvenc_chn_attr *attr,
 int main(int argc, char **argv) {
   int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
       vi_chn = -1, jpeg_q = 0, qmin = 20, qmax = 45, pipe = 0, snap_q = 0,
-      idr_at = 0, sub_w = 0, sub_h = 0, strm_kib = 0, opt;
+      idr_at = 0, sub_w = 0, sub_h = 0, strm_kib = 0, gop_ms = 0, opt;
   double kbps = 0, fps = 25;
   const char *out = "xmvenc-test.h264", *dump = NULL;
   struct xmvenc *enc;
   struct xmvenc_chn *chn;
   struct xmvenc_buf in;
 
-  while ((opt = getopt(argc, argv, "w:h:q:n:g:cv:d:j:b:f:Q:o:pJ:r:B:S:")) != -1) {
+  while ((opt = getopt(argc, argv, "w:h:q:n:g:cv:d:j:b:f:Q:o:pJ:r:B:S:G:")) != -1) {
     switch (opt) {
     case 'w': width = atoi(optarg); break;
     case 'h': height = atoi(optarg); break;
@@ -328,12 +329,19 @@ int main(int argc, char **argv) {
     case 'r': idr_at = atoi(optarg); break;
     case 'B': strm_kib = atoi(optarg); break;
     case 'S': read_delay_ms = atoi(optarg); break;
+    case 'G': {
+      char *end;
+      long v = strtol(optarg, &end, 10);
+
+      gop_ms = end != optarg && *end == '\0' && v > 0 && v <= 3600000 ? v : -1;
+      break;
+    }
     default:
       fprintf(stderr,
               "usage: %s [-w width] [-h height] [-q qp] [-n frames] "
               "[-g gop] [-c] [-v chn] [-d dump.nv12] [-j quality] "
               "[-b kbps] [-f fps] [-Q qmin:qmax] [-o file] "
-              "[-p [-J quality] [-r frames] [-S ms]] [-B kib]\n",
+              "[-p [-J quality] [-r frames] [-S ms] [-G ms]] [-B kib]\n",
               argv[0]);
       return 2;
     }
@@ -341,8 +349,8 @@ int main(int argc, char **argv) {
   if (frames < 1 || jpeg_q < 0 || jpeg_q > 100 || kbps < 0 || fps <= 0 ||
       qmin < 0 || qmax > 51 || qmin > qmax || snap_q < 0 || snap_q > 100 ||
       ((pipe || snap_q || idr_at) && (vi_chn < 0 || jpeg_q)) ||
-      ((snap_q || idr_at || read_delay_ms) && !pipe) || strm_kib < 0 ||
-      read_delay_ms < 0) {
+      ((snap_q || idr_at || read_delay_ms || gop_ms) && !pipe) ||
+      strm_kib < 0 || read_delay_ms < 0 || gop_ms < 0) {
     fprintf(stderr, "bad arguments\n");
     return 2;
   }
@@ -416,6 +424,7 @@ int main(int argc, char **argv) {
       .quality = jpeg_q,
       .min_luma = luma_max,
       .strm_size = (uint32_t)strm_kib * 1024,
+      .gop_us = (uint64_t)gop_ms * 1000,
   };
   if (pipe)
     return run_pipes(enc, &attr, vi_chn, frames, snap_q, sub_w, sub_h, idr_at,

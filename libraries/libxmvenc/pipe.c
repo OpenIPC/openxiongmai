@@ -51,6 +51,8 @@ struct xmvenc_pipe {
   double interval;
   uint64_t last_pts;
   double fps; /* the configured rate, rate control's start */
+  uint64_t gop_us;   /* keyframe interval in time, 0: in frames */
+  uint64_t last_idr; /* timestamp of the last IDR, 0: none yet */
   struct xmvenc_pipe_stats stats;
 };
 
@@ -163,6 +165,14 @@ static void *feeder(void *arg) {
     pthread_mutex_unlock(&p->lock);
 
     /* The region is ours: the reader only frees others */
+    /* Due a keyframe: half a frame early rather than one frame late. Time
+     * running backwards (VI's timestamps restarting) makes one due too, and
+     * restarts the interval from there. Compared as elapsed time, which
+     * cannot overflow the way last_idr + gop_us can. */
+    if (p->gop_us &&
+        (!p->last_idr || p->vi.pts < p->last_idr ||
+         p->vi.pts - p->last_idr + (uint64_t)(p->interval / 2) >= p->gop_us))
+      xmvenc_chn_request_idr(p->chn);
     ret = xmvenc__encode_at(p->chn, p->vi.phys_y, p->vi.phys_c, off, limit,
                             &fr);
     xmvenc__vi_release(&p->vi);
@@ -188,6 +198,9 @@ static void *feeder(void *arg) {
       if (p->frames && --p->frames == 0)
         p->run = 0;
       measure_rate(p);
+      /* Requested IDRs count too: the interval runs from the last one */
+      if (fr.type == 'I')
+        p->last_idr = p->vi.pts;
     }
     p->seq++;
     pthread_cond_broadcast(&p->cond);
@@ -216,7 +229,12 @@ struct xmvenc_pipe *xmvenc_pipe_create(struct xmvenc *enc, int id, int vi_chn,
     free(p);
     return NULL;
   }
-  if (!(p->chn = xmvenc_chn_create(enc, id, attr))) {
+  struct xmvenc_chn_attr a = *attr;
+  /* With a keyframe interval in time, the pipe asks for every IDR itself */
+  if (a.gop_us)
+    a.gop = 1 << 30;
+  p->gop_us = a.gop_us;
+  if (!(p->chn = xmvenc_chn_create(enc, id, &a))) {
     xmvenc__vi_close(&p->vi);
     free(p);
     return NULL;
@@ -266,6 +284,7 @@ int xmvenc_pipe_start(struct xmvenc_pipe *p, int frames) {
    * says nothing about the next run: start again from the configured one */
   p->last_pts = 0;
   p->interval = 0;
+  p->last_idr = 0; /* a restarted stream starts with an IDR */
   xmvenc__frame_rate(p->chn, p->fps);
   pthread_mutex_unlock(&p->lock);
   if (pthread_create(&p->thread, NULL, feeder, p)) {
