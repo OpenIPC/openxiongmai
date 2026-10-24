@@ -178,7 +178,7 @@ struct xmvenc {
 
 struct rc {
   int on, qp_i, qp_p, qmin, qmax, gop;
-  double budget, buffer, fps;
+  double budget, buffer, fps, kbps;
 };
 
 struct xmvenc_chn {
@@ -499,7 +499,7 @@ static int write_cabac_table(uint8_t *dst, int cabac_init_idc) {
   for (int qp = 0; qp < 52; qp++)
     for (int j = 0; j < 2; j++) {
       const signed char(*ctx)[2] =
-          j ? h264_context_init[cabac_init_idc] : h264_context_init_intra;
+          j ? xmvenc__cabac_init[cabac_init_idc] : xmvenc__cabac_init_intra;
 
       for (int i = 0; i < 460; i++) {
         int pre = ((ctx[i][0] * qp) >> 4) + ctx[i][1];
@@ -782,6 +782,7 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
     chn->rc.qmin = a->qmin;
     chn->rc.qmax = a->qmax;
     chn->rc.fps = a->fps;
+    chn->rc.kbps = a->kbps;
     chn->rc.budget = a->kbps * 1000 / a->fps;
     chn->rc.qp_i = chn->rc.qp_p = clampi(a->qp, a->qmin, a->qmax);
     chn->rc.gop = a->gop;
@@ -1041,3 +1042,10 @@ int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
 }
 
 uint32_t xmvenc__strm_size(const struct xmvenc_chn *chn) { return chn->strm.size; }
+
+void xmvenc__frame_rate(struct xmvenc_chn *chn, double fps) {
+  if (!chn->rc.on || !(fps > 0))
+    return;
+  chn->rc.fps = fps;
+  chn->rc.budget = chn->rc.kbps * 1000 / fps;
+}

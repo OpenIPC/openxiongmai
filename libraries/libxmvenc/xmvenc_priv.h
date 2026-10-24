@@ -14,6 +14,9 @@ int xmvenc__encode_at(struct xmvenc_chn *chn, uint32_t phys_y,
                       uint32_t phys_c, uint32_t off, uint32_t limit,
                       struct xmvenc_frame *out);
 uint32_t xmvenc__strm_size(const struct xmvenc_chn *chn);
+/* The frame rate the channel actually runs at, for rate control: its
+ * per-frame budget is the bitrate over this */
+void xmvenc__frame_rate(struct xmvenc_chn *chn, double fps);
 
 
 

@@ -46,6 +46,10 @@ struct xmvenc_pipe {
   struct slot q[DEPTH];
   uint32_t head; /* where the next frame goes */
   uint32_t seq;
+  /* Interval between encoded frames, smoothed, in microseconds (0: none
+   * yet); rate control is fed the frame rate it gives */
+  double interval;
+  uint64_t last_pts;
   struct xmvenc_pipe_stats stats;
 };
 
@@ -138,6 +142,17 @@ static void *feeder(void *arg) {
       continue;
     }
     pthread_mutex_unlock(&p->lock);
+
+    /* Rate control budgets per frame: tell it the rate frames really come
+     * at, which the configured fps may not be (a 15 fps sensor) */
+    if (p->last_pts && p->vi.pts > p->last_pts &&
+        p->vi.pts - p->last_pts < 1000000) {
+      double d = (double)(p->vi.pts - p->last_pts);
+
+      p->interval = p->interval ? p->interval * 0.9 + d * 0.1 : d;
+      xmvenc__frame_rate(p->chn, 1e6 / p->interval);
+    }
+    p->last_pts = p->vi.pts;
 
     /* The region is ours: the reader only frees others */
     ret = xmvenc__encode_at(p->chn, p->vi.phys_y, p->vi.phys_c, off, limit,
@@ -236,6 +251,7 @@ int xmvenc_pipe_start(struct xmvenc_pipe *p, int frames) {
   }
   pthread_mutex_lock(&p->lock);
   p->run = 1;
+  p->last_pts = 0; /* a gap while stopped is no frame interval */
   pthread_mutex_unlock(&p->lock);
   if (pthread_create(&p->thread, NULL, feeder, p)) {
     pthread_mutex_lock(&p->lock);
