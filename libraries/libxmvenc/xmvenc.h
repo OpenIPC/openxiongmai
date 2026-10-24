@@ -74,6 +74,11 @@ struct xmvenc_chn_attr {
    * fits the vendor's idle stream buffer). A pipe keeps its queued
    * frames there. */
   uint32_t strm_size;
+  /* Pipes only: the keyframe interval as time rather than frames. An IDR is
+   * made once this many microseconds of capture time have passed since the
+   * last one, by the frames' timestamps, whatever rate they come at; gop is
+   * then not used. 0: every gop frames. */
+  uint64_t gop_us;
 };
 
 /* Creates channel id (0-3; it names the channel's MMZ blocks, so each id

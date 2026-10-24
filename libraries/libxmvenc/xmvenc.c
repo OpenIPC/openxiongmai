@@ -440,8 +440,11 @@ static int write_sps_pps(uint8_t *out, int width, int height, int qp,
   int mbw = (width + 15) / 16, mbh = (height + 15) / 16, n;
 
   memset(&w, 0, sizeof(w));
-  put_bits(&w, 77, 8); /* profile_idc: Main */
-  put_bits(&w, 0, 8);  /* constraint flags */
+  /* CAVLC streams are Constrained Baseline: no B slices, no FMO/ASO, no
+   * redundant pictures (constraint_set0 and constraint_set1). CABAC needs
+   * Main. */
+  put_bits(&w, cabac ? 77 : 66, 8); /* profile_idc */
+  put_bits(&w, cabac ? 0 : 0xc0, 8); /* constraint flags */
   put_bits(&w, level_for(mbw * mbh), 8); /* level_idc */
   put_ue(&w, 0);       /* seq_parameter_set_id */
   put_ue(&w, 12);      /* log2_max_frame_num_minus4 */
