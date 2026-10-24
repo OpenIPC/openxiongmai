@@ -724,6 +724,12 @@ static void SysPLL_Init(XM_U8 u8Mode, const XM_PRODUCT_INFO *pstProductInfo) {
       pfun_pllSet = pllSet_1M;
       break;
     }
+    /* Only some pllSet_1M() cases set the LCD clock dividers; otherwise
+     * PLL_LCDCLK_CTRL below got whatever was on the stack (0x73df, 0xf37f,
+     * 0xf3df seen on an XM550 with an IMX335). Default to its reset value,
+     * 0xffff, the slowest dividers. */
+    stPllAttr.B_postDiv_lcd1 = 256;
+    stPllAttr.B_postDiv_lcd2 = 256;
     (*pfun_pllSet)(&stPllAttr, pstProductInfo->u8Encoder,
                    pstProductInfo->u8StdType, u8SnsClk);
   }
