@@ -52,6 +52,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
     └── libsns_X50_XM530/        libsns_X50_XM530.so: "X50" sensor family
 
 tools/
+├── xmhevc-test/                 Encodes H.265 through the vendor Mali-V550 driver (MIT)
 └── xmvenc-test/                 Encodes H.264 or JPEG with libxmvenc (MIT)
 ```
 
@@ -164,6 +165,22 @@ Two cautions about MMZ:
 
 Restarting majestic resets MMZ cleanly.
 
+### H.265: `tools/xmhevc-test`
+
+The XM530/XM550 encodes H.265 on a separate engine, an Arm Mali-V550 with its own firmware (`hevcenc.fwb`), behind the vendor kernel module `mve_base.ko` and its device `/dev/mv500` ([#27](https://github.com/OpenIPC/openxiongmai/issues/27)). `tools/xmhevc-test` drives that module without vendor libraries:
+- **Interface:** `mvb.h` holds what the tool uses of the module's interface. That covers the command numbers, the buffer descriptor, the events, and the firmware messages that carry the encoder settings. It was recovered from the module and from a trace of the vendor library, and is written from scratch under MIT.
+- **Input:** a synthetic NV12 picture (a ramp with a square that moves 8 pixels per frame).
+- **Output:** a raw `.h265` file of parameter sets and IDR/P frames.
+- **Settings:** IDR interval (`-g`), frame rate (`-f`), variable bitrate target (`-b`) and QP range (`-Q`).
+
+```bash
+make -C tools/xmhevc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
+# on the camera, with majestic stopped
+./xmhevc-test -w 1920 -h 1080 -n 100 -g 25 -o /tmp/test.h265
+```
+
+The tool takes its MMZ through `libxmvenc`, so it also needs `/dev/h264`. Its input block is sized for at least 1080p, so 720p and 1080p runs reuse the same block.
+
 ## CI
 
 Every push and pull request to `main` runs these jobs, each using the OpenIPC musl toolchain for its SoC (`toolchain.xiongmai-xm5x0`).
@@ -178,5 +195,5 @@ All external inputs are pinned: the kernel commits, the firmware commit, and the
 ## License
 
 GPL v3. See [LICENSE](LICENSE). The exceptions:
-- `libraries/libxmvenc` and `tools/xmvenc-test` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
+- `libraries/libxmvenc`, `tools/xmvenc-test` and `tools/xmhevc-test` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
 - `libraries/libxmvenc/cabac_tbl.c` and `cabac_tbl.h` are under the Apache License 2.0, from Rockchip MPP.
