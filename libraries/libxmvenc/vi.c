@@ -5,8 +5,10 @@
  * The frame record is 32 bytes on XM530 (xm530_vi.ko), with a timestamp,
  * and 24 on XM510, without. A get waits briefly for a frame; the frame
  * stays ours, and VI fills its other buffers, until it is released. The
- * record size is settled by the first get that returns a frame: the
- * other size is rejected, but so is a get when no frame is ready yet.
+ * caller passes the size when it knows the chip; otherwise it is settled
+ * by the first get that returns a frame: the other size is rejected, but
+ * so is a get when no frame is ready yet, and XM530's driver logs
+ * "vi_ioctl: cmd error" for every 24-byte try.
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>
@@ -29,9 +31,10 @@ struct vi_rec {
   uint64_t pts;
 };
 
-int xmvenc__vi_open(struct xmvenc_vi *vi, int chn) {
+int xmvenc__vi_open(struct xmvenc_vi *vi, int chn, uint32_t rec_size) {
   memset(vi, 0, sizeof(*vi));
   vi->chn = chn;
+  vi->rec_size = rec_size;
   vi->fd = open("/dev/vi", O_RDWR);
   return vi->fd < 0 ? -1 : 0;
 }

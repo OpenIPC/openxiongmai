@@ -125,7 +125,10 @@ struct xmvenc_pipe;
 
 /* The pipe's channel encodes frames from VI channel vi_chn, which must
  * deliver pictures of attr's size. attr->fps, if set, is the frame rate
- * to keep: VI frames in between are skipped. */
+ * to keep: VI frames in between are skipped. With rate control on, the
+ * bitrate is shared out by the rate frames are actually encoded at,
+ * measured from their timestamps, so a source slower than attr->fps
+ * still gets attr->kbps. */
 struct xmvenc_pipe *xmvenc_pipe_create(struct xmvenc *enc, int id, int vi_chn,
                                        const struct xmvenc_chn_attr *attr);
 /* Stops the pipe; its packets must have been released */

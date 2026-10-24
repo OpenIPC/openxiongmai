@@ -46,6 +46,11 @@ struct xmvenc_pipe {
   struct slot q[DEPTH];
   uint32_t head; /* where the next frame goes */
   uint32_t seq;
+  /* Interval between encoded frames, smoothed, in microseconds (0: none
+   * yet); rate control is fed the frame rate it gives */
+  double interval;
+  uint64_t last_pts;
+  double fps; /* the configured rate, rate control's start */
   struct xmvenc_pipe_stats stats;
 };
 
@@ -85,6 +90,24 @@ static int reserve(struct xmvenc_pipe *p, uint32_t *off, uint32_t *limit) {
     *limit = tail - p->head;
   }
   return *limit >= min ? 0 : -1;
+}
+
+/* Rate control budgets per frame: after each frame encoded, tell it the
+ * rate frames really come at, which the configured fps may not be (a 15 fps
+ * sensor). Gaps much longer than a frame (a stall) are not counted. */
+static void measure_rate(struct xmvenc_pipe *p) {
+  double gap = p->fps > 0 ? 4e6 / p->fps : 0;
+
+  if (gap < 1e6)
+    gap = 1e6;
+  if (p->last_pts && p->vi.pts > p->last_pts &&
+      p->vi.pts - p->last_pts < gap) {
+    double d = (double)(p->vi.pts - p->last_pts);
+
+    p->interval = p->interval ? p->interval * 0.9 + d * 0.1 : d;
+    xmvenc__frame_rate(p->chn, 1e6 / p->interval);
+  }
+  p->last_pts = p->vi.pts;
 }
 
 static void *feeder(void *arg) {
@@ -164,6 +187,7 @@ static void *feeder(void *arg) {
       p->stats.encoded++;
       if (p->frames && --p->frames == 0)
         p->run = 0;
+      measure_rate(p);
     }
     p->seq++;
     pthread_cond_broadcast(&p->cond);
@@ -185,7 +209,9 @@ struct xmvenc_pipe *xmvenc_pipe_create(struct xmvenc *enc, int id, int vi_chn,
   p->width = attr->width;
   p->height = attr->height;
   p->period = attr->fps > 0 ? (uint64_t)(1000000 / attr->fps) : 0;
-  if (xmvenc__vi_open(&p->vi, vi_chn)) {
+  p->fps = attr->fps;
+  /* XM510's encoder takes at most 1280 pixels a line */
+  if (xmvenc__vi_open(&p->vi, vi_chn, xmvenc_max_width(enc) <= 1280 ? 24 : 32)) {
     xmvenc__log(enc, "/dev/vi: %s", strerror(errno));
     free(p);
     return NULL;
@@ -236,6 +262,11 @@ int xmvenc_pipe_start(struct xmvenc_pipe *p, int frames) {
   }
   pthread_mutex_lock(&p->lock);
   p->run = 1;
+  /* A gap while stopped is no frame interval, and the rate measured before
+   * says nothing about the next run: start again from the configured one */
+  p->last_pts = 0;
+  p->interval = 0;
+  xmvenc__frame_rate(p->chn, p->fps);
   pthread_mutex_unlock(&p->lock);
   if (pthread_create(&p->thread, NULL, feeder, p)) {
     pthread_mutex_lock(&p->lock);

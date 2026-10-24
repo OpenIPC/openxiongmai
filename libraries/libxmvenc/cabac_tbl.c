@@ -23,7 +23,7 @@
 
 #include "cabac_tbl.h"
 
-const signed char h264_context_init_intra[460][2] = {
+const signed char xmvenc__cabac_init_intra[460][2] = {
     {20, -15}, {2, 54}, {3, 74}, {20, -15}, {2, 54}, {3, 74}, {-28, 127},
     {-23, 104}, {-6, 53}, {-1, 54}, {7, 51}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
     {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0},
@@ -91,7 +91,7 @@ const signed char h264_context_init_intra[460][2] = {
     {14, 67},
 };
 
-const signed char h264_context_init[3][460][2] = {
+const signed char xmvenc__cabac_init[3][460][2] = {
     /* cabac_init_idc 0 */
     {
         {20, -15}, {2, 54}, {3, 74}, {20, -15}, {2, 54}, {3, 74}, {-28, 127},
