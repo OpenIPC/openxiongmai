@@ -192,7 +192,7 @@ static void *feeder(void *arg) {
       s->pkt.len = fr.len;
       s->pkt.pts = p->vi.pts;
       s->pkt.seq = p->seq;
-      p->head = off + ((fr.len + ALIGN - 1) & ~(ALIGN - 1u));
+      p->head = (xmvenc__frame_end(p->chn, &fr) + ALIGN - 1) & ~(ALIGN - 1u);
       p->put++;
       p->stats.encoded++;
       if (p->frames && --p->frames == 0)

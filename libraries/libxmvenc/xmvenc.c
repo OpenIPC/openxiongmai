@@ -191,6 +191,7 @@ struct xmvenc_chn {
   uint8_t hdr[1024]; /* SPS and PPS, or the JPEG header */
   int hdr_len;
   uint8_t jq_y[64], jq_c[64];
+  struct xmvenc_hevc *hevc;
 };
 
 void xmvenc__log(struct xmvenc *enc, const char *fmt, ...) {
@@ -707,11 +708,11 @@ static int chn_alloc(struct xmvenc_chn *chn, struct xmvenc_buf *b,
 struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
                                      const struct xmvenc_chn_attr *attr) {
   const struct xmvenc_chn_attr *a = attr;
-  int jpeg = a->codec == XMVENC_JPEG;
+  int jpeg = a->codec == XMVENC_JPEG, hevc = a->codec == XMVENC_H265;
   struct xmvenc_chn *chn;
 
   /* The intra-area and ROI fields hold 8-bit macroblock counts. */
-  if (id < 0 || id > 3 || (a->codec != XMVENC_H264 && !jpeg) ||
+  if (id < 0 || id > 3 || (a->codec != XMVENC_H264 && !jpeg && !hevc) ||
       a->width < 96 || a->height < 96 || a->width > 4080 ||
       a->height > 4080 || a->width % 8 || a->height % 2 ||
       (a->stride &&
@@ -726,7 +727,8 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
     xmvenc__log(enc, "channel %d: bad attributes", id);
     return NULL;
   }
-  if (a->width > (int)enc->max_width) {
+  /* The H.264 encoder's limit; the Mali-V550 has its own */
+  if (!hevc && a->width > (int)enc->max_width) {
     xmvenc__log(enc, "%d is wider than this encoder's %u", a->width,
           enc->max_width);
     return NULL;
@@ -761,6 +763,14 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
   if (chn_alloc(chn, &chn->strm, "strm",
                 a->strm_size ? a->strm_size : enc->chip->strm_size, 0))
     goto fail;
+  if (hevc) {
+    chn->hevc = xmvenc__hevc_create(enc, id, enc->fd_mem, a, chn->stride,
+                                    &chn->strm);
+    if (!chn->hevc)
+      goto fail;
+    pthread_mutex_unlock(&enc->setup);
+    return chn;
+  }
   if (jpeg) {
     jpeg_scale_q(chn->jq_y, jpeg_q_luma, a->quality);
     jpeg_scale_q(chn->jq_c, jpeg_q_chroma, a->quality);
@@ -801,6 +811,7 @@ fail:
 void xmvenc_chn_destroy(struct xmvenc_chn *chn) {
   if (!chn)
     return;
+  xmvenc__hevc_destroy(chn->hevc);
   /* MMZ has no free: the blocks stay allocated for the next user of
    * their names */
   mmz_unmap(&chn->strm);
@@ -967,6 +978,17 @@ int xmvenc__encode_at(struct xmvenc_chn *chn, uint32_t phys_y,
   uint32_t irq;
 
   memset(out, 0, sizeof(*out));
+  if (chn->hevc) {
+    /* A separate engine: not under the H.264 encoder's lock */
+    if (xmvenc__hevc_encode(
+            chn->hevc, phys_y, phys_c, off, limit,
+            __atomic_exchange_n(&chn->force_idr, 0, __ATOMIC_RELAXED), out)) {
+      xmvenc_chn_request_idr(chn);
+      return -1;
+    }
+    chn->n++;
+    return 0;
+  }
   if (!jpeg) {
     idr = __atomic_exchange_n(&chn->force_idr, 0, __ATOMIC_RELAXED) ||
           chn->gop_pos == 0;
@@ -1046,7 +1068,16 @@ int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
 
 uint32_t xmvenc__strm_size(const struct xmvenc_chn *chn) { return chn->strm.size; }
 
+uint32_t xmvenc__frame_end(const struct xmvenc_chn *chn,
+                           const struct xmvenc_frame *fr) {
+  return (uint32_t)(fr->data - chn->strm.virt) + fr->len;
+}
+
 void xmvenc__frame_rate(struct xmvenc_chn *chn, double fps) {
+  if (chn->hevc) {
+    xmvenc__hevc_frame_rate(chn->hevc, fps);
+    return;
+  }
   if (!chn->rc.on || !(fps > 0))
     return;
   chn->rc.fps = fps;

@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: MIT */
 /*
  * libxmvenc: H.264 and JPEG encoding on the Hantro 8290 (H1) encoder of
- * the XM530/XM550 and XM510, without vendor libraries
- * (OpenIPC/openxiongmai#13).
+ * the XM530/XM550 and XM510, and H.265 on the XM530/XM550's Mali-V550,
+ * without vendor libraries (OpenIPC/openxiongmai#13, #27).
  *
  * The encoder is one piece of hardware: open it once per process. Each
  * channel is one stream (H.264 or JPEG) with its own buffers. Encodes on
@@ -13,6 +13,11 @@
  * Needs an encoder driver (/dev/h264: vendor xm530_h264.ko or
  * xm510_h264.ko, or drivers/hx280enc), /dev/mmz and /dev/mem. The vendor
  * stack must not be encoding at the same time.
+ *
+ * H.265 channels run on the Mali-V550 through the vendor driver
+ * (mve_base.ko with its firmware, /dev/mv500), one firmware session per
+ * channel, alongside the H.264 encoder rather than taking turns with it.
+ * The firmware keeps the GOP and the rate control.
  */
 #ifndef XMVENC_H
 #define XMVENC_H
@@ -49,19 +54,23 @@ int xmvenc_max_width(const struct xmvenc *enc);
 int xmvenc_mmz_alloc(struct xmvenc *enc, struct xmvenc_buf *b,
                      const char *name, uint32_t size, const char *vendor);
 
-enum xmvenc_codec { XMVENC_H264, XMVENC_JPEG };
+enum xmvenc_codec { XMVENC_H264, XMVENC_JPEG, XMVENC_H265 };
 
 struct xmvenc_chn_attr {
   enum xmvenc_codec codec;
-  /* Picture size; width a multiple of 8, height even, 96 to max width.
-   * stride is the luma row length in bytes, at least the width (0: the
-   * width rounded up to 16). The input is NV12. */
+  /* Picture size; width a multiple of 8, height even, 96 to max width
+   * (H.265: to 4080). stride is the luma row length in bytes, at least
+   * the width (0: the width rounded up to 16). The input is NV12; for
+   * H.265 the chroma must follow the luma directly (at stride * height),
+   * as VI delivers it. */
   int width, height, stride;
-  /* H.264 */
-  int cabac; /* CABAC rather than CAVLC */
+  /* H.264 and H.265 */
+  int cabac; /* H.264: CABAC rather than CAVLC */
   int gop;   /* IDR interval in frames; 1 makes every frame an IDR */
-  int qp;    /* fixed QP, or the starting QP with rate control */
-  /* Frame-level rate control, when kbps > 0: QP within qmin..qmax */
+  int qp;    /* fixed QP, or (H.264) the starting QP with rate control */
+  /* Rate control, when kbps > 0: QP within qmin..qmax. H.264: frame-level,
+   * in the library; H.265: the firmware's variable bitrate mode. fps is
+   * the frame rate to budget for. */
   double kbps, fps;
   int qmin, qmax;
   /* JPEG quality, 1-100 */
@@ -93,13 +102,13 @@ void xmvenc_chn_request_idr(struct xmvenc_chn *chn);
 struct xmvenc_frame {
   char type; /* 'I', 'P' or 'J' */
   int qp;    /* H.264 only */
-  /* Software-written headers: SPS and PPS before an IDR, the JPEG header
-   * up to SOS before a picture; otherwise hdr_len is 0. */
+  /* Headers: SPS and PPS before an IDR (H.265: VPS, SPS and PPS), the
+   * JPEG header up to SOS before a picture; otherwise hdr_len is 0. */
   const uint8_t *hdr;
   uint32_t hdr_len;
-  /* What the hardware wrote: the slice NAL with its start code, or the
-   * JPEG scan with EOI. Uncached memory, valid until the channel's next
-   * encode. */
+  /* What the hardware wrote: the slice NAL with its start code (H.265:
+   * the frame's NAL units), or the JPEG scan with EOI. Uncached memory,
+   * valid until the channel's next encode. */
   const uint8_t *data;
   uint32_t len;
   uint32_t status; /* the encoder's status register after the frame */
@@ -115,7 +124,12 @@ struct xmvenc_frame {
  * ends a stalled job. A signal to the waiting thread, from a handler
  * installed without SA_RESTART, also ends the wait (pthread_kill, or
  * alarm in a single-threaded program). If the encoder then doesn't stop,
- * every later encode fails until it is reopened. */
+ * every later encode fails until it is reopened.
+ *
+ * H.265: the frame is waited for up to 2 s. A frame that doesn't come
+ * back, or doesn't fit the stream buffer, leaves the channel's session
+ * unusable: every later encode on it fails until the channel is
+ * destroyed and created again. */
 int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
                   struct xmvenc_frame *out);
 
@@ -152,8 +166,9 @@ struct xmvenc_chn *xmvenc_pipe_chn(struct xmvenc_pipe *pipe);
 
 struct xmvenc_packet {
   char type; /* 'I', 'P' or 'J' */
-  int qp;
-  /* SPS and PPS before an IDR, the JPEG header before a picture */
+  int qp;    /* H.264 only */
+  /* SPS and PPS before an IDR (H.265: VPS too), the JPEG header before a
+   * picture */
   const uint8_t *hdr;
   uint32_t hdr_len;
   /* The slice or scan, valid until the packet is released */

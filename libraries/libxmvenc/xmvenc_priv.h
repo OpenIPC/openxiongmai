@@ -14,11 +14,28 @@ int xmvenc__encode_at(struct xmvenc_chn *chn, uint32_t phys_y,
                       uint32_t phys_c, uint32_t off, uint32_t limit,
                       struct xmvenc_frame *out);
 uint32_t xmvenc__strm_size(const struct xmvenc_chn *chn);
+/* Where a frame's data ends in the stream buffer (its offset plus length:
+ * H.265 data doesn't start at the offset encoded at) */
+uint32_t xmvenc__frame_end(const struct xmvenc_chn *chn,
+                           const struct xmvenc_frame *fr);
 /* The frame rate the channel actually runs at, for rate control: its
  * per-frame budget is the bitrate over this */
 void xmvenc__frame_rate(struct xmvenc_chn *chn, double fps);
 
 
+
+/* H.265 sessions (hevc.c) */
+struct xmvenc_hevc;
+struct xmvenc_hevc *xmvenc__hevc_create(struct xmvenc *enc, int id,
+                                        int fd_mem,
+                                        const struct xmvenc_chn_attr *a,
+                                        int stride, struct xmvenc_buf *strm);
+void xmvenc__hevc_destroy(struct xmvenc_hevc *h);
+/* idr: make this frame an IDR */
+int xmvenc__hevc_encode(struct xmvenc_hevc *h, uint32_t phys_y,
+                        uint32_t phys_c, uint32_t off, uint32_t limit, int idr,
+                        struct xmvenc_frame *out);
+void xmvenc__hevc_frame_rate(struct xmvenc_hevc *h, double fps);
 
 /* A VI channel, read from a pipe's thread (vi.c) */
 struct xmvenc_vi {

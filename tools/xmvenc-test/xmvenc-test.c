@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: MIT
 /*
  * xmvenc-test: encode H.264 or JPEG on the XM530/XM550/XM510 Hantro 8290
- * (H1) encoder with libxmvenc, from a synthetic NV12 picture or a VI
- * channel, without vendor libraries.
+ * (H1) encoder, or H.265 on the XM530/XM550 Mali-V550, with libxmvenc,
+ * from a synthetic NV12 picture or a VI channel, without vendor
+ * libraries.
  *
  * Needs the encoder driver (/dev/h264, vendor xm530_h264.ko/xm510_h264.ko
  * or hx280enc) and /dev/mmz. Stop majestic first: the encoder serves one
  * user at a time.
  *
  * Usage: xmvenc-test [-w width] [-h height] [-q qp] [-n frames]
- *                    [-g gop] [-c] [-v chn] [-d dump.nv12] [-j quality]
+ *                    [-g gop] [-c | -H] [-v chn] [-d dump.nv12] [-j quality]
  *                    [-b kbps] [-f fps] [-Q qmin:qmax] [-o file]
  *                    [-p [-J quality] [-r frames] [-S ms] [-G ms]] [-B kib]
  *
  * -g sets the IDR interval (1: every frame is IDR), -c selects CABAC.
+ * -H encodes H.265 on the Mali-V550 instead (needs mve_base.ko).
  * The colour bars move 8 pixels a frame, so P frames carry motion.
  * -v takes the pictures from a VI channel instead: frames are encoded
  * straight from the capture buffers, at the size VI delivers. VI keeps
@@ -295,14 +297,15 @@ static int run_pipes(struct xmvenc *enc, const struct xmvenc_chn_attr *attr,
 int main(int argc, char **argv) {
   int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
       vi_chn = -1, jpeg_q = 0, qmin = 20, qmax = 45, pipe = 0, snap_q = 0,
-      idr_at = 0, sub_w = 0, sub_h = 0, strm_kib = 0, gop_ms = 0, opt;
+      idr_at = 0, sub_w = 0, sub_h = 0, strm_kib = 0, gop_ms = 0, h265 = 0,
+      opt;
   double kbps = 0, fps = 25;
   const char *out = "xmvenc-test.h264", *dump = NULL;
   struct xmvenc *enc;
   struct xmvenc_chn *chn;
   struct xmvenc_buf in;
 
-  while ((opt = getopt(argc, argv, "w:h:q:n:g:cv:d:j:b:f:Q:o:pJ:r:B:S:G:")) != -1) {
+  while ((opt = getopt(argc, argv, "w:h:q:n:g:cHv:d:j:b:f:Q:o:pJ:r:B:S:G:")) != -1) {
     switch (opt) {
     case 'w': width = atoi(optarg); break;
     case 'h': height = atoi(optarg); break;
@@ -310,6 +313,7 @@ int main(int argc, char **argv) {
     case 'n': frames = atoi(optarg); break;
     case 'g': gop = atoi(optarg); break;
     case 'c': cabac = 1; break;
+    case 'H': h265 = 1; break;
     case 'v': vi_chn = atoi(optarg); break;
     case 'd': dump = optarg; break;
     case 'j': jpeg_q = atoi(optarg); break;
@@ -339,7 +343,7 @@ int main(int argc, char **argv) {
     default:
       fprintf(stderr,
               "usage: %s [-w width] [-h height] [-q qp] [-n frames] "
-              "[-g gop] [-c] [-v chn] [-d dump.nv12] [-j quality] "
+              "[-g gop] [-c | -H] [-v chn] [-d dump.nv12] [-j quality] "
               "[-b kbps] [-f fps] [-Q qmin:qmax] [-o file] "
               "[-p [-J quality] [-r frames] [-S ms] [-G ms]] [-B kib]\n",
               argv[0]);
@@ -350,6 +354,7 @@ int main(int argc, char **argv) {
       qmin < 0 || qmax > 51 || qmin > qmax || snap_q < 0 || snap_q > 100 ||
       ((pipe || snap_q || idr_at) && (vi_chn < 0 || jpeg_q)) ||
       ((snap_q || idr_at || read_delay_ms || gop_ms) && !pipe) ||
+      (h265 && (jpeg_q || cabac)) ||
       strm_kib < 0 || read_delay_ms < 0 || gop_ms < 0) {
     fprintf(stderr, "bad arguments\n");
     return 2;
@@ -404,13 +409,15 @@ int main(int argc, char **argv) {
   /* VI buffers are packed: the stride is the width */
   int stride = vi_chn >= 0 ? width : mbw * 16;
   uint32_t luma = stride * mbh * 16, pic_size = luma * 3 / 2;
+  /* H.265 takes the chroma right after the picture's rows, as VI has it */
+  uint32_t c_off = h265 ? (uint32_t)stride * height : luma;
   /* MMZ has no free and blocks are found again by name, so size them for
    * at least the 5 MP sensor: later runs at any size up to that reuse
    * them. With majestic stopped this is 23 MB of the 26 MB left. */
   uint32_t luma_max =
       xmvenc_max_width(enc) < 2592 || luma > 2592 * 1952 ? luma : 2592 * 1952;
   struct xmvenc_chn_attr attr = {
-      .codec = jpeg_q ? XMVENC_JPEG : XMVENC_H264,
+      .codec = jpeg_q ? XMVENC_JPEG : h265 ? XMVENC_H265 : XMVENC_H264,
       .width = width,
       .height = height,
       .stride = stride,
@@ -464,16 +471,17 @@ int main(int argc, char **argv) {
       in_c = vi.frame.phys_c;
     } else {
       memset(pic, 0, pic_size);
-      fill_pattern(pic, pic + luma, width, height, stride, n * 8);
+      fill_pattern(pic, pic + c_off, width, height, stride, n * 8);
       memcpy(in.virt, pic, pic_size);
       in_y = in.phys;
-      in_c = in.phys + luma;
+      in_c = in.phys + c_off;
     }
 
     if (n == 0 && dump && dump_nv12(dump, in_y, in_c, width, height, stride))
       return 1;
 
-    alarm(2);
+    /* H.265 bounds its own wait, and a signal would cost the session */
+    alarm(h265 ? 0 : 2);
     int ret = xmvenc_encode(chn, in_y, in_c, &fr);
     alarm(0);
     if (ret)
@@ -506,7 +514,8 @@ int main(int argc, char **argv) {
     printf("wrote %s: %llu header + %llu slice bytes, %d frames (%dx%d, qp "
            "%d, gop %d, %s)\n",
            out, (unsigned long long)hdr_total, (unsigned long long)total,
-           frames, width, height, qp, gop, cabac ? "CABAC" : "CAVLC");
+           frames, width, height, qp, gop,
+           h265 ? "H.265" : cabac ? "CABAC" : "CAVLC");
   if (kbps > 0 && !jpeg_q)
     printf("rate control: target %.0f kbps at %.2f fps, got %.0f kbps\n", kbps,
            fps, total * 8.0 * fps / frames / 1000);
