@@ -52,6 +52,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
     └── libsns_X50_XM530/        libsns_X50_XM530.so: "X50" sensor family
 
 tools/
+├── xm-vi-hang/                  Reproduces the VI driver hang without a camera application (MIT)
 ├── xmhevc-test/                 Raw /dev/mv500 H.265 session, the interface reference (MIT)
 └── xmvenc-test/                 Encodes H.264, H.265 or JPEG with libxmvenc (MIT)
 ```
@@ -199,6 +200,37 @@ make -C tools/xmhevc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
 
 Both tools take their MMZ through `libxmvenc`, so they also need `/dev/h264`.
 
+### The VI driver hang: `tools/xm-vi-hang`
+
+On the XM530/XM550, re-initialising VI (`_IO('V', 6)` on `/dev/vi`, which an SDK start makes) now and then freezes the whole board, CPU and interrupts included, when the process before it left VI capturing. Camera applications see it as a hard hang at start, about one start in fifteen, that only a watchdog or a power cycle ends.
+
+`tools/xm-vi-hang` reproduces it with no camera application, only raw ioctls. Each run:
+1. Resets MMZ and inits VI.
+2. Replays the ISP and MIPI writes an SDK start makes after VI init (`isp_writes.h`, recorded on an XM550 + IMX335). Without them, VI init leaves capture stopped.
+3. Sets VI up (channel 0, 1920×1080; ext channel 1, 704×576).
+4. Takes frames for a few seconds, then exits, leaving VI capturing.
+
+Run it in a loop: the next run's VI init is the one that may freeze. Start the camera application once after boot so the sensor runs, then stop it.
+
+```bash
+make -C tools/xm-vi-hang CROSS_COMPILE=arm-openipc-linux-musleabi-
+# on the camera, with the camera application stopped; expect to power-cycle
+while ./xm-vi-hang; do sleep 1; done
+```
+
+Measured on an XM550 + IMX335 (150-round limit per test):
+
+| Run | Result |
+|---|---|
+| default | 6 freezes, after 4, 4, 9, 16, 19 and 30 runs |
+| `-x`: both channels disabled before exit | froze at run 8 |
+| `-p`: both channels disabled before the VI init | froze at run 15 |
+| `-n`: ext channel 1 enabled, no frames taken | froze at run 4 |
+| `-0`: channel 0 only | froze at run 3 |
+| `-i`: VI init only, VI never set up | 150 runs clean |
+
+So the condition is VI capturing at the time of the init. Disabling the channels doesn't avoid it, and neither does leaving ext channel 1 out. Putting the sensor into standby doesn't stop VI either: its frame interrupts keep coming from the ISP's timing. `-B` and `-A` run commands right before and after the init, for testing other ways around it.
+
 ## CI
 
 Every push and pull request to `main` runs these jobs, each using the OpenIPC musl toolchain for its SoC (`toolchain.xiongmai-xm5x0`).
@@ -213,5 +245,5 @@ All external inputs are pinned: the kernel commits, the firmware commit, and the
 ## License
 
 GPL v3. See [LICENSE](LICENSE). The exceptions:
-- `libraries/libxmvenc`, `tools/xmvenc-test` and `tools/xmhevc-test` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
+- `libraries/libxmvenc`, `tools/xmvenc-test`, `tools/xmhevc-test` and `tools/xm-vi-hang` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
 - `libraries/libxmvenc/cabac_tbl.c` and `cabac_tbl.h` are under the Apache License 2.0, from Rockchip MPP.
