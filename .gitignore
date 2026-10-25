@@ -10,3 +10,4 @@ compile_flags.txt
 *.so
 tools/xmvenc-test/xmvenc-test
 tools/xmhevc-test/xmhevc-test
+tools/xm-vi-hang/xm-vi-hang

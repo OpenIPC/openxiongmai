@@ -86,6 +86,14 @@ The XM530/XM550 H.265 encoder is an Arm Mali-V550 (`hw_version 0x56550002`, regi
 
 The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't copy that header or `mvx` code in: define only what a trace shows, under our own names.
 
+### `tools/xm-vi-hang`
+
+`tools/xm-vi-hang` (MIT, static) reproduces the XM530/XM550 VI driver hang with raw ioctls only. A VI init (`_IO('V', 6)`) issued while the previous process left VI capturing freezes the board now and then, CPU and IRQs included; it's the "camera hangs at majestic start" problem.
+- **Setup:** `isp_writes.h` holds the ISP/MIPI writes an SDK start makes after VI init (IMX335, 1080p), recorded from `/dev/isp` `_IOW('I', 1, 12)`.
+- **MMZ reset:** VI channel setup fails with EPERM unless MMZ was reset (`_IO('M', 0)`), because VI takes its buffers from MMZ.
+- **Results:** disabling channels doesn't help, and channel 0 alone is enough.
+- **One core:** a log line written right before a freezing call never leaves the board, so the tool pauses before the init.
+
 ### Kernel drivers
 
 - `drivers/xm_i2c`: a misc-device stub. Its read, write and ioctl handlers are placeholders that only print "not supported".
