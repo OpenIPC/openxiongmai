@@ -46,14 +46,14 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
     │   ├── mpi/                 SYS / VI / VO / AIO interfaces
     │   └── xm/                  Camera.h (SENSOR_CHIP_* enum), per-SoC register maps
     ├── libmpi/                  libopenmpi.a: MPI reimplementation
-    ├── libxmvenc/               libxmvenc.a: open H.264/JPEG encoding on the Hantro encoder (MIT)
+    ├── libxmvenc/               libxmvenc.a: open H.264/JPEG (Hantro) and H.265 (Mali-V550) encoding (MIT)
     ├── libispapp_XM530/         libispapp_XM530.so: ISP application layer
     ├── libsns_X123_XM530/       libsns_X123_XM530.so: "X123" sensor family
     └── libsns_X50_XM530/        libsns_X50_XM530.so: "X50" sensor family
 
 tools/
-├── xmhevc-test/                 Encodes H.265 through the vendor Mali-V550 driver (MIT)
-└── xmvenc-test/                 Encodes H.264 or JPEG with libxmvenc (MIT)
+├── xmhevc-test/                 Raw /dev/mv500 H.265 session, the interface reference (MIT)
+└── xmvenc-test/                 Encodes H.264, H.265 or JPEG with libxmvenc (MIT)
 ```
 
 ## Building
@@ -129,7 +129,7 @@ To add a sensor:
 
 `libraries/libxmvenc` drives the H.264/JPEG encoder of the XM530/XM550 and XM510 (a Hantro 8290) directly, with no vendor userspace ([#13](https://github.com/OpenIPC/openxiongmai/issues/13)). It is a static library, `libxmvenc.a`, under the MIT license, so that closed applications can link it too. The API is in `xmvenc.h`:
 - `xmvenc_open` opens the encoder and identifies the chip.
-- `xmvenc_chn_create` sets up a stream: H.264 (CAVLC or CABAC, fixed QP or frame-level rate control, IDR interval) or JPEG (quality).
+- `xmvenc_chn_create` sets up a stream: H.264 (CAVLC or CABAC, fixed QP or frame-level rate control, IDR interval), H.265 (see below) or JPEG (quality).
 - `xmvenc_encode` encodes one NV12 picture, given by physical address, and returns the software-written headers (SPS and PPS before an IDR, the JPEG header) and the hardware-written slice or scan.
 - `xmvenc_chn_request_idr` makes the next frame an IDR.
 
@@ -165,13 +165,31 @@ Two cautions about MMZ:
 
 Restarting majestic resets MMZ cleanly.
 
-### H.265: `tools/xmhevc-test`
+### H.265
 
-The XM530/XM550 encodes H.265 on a separate engine, an Arm Mali-V550 with its own firmware (`hevcenc.fwb`), behind the vendor kernel module `mve_base.ko` and its device `/dev/mv500` ([#27](https://github.com/OpenIPC/openxiongmai/issues/27)). `tools/xmhevc-test` drives that module without vendor libraries:
-- **Interface:** `mvb.h` holds what the tool uses of the module's interface. That covers the command numbers, the buffer descriptor, the events, and the firmware messages that carry the encoder settings. It was recovered from the module and from a trace of the vendor library, and is written from scratch under MIT.
+The XM530/XM550 encodes H.265 on a separate engine, an Arm Mali-V550 with its own firmware (`hevcenc.fwb`), behind the vendor kernel module `mve_base.ko` and its device `/dev/mv500` ([#27](https://github.com/OpenIPC/openxiongmai/issues/27)). `libxmvenc` drives that module without vendor libraries.
+
+**The interface:** `libraries/libxmvenc/mvb.h` holds what the library uses of the module's interface: the command numbers, the buffer descriptor, the events, and the firmware messages that carry the encoder settings. It was recovered from the module and from a trace of the vendor library, and is written from scratch under MIT.
+
+**Using it:** a channel created with `XMVENC_H265` takes the same calls as H.264, `xmvenc_encode` or a pipe.
+- **Settings:** IDR interval, fixed QP, or variable bitrate within a QP range; the firmware keeps the GOP and the rate control.
+- **Engine:** each channel is a firmware session of its own. The sessions run alongside the H.264 encoder and alongside each other.
+- **Headers:** the firmware sends VPS, SPS and PPS once. The library keeps them and puts them before every IDR.
+- **Input:** NV12 with the chroma directly after the luma, as VI delivers it.
+- **Measured on an XM550:** about 21 ms per 1080p frame, and a 1080p and a 704×576 pipe running together from VI.
+
+`tools/xmvenc-test -H` encodes with it, from the synthetic picture or VI, directly or through a pipe:
+
+```bash
+./xmvenc-test -H -v 0 -p -n 250 -G 1000 -b 4096 -o /tmp/main.h265
+```
+
+`tools/xmhevc-test` is the minimal session on `/dev/mv500` that the interface was worked out with. It follows the vendor library's order of commands, which makes it the reference for that order.
 - **Input:** a synthetic NV12 picture (a ramp with a square that moves 8 pixels per frame).
 - **Output:** a raw `.h265` file of parameter sets and IDR/P frames.
 - **Settings:** IDR interval (`-g`), frame rate (`-f`), variable bitrate target (`-b`) and QP range (`-Q`).
+
+It writes a synthetic NV12 picture (a ramp with a square that moves 8 pixels per frame) as a raw `.h265` file. The settings are `-g`, `-f`, `-b` and `-Q`:
 
 ```bash
 make -C tools/xmhevc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
@@ -179,7 +197,7 @@ make -C tools/xmhevc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
 ./xmhevc-test -w 1920 -h 1080 -n 100 -g 25 -o /tmp/test.h265
 ```
 
-The tool takes its MMZ through `libxmvenc`, so it also needs `/dev/h264`. Its input block is sized for at least 1080p, so 720p and 1080p runs reuse the same block.
+Both tools take their MMZ through `libxmvenc`, so they also need `/dev/h264`.
 
 ## CI
 
