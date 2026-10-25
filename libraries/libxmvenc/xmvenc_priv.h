@@ -3,10 +3,16 @@
 #ifndef XMVENC_PRIV_H
 #define XMVENC_PRIV_H
 
+#include <stddef.h>
+
 #include "xmvenc.h"
 
 void xmvenc__log(struct xmvenc *enc, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
+
+/* mmap of physical memory (phys a multiple of 4096) through /dev/mem,
+ * shared; MAP_FAILED on failure */
+void *xmvenc__map_phys(int fd, uint32_t phys, size_t len, int prot);
 
 /* Encodes into the channel's stream buffer at off, writing at most limit
  * bytes (both multiples of 64) */

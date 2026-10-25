@@ -35,6 +35,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -206,6 +207,24 @@ void xmvenc__log(struct xmvenc *enc, const char *fmt, ...) {
   enc->log(msg);
 }
 
+/*
+ * Through the mmap2 system call rather than mmap(). Camera applications
+ * that load uClibc-built vendor libraries interpose an mmap() of their own
+ * that also takes uClibc's 32-bit offset, and the toolchain's compatibility
+ * one (libuclibc-compat-static.a) guesses which kind of caller it has: for
+ * code linked into the executable it read the offset from the padding word
+ * before the 64-bit one, and mapped page 0 whenever that word happened to
+ * be page-aligned.
+ */
+void *xmvenc__map_phys(int fd, uint32_t phys, size_t len, int prot) {
+#ifdef SYS_mmap2
+  return (void *)syscall(SYS_mmap2, NULL, len, prot, MAP_SHARED, fd,
+                         phys >> 12);
+#else
+  return mmap(NULL, len, prot, MAP_SHARED, fd, phys);
+#endif
+}
+
 static int clampi(int v, int lo, int hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
@@ -266,8 +285,8 @@ static int mmz_alloc(struct xmvenc *enc, struct xmvenc_buf *b,
   }
   b->phys = phys;
   b->size = size;
-  b->virt = mmap(0, (size + 0xfff) & ~0xfff, PROT_READ | PROT_WRITE,
-                 MAP_SHARED, enc->fd_mem, b->phys);
+  b->virt = xmvenc__map_phys(enc->fd_mem, b->phys, (size + 0xfff) & ~0xfff,
+                             PROT_READ | PROT_WRITE);
   if (b->virt == MAP_FAILED) {
     xmvenc__log(enc, "mmap mmz: %s", strerror(errno));
     b->virt = NULL;
@@ -317,8 +336,8 @@ struct xmvenc *xmvenc_open(void (*log)(const char *msg)) {
     xmvenc__log(enc, "/dev/mem: %s", strerror(errno));
     goto fail;
   }
-  regs = mmap(0, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, enc->fd_mem,
-              hwbase);
+  regs = xmvenc__map_phys(enc->fd_mem, (uint32_t)hwbase, 0x1000,
+                          PROT_READ | PROT_WRITE);
   if (regs == MAP_FAILED) {
     xmvenc__log(enc, "mmap regs: %s", strerror(errno));
     goto fail;
