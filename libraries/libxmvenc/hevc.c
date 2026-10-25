@@ -323,7 +323,7 @@ int xmvenc__hevc_encode(struct xmvenc_hevc *h, uint32_t phys_y, uint32_t phys_c,
   }
 
   map_len = ((phys_y - base) + size + 0xfff) & ~0xfffu;
-  map = mmap(0, map_len, PROT_READ, MAP_SHARED, h->fd_mem, base);
+  map = xmvenc__map_phys(h->fd_mem, base, map_len, PROT_READ);
   if (map == MAP_FAILED) {
     xmvenc__log(h->enc, "H.265 channel %d: mmap input: %s", h->id,
                 strerror(errno));
