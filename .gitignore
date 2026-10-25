@@ -9,3 +9,4 @@ modules.order
 compile_flags.txt
 *.so
 tools/xmvenc-test/xmvenc-test
+tools/xmhevc-test/xmhevc-test

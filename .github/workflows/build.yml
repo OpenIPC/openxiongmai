@@ -68,6 +68,13 @@ jobs:
             echo "xmvenc-test is not static" >&2; exit 1
           fi
           echo "::endgroup::"
+          echo "::group::tools/xmhevc-test"
+          make -C tools/xmhevc-test CROSS_COMPILE="$CROSS_COMPILE"
+          ${CROSS_COMPILE}readelf -h tools/xmhevc-test/xmhevc-test | grep -q 'Machine:.*ARM'
+          if ${CROSS_COMPILE}readelf -d tools/xmhevc-test/xmhevc-test | grep -q NEEDED; then
+            echo "xmhevc-test is not static" >&2; exit 1
+          fi
+          echo "::endgroup::"
 
       - name: Verify outputs exist
         run: |
