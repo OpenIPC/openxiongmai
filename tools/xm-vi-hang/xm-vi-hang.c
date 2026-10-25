@@ -29,8 +29,11 @@
  *   -i  VI init only: no ISP writes, no setup, no frames
  *   -M  no MMZ reset before the VI init
  *   -n  enable ext channel 1 but take no frames from it
- *   -p  disable both channels before the VI init
- *   -x  disable both channels before exiting
+ *   -p  disable the channels before the VI init (the run before must have
+ *       left them enabled)
+ *   -x  disable the channels before exiting
+ * A run that fails a step exits 1, so `while xm-vi-hang; do ...; done`
+ * stops rather than counting it.
  *   -B  run this shell command right before the VI init
  *   -A  run this shell command right after it (say, to put the sensor into
  *       standby around the init and wake it again)
@@ -76,11 +79,25 @@ static void say(const char *msg) {
  * freezes never reaches whoever reads the pipe. Give it time to leave. */
 static void settle(void) { usleep(300000); }
 
-static void disable_both(int vi) {
+/* A run that couldn't do what it was asked to exits non-zero, so a loop
+ * stops instead of counting it */
+static int fail(const char *what) {
+  char msg[96];
+
+  snprintf(msg, sizeof(msg), "FAILED: %s (%m)", what);
+  say(msg);
+  return 1;
+}
+
+/* Ext channel 1 (unless main_only), then channel 0 */
+static int disable_channels(int vi, int main_only) {
   uint32_t c1 = 1, c0 = 0;
 
-  ioctl(vi, VI_DISABLE, &c1);
-  ioctl(vi, VI_DISABLE, &c0);
+  if (!main_only && ioctl(vi, VI_DISABLE, &c1))
+    return fail("disable channel 1");
+  if (ioctl(vi, VI_DISABLE, &c0))
+    return fail("disable channel 0");
+  return 0;
 }
 
 int main(int argc, char **argv) {
@@ -137,26 +154,33 @@ int main(int argc, char **argv) {
     return 1;
   }
   if (pre) {
-    disable_both(vi);
+    if (disable_channels(vi, main_only))
+      return 1;
     say("channels disabled");
   }
   if (before && system(before) != 0)
-    say("-B command failed");
+    return fail("-B command");
   say("vi init next");
   settle();
-  if (mmz_reset)
-    ioctl(mmz, MMZ_RESET, 0);
-  ioctl(vi, VI_INIT, 0);
+  if (mmz_reset && ioctl(mmz, MMZ_RESET, 0))
+    return fail("MMZ reset");
+  if (ioctl(vi, VI_INIT, 0))
+    return fail("VI init");
   say("vi init done");
   if (after && system(after) != 0)
-    say("-A command failed");
+    return fail("-A command");
   if (init_only)
     return 0;
 
   for (unsigned i = 0; i < sizeof(isp_writes) / sizeof(isp_writes[0]); i++) {
     uint32_t a[3] = {isp_writes[i][0], isp_writes[i][1], 0};
 
-    ioctl(isp, ISP_WRITE, a);
+    if (ioctl(isp, ISP_WRITE, a)) {
+      snprintf(msg, sizeof(msg), "ISP write %u of %u (0x%08x)", i + 1,
+               (unsigned)(sizeof(isp_writes) / sizeof(isp_writes[0])),
+               isp_writes[i][0]);
+      return fail(msg);
+    }
   }
   struct {
     unsigned long req;
@@ -175,9 +199,8 @@ int main(int argc, char **argv) {
   for (unsigned k = 0; k < nsteps; k++) {
     unsigned i = steps[k];
     if (ioctl(vi, setup[i].req, setup[i].arg)) {
-      snprintf(msg, sizeof(msg), "vi setup failed: %s (%m)", setup[i].what);
-      say(msg);
-      return 1;
+      snprintf(msg, sizeof(msg), "VI setup: %s", setup[i].what);
+      return fail(msg);
     }
   }
 
@@ -190,15 +213,19 @@ int main(int argc, char **argv) {
     }
     memset(rec, 0, sizeof(rec));
     rec[0] = main_only ? 0 : 1;
+    /* A get fails while no frame is ready yet */
     if (ioctl(vi, VI_GET_FRAME, rec) == 0 && rec[2]) {
+      if (ioctl(vi, VI_RELEASE, rec))
+        return fail("frame release");
       frames++;
-      ioctl(vi, VI_RELEASE, rec);
     } else {
       usleep(5000);
     }
   }
-  if (post)
-    disable_both(vi);
+  if (!no_frames && !frames)
+    return fail("no frame came");
+  if (post && disable_channels(vi, main_only))
+    return 1;
   snprintf(msg, sizeof(msg), "%ld channel %d frames; %s", frames,
            main_only ? 0 : 1,
            post ? "channels disabled, exiting" : "exiting, VI capturing");
