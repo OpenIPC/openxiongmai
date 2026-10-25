@@ -723,7 +723,10 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
        (a->qp < 0 || a->qp > 51 || a->gop < 1 || !(a->kbps >= 0) ||
         !isfinite(a->kbps) ||
         (a->kbps > 0 && (!(a->fps > 0) || !isfinite(a->fps) || a->qmin < 0 ||
-                         a->qmax > 51 || a->qmin > a->qmax))))) {
+                         a->qmax > 51 || a->qmin > a->qmax)))) ||
+      /* the firmware takes the rate in Q16 and the bitrate in 32 bits */
+      (hevc && ((a->fps != 0 && !(a->fps > 0 && a->fps < 1000)) ||
+                (a->kbps > 0 && (a->kbps < 1 || a->kbps > 1000000))))) {
     xmvenc__log(enc, "channel %d: bad attributes", id);
     return NULL;
   }
@@ -760,14 +763,15 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
                   chn->mbh * 16;
   if (luma < a->min_luma)
     luma = a->min_luma;
+  /* H.265: the session first, so that a chip without the engine (XM510)
+   * fails before taking MMZ, which can't be given back */
+  if (hevc && !(chn->hevc = xmvenc__hevc_create(enc, id, enc->fd_mem, a,
+                                                 chn->stride, &chn->strm)))
+    goto fail;
   if (chn_alloc(chn, &chn->strm, "strm",
                 a->strm_size ? a->strm_size : enc->chip->strm_size, 0))
     goto fail;
   if (hevc) {
-    chn->hevc = xmvenc__hevc_create(enc, id, enc->fd_mem, a, chn->stride,
-                                    &chn->strm);
-    if (!chn->hevc)
-      goto fail;
     pthread_mutex_unlock(&enc->setup);
     return chn;
   }

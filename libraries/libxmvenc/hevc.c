@@ -33,10 +33,15 @@
 
 struct xmvenc_hevc {
   struct xmvenc *enc;
-  int id, fd, fd_mem, width, height, stride, broken;
+  int id, fd, fd_mem, width, height, stride;
+  /* A frame went wrong: the firmware may still hold its buffers, so the
+   * next encode starts a new session */
+  int broken;
+  struct xmvenc_chn_attr attr;
   struct xmvenc_buf *strm;
-  uint8_t hdr[256]; /* VPS, SPS and PPS */
+  uint8_t hdr[1024]; /* VPS, SPS and PPS */
   uint32_t hdr_len;
+  int hdr_done; /* a frame has come since: new parameter sets start over */
   uint32_t fps_sent, fps_want; /* Q16 */
   uint32_t last_status;        /* of the last command turned down */
   union {
@@ -143,13 +148,13 @@ static int fw_msg(struct xmvenc_hevc *h, uint32_t nr, uint32_t size, int n,
   }
 }
 
+/* The rate is sent once either way: a refused update is logged and the
+ * firmware keeps budgeting by the last rate it took */
 static int send_frame_rate(struct xmvenc_hevc *h) {
   const uint32_t m[] = {MVB_FW_BUFFER_PARAM, MVB_PARAM_FRAME_RATE, h->fps_want};
 
-  if (fw_msg(h, MVB_SET_CONFIG, sizeof(m), 3, m))
-    return -1;
   h->fps_sent = h->fps_want;
-  return 0;
+  return fw_msg(h, MVB_SET_CONFIG, sizeof(m), 3, m);
 }
 
 static int reg(struct xmvenc_hevc *h, uint32_t port, void *addr,
@@ -189,27 +194,15 @@ static int queue(struct xmvenc_hevc *h, uint32_t nr, void *addr,
   return cmd(h, nr, &q, sizeof(q), 0) < 0 ? -1 : 0;
 }
 
-struct xmvenc_hevc *xmvenc__hevc_create(struct xmvenc *enc, int id, int fd_mem,
-                                        const struct xmvenc_chn_attr *a,
-                                        int stride, struct xmvenc_buf *strm) {
-  struct xmvenc_hevc *h = calloc(1, sizeof(*h));
+/* A session with the channel's settings, executing */
+static int session_open(struct xmvenc_hevc *h) {
+  const struct xmvenc_chn_attr *a = &h->attr;
   uint32_t state = MVB_STATE_EXECUTING, proto;
   int kbps = a->kbps > 0;
 
-  if (!h)
-    return NULL;
-  h->enc = enc;
-  h->id = id;
-  h->fd_mem = fd_mem;
-  h->width = a->width;
-  h->height = a->height;
-  h->stride = stride;
-  h->strm = strm;
-  h->fps_want = (uint32_t)((a->fps > 0 ? a->fps : 25) * 65536);
   if ((h->fd = open("/dev/mv500", O_RDWR | O_CLOEXEC)) < 0) {
-    xmvenc__log(enc, "/dev/mv500: %s", strerror(errno));
-    free(h);
-    return NULL;
+    xmvenc__log(h->enc, "/dev/mv500: %s", strerror(errno));
+    return -1;
   }
   if (cmd(h, MVB_CREATE_SESSION, MVB_ROLE_HEVC_ENCODER,
           sizeof(MVB_ROLE_HEVC_ENCODER), 0) < 0 ||
@@ -217,7 +210,7 @@ struct xmvenc_hevc *xmvenc__hevc_create(struct xmvenc *enc, int id, int fd_mem,
     goto fail;
   memcpy(&proto, reply(h), sizeof(proto));
   if (proto >> 8 != 2) {
-    xmvenc__log(enc, "H.265 firmware protocol %u.%u, not 2.x", proto >> 8,
+    xmvenc__log(h->enc, "H.265 firmware protocol %u.%u, not 2.x", proto >> 8,
                 proto & 0xff);
     goto fail;
   }
@@ -225,7 +218,8 @@ struct xmvenc_hevc *xmvenc__hevc_create(struct xmvenc *enc, int id, int fd_mem,
   /* P frames after each IDR: the firmware keeps the GOP. It reads the
    * count as 16 bits and refuses 0xffff, so longer GOPs (a pipe that asks
    * for each IDR itself) get 32767. Without rate control the QP range is
-   * the one fixed QP, under a target that never binds. */
+   * the one fixed QP, under a target that never binds. kbps is within
+   * 1..1000000 (xmvenc_chn_create). */
   const uint32_t pframes[] = {MVB_FW_SET_OPTION, MVB_OPT_P_FRAMES,
                               a->gop - 1 < 32767 ? (uint32_t)a->gop - 1
                                                  : 32767};
@@ -241,18 +235,45 @@ struct xmvenc_hevc *xmvenc__hevc_create(struct xmvenc *enc, int id, int fd_mem,
       fw_msg(h, MVB_SET_PARAMETER, sizeof(qp), 4, qp) ||
       cmd(h, MVB_STATE_CHANGE, &state, sizeof(state), 0) < 0)
     goto fail;
-  return h;
+  /* A new session sends its parameter sets again, before an IDR */
+  h->hdr_done = 1;
+  return 0;
 fail:
   close(h->fd);
-  free(h);
-  return NULL;
+  h->fd = -1;
+  return -1;
+}
+
+struct xmvenc_hevc *xmvenc__hevc_create(struct xmvenc *enc, int id, int fd_mem,
+                                        const struct xmvenc_chn_attr *a,
+                                        int stride, struct xmvenc_buf *strm) {
+  struct xmvenc_hevc *h = calloc(1, sizeof(*h));
+
+  if (!h)
+    return NULL;
+  h->enc = enc;
+  h->id = id;
+  h->fd_mem = fd_mem;
+  h->attr = *a;
+  h->width = a->width;
+  h->height = a->height;
+  h->stride = stride;
+  h->strm = strm;
+  /* fps is 0 (25) or within (0, 1000) (xmvenc_chn_create) */
+  h->fps_want = (uint32_t)((a->fps > 0 ? a->fps : 25) * 65536);
+  if (session_open(h)) {
+    free(h);
+    return NULL;
+  }
+  return h;
 }
 
 void xmvenc__hevc_destroy(struct xmvenc_hevc *h) {
   if (!h)
     return;
   /* The driver ends the session with the descriptor */
-  close(h->fd);
+  if (h->fd >= 0)
+    close(h->fd);
   free(h);
 }
 
@@ -272,8 +293,16 @@ int xmvenc__hevc_encode(struct xmvenc_hevc *h, uint32_t phys_y, uint32_t phys_c,
 
   memset(out, 0, sizeof(out[0]));
   if (h->broken) {
-    xmvenc__log(h->enc, "H.265 channel %d: stuck in an earlier frame", h->id);
-    return -1;
+    /* Closing the descriptor ends the old session and frees what its
+     * firmware held; the new one starts with an IDR */
+    if (h->fd >= 0)
+      close(h->fd);
+    h->fd = -1;
+    if (session_open(h))
+      return -1;
+    h->broken = 0;
+    idr = 0;
+    xmvenc__log(h->enc, "H.265 channel %d: new session", h->id);
   }
   /* The firmware takes one plane: chroma right after the luma */
   if (phys_c != phys_y + (uint32_t)h->stride * h->height) {
@@ -328,11 +357,18 @@ int xmvenc__hevc_encode(struct xmvenc_hevc *h, uint32_t phys_y, uint32_t phys_c,
         goto stuck;
       }
       if (b.flags & MVB_FLAG_CODEC_CONFIG) {
-        /* parameter sets: keep them, and have the buffer back */
-        if (b.filled <= sizeof(h->hdr)) {
-          memcpy(h->hdr, dst + b.offset, b.filled);
-          h->hdr_len = b.filled;
+        /* parameter sets, perhaps in more than one buffer: keep them, and
+         * have the buffer back */
+        if (h->hdr_done)
+          h->hdr_len = 0;
+        h->hdr_done = 0;
+        if (b.filled > sizeof(h->hdr) - h->hdr_len) {
+          xmvenc__log(h->enc, "H.265 channel %d: parameter sets over %u bytes",
+                      h->id, (unsigned)sizeof(h->hdr));
+          goto stuck;
         }
+        memcpy(h->hdr + h->hdr_len, dst + b.offset, b.filled);
+        h->hdr_len += b.filled;
         if (queue(h, MVB_FILL_THIS_BUFFER, dst, 0))
           goto stuck;
         continue;
@@ -342,6 +378,7 @@ int xmvenc__hevc_encode(struct xmvenc_hevc *h, uint32_t phys_y, uint32_t phys_c,
                     h->id, limit);
         goto stuck;
       }
+      h->hdr_done = 1;
       out->type = b.flags & MVB_FLAG_SYNC ? 'I' : 'P';
       out->data = dst + b.offset;
       out->len = b.filled;
@@ -356,8 +393,8 @@ int xmvenc__hevc_encode(struct xmvenc_hevc *h, uint32_t phys_y, uint32_t phys_c,
   ret = 0;
   goto unreg_out;
 stuck:
-  /* The firmware may still hold the buffers: no more frames on this
-   * session (destroying the channel ends it) */
+  /* The firmware may still hold the buffers: the next encode replaces
+   * the session */
   h->broken = 1;
 unreg_out:
   unreg(h, dst);

@@ -70,7 +70,8 @@ struct xmvenc_chn_attr {
   int qp;    /* fixed QP, or (H.264) the starting QP with rate control */
   /* Rate control, when kbps > 0: QP within qmin..qmax. H.264: frame-level,
    * in the library; H.265: the firmware's variable bitrate mode. fps is
-   * the frame rate to budget for. */
+   * the frame rate to budget for. H.265: kbps up to 1000000, fps 0 (25)
+   * or below 1000. */
   double kbps, fps;
   int qmin, qmax;
   /* JPEG quality, 1-100 */
@@ -126,10 +127,10 @@ struct xmvenc_frame {
  * alarm in a single-threaded program). If the encoder then doesn't stop,
  * every later encode fails until it is reopened.
  *
- * H.265: the frame is waited for up to 2 s. A frame that doesn't come
- * back, or doesn't fit the stream buffer, leaves the channel's session
- * unusable: every later encode on it fails until the channel is
- * destroyed and created again. */
+ * H.265: the frame is waited for up to 2 s. When a frame doesn't come
+ * back, or doesn't fit the stream buffer, it fails, and the next encode
+ * starts a new firmware session for the channel (beginning with an IDR,
+ * after its parameter sets). */
 int xmvenc_encode(struct xmvenc_chn *chn, uint32_t phys_y, uint32_t phys_c,
                   struct xmvenc_frame *out);
 
