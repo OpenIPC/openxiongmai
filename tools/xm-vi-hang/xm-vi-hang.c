@@ -22,7 +22,7 @@
  * then stop it. Expect to power-cycle the board: unless a watchdog is
  * armed, nothing resets it from this hang.
  *
- * Usage: xm-vi-hang [-t seconds] [-0] [-i] [-M] [-n] [-p] [-x]
+ * Usage: xm-vi-hang [-t seconds] [-0] [-i] [-M] [-n] [-N] [-p] [-x]
  *                   [-B command] [-A command]
  *   -t  take frames for this long (default 3)
  *   -0  set up channel 0 only (no ext channel 1)
@@ -32,6 +32,8 @@
  *   -p  disable the channels before the VI init (the run before must have
  *       left them enabled)
  *   -x  disable the channels before exiting
+ *   -N  turn 3D noise reduction off before the VI init, and give its DMA a
+ *       few frames to stop: the way around the hang
  * A run that fails a step exits 1, so `while xm-vi-hang; do ...; done`
  * stops rather than counting it.
  *   -B  run this shell command right before the VI init
@@ -58,6 +60,10 @@
 #define VI_SET_RATE 0x400c5607u /* channel, 24, 0x01ffffff (as recorded) */
 #define MMZ_RESET 0x4d00u       /* /dev/mmz */
 #define ISP_WRITE 0x400c4901u   /* /dev/isp: address, value, 0 */
+/* 3D noise reduction control: it reads and writes reference frames in DDR
+ * for as long as it is on. VI init resets it with the rest of the ISP, and
+ * a reset in the middle of its DMA is what freezes the bus. */
+#define NR_3D_CTRL 0x30040000u
 
 static const uint32_t isp_writes[][2] = {
 #include "isp_writes.h"
@@ -102,7 +108,7 @@ static int disable_channels(int vi, int main_only) {
 
 int main(int argc, char **argv) {
   int secs = 3, mmz_reset = 1, init_only = 0, no_frames = 0, pre = 0, post = 0,
-      main_only = 0, c;
+      main_only = 0, nr_off = 0, c;
   const char *before = NULL, *after = NULL;
   uint32_t dev[4] = {0, 0, 1920, 1080}, c0[3] = {0, 1920, 1080};
   uint32_t c1[3] = {1, 704, 576}, e0 = 0, e1 = 1;
@@ -110,7 +116,7 @@ int main(int argc, char **argv) {
   long frames = 0;
   char msg[96];
 
-  while ((c = getopt(argc, argv, "t:0iMnpxB:A:")) != -1)
+  while ((c = getopt(argc, argv, "t:0iMnNpxB:A:")) != -1)
     switch (c) {
     case 't':
       secs = atoi(optarg);
@@ -133,6 +139,9 @@ int main(int argc, char **argv) {
     case 'n':
       no_frames = 1;
       break;
+    case 'N':
+      nr_off = 1;
+      break;
     case 'p':
       pre = 1;
       break;
@@ -141,7 +150,7 @@ int main(int argc, char **argv) {
       break;
     default:
       fprintf(stderr,
-              "usage: %s [-t seconds] [-0] [-i] [-M] [-n] [-p] [-x] "
+              "usage: %s [-t seconds] [-0] [-i] [-M] [-n] [-N] [-p] [-x] "
               "[-B command] [-A command]\n",
               argv[0]);
       return 2;
@@ -157,6 +166,14 @@ int main(int argc, char **argv) {
     if (disable_channels(vi, main_only))
       return 1;
     say("channels disabled");
+  }
+  if (nr_off) {
+    uint32_t a[3] = {NR_3D_CTRL, 0, 0};
+
+    if (ioctl(isp, ISP_WRITE, a))
+      return fail("3D-NR off");
+    usleep(200000); /* three frames at 15 fps */
+    say("3D-NR off");
   }
   if (before && system(before) != 0)
     return fail("-B command");

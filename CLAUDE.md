@@ -91,7 +91,8 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 `tools/xm-vi-hang` (MIT, static) reproduces the XM530/XM550 VI driver hang with raw ioctls only. A VI init (`_IO('V', 6)`) issued while the previous process left VI capturing freezes the board now and then, CPU and IRQs included; it's the "camera hangs at majestic start" problem.
 - **Setup:** `isp_writes.h` holds the ISP/MIPI writes an SDK start makes after VI init (IMX335, 1080p), recorded from `/dev/isp` `_IOW('I', 1, 12)`.
 - **MMZ reset:** VI channel setup fails with EPERM unless MMZ was reset (`_IO('M', 0)`), because VI takes its buffers from MMZ.
-- **Results:** disabling channels doesn't help, and channel 0 alone is enough.
+- **Results:** disabling channels doesn't help, and channel 0 alone is enough. Turning 3D noise reduction off (`0x30040000` = 0) and waiting a few frames before the init avoids it (310 runs clean, `-N`). VI init resets the ISP through the system controller (`0x2000011c`), and 3D-NR's DDR DMA is what that reset must not interrupt.
+- **Leak limit:** each channel setup leaks about 8 MB of vmalloc in `xm530_vi.ko`, so a boot lasts about 110 runs.
 - **One core:** a log line written right before a freezing call never leaves the board, so the tool pauses before the init.
 
 ### Kernel drivers
