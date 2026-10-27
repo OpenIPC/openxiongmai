@@ -191,11 +191,17 @@ int main(int argc, char **argv) {
 
     if (disable_channels(vi, main_only))
       return 1;
-    if ((!main_only && ioctl(vi, VI_SET_CHN, s1) == 0) ||
-        ioctl(vi, VI_SET_CHN, s0) == 0)
-      return fail("64x64 channel taken, buffers not unmapped");
-    if (errno != EPERM)
-      return fail("unmap channel buffers");
+    uint32_t *sizes[2] = {s0, s1};
+    for (int chn = main_only ? 0 : 1; chn >= 0; chn--) {
+      char what[48];
+
+      /* Refused as too small is the expected outcome; anything else may
+       * have left the buffers mapped */
+      if (ioctl(vi, VI_SET_CHN, sizes[chn]) == 0 || errno != EPERM) {
+        snprintf(what, sizeof(what), "unmap channel %d buffers", chn);
+        return fail(what);
+      }
+    }
     say("channel buffers unmapped");
   }
   if (before && system(before) != 0)
