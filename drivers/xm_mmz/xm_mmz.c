@@ -63,6 +63,7 @@ struct mmz_block {
 	char name[MMZ_NAME_LEN];
 	u32 phys, size;
 	bool cached;
+	bool marked; /* the overrun marker was written */
 };
 
 static unsigned int mmz_start;
@@ -102,9 +103,9 @@ static struct mmz_block *find_phys(u32 phys)
 }
 
 /* The marker after a block: write it, or check it */
-static bool guard_marker(const struct mmz_block *b, bool write)
+static bool guard_marker(u32 phys, u32 size, bool write)
 {
-	void __iomem *p = ioremap(b->phys + b->size, sizeof(mmz_marker));
+	void __iomem *p = ioremap(phys + size, sizeof(mmz_marker));
 	bool ok = true;
 
 	if (!p)
@@ -163,7 +164,18 @@ static int alloc_block(const char *name, u32 size, u32 *phys, bool cached)
 	list_add_tail(&b->list, &blocks);
 	spin_unlock_irqrestore(&mmz_lock, flags);
 
-	guard_marker(b, true);
+	/* From locals: once the lock is dropped a reset may free b */
+	if (guard_marker(at, size, true)) {
+		spin_lock_irqsave(&mmz_lock, flags);
+		list_for_each_entry (b, &blocks, list)
+			if (b->phys == at) {
+				b->marked = true;
+				break;
+			}
+		spin_unlock_irqrestore(&mmz_lock, flags);
+	} else {
+		pr_warn("mmz: no overrun marker for name[%s]\n", name);
+	}
 	*phys = at;
 	return 0;
 }
@@ -367,7 +379,9 @@ static int mmz_seq_show(struct seq_file *s, void *unused)
 		seq_printf(s, "%#-10x\t%#-10x(%5dk)\t%d\t%s\n", copy[i].phys,
 			   copy[i].size,
 			   (int)(ALIGN(copy[i].size, PAGE_SIZE) >> 10),
-			   !guard_marker(&copy[i], false), copy[i].name);
+			   copy[i].marked && !guard_marker(copy[i].phys,
+							   copy[i].size, false),
+			   copy[i].name);
 		used += ALIGN(copy[i].size, PAGE_SIZE);
 	}
 	kfree(copy);

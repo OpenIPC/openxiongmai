@@ -46,7 +46,7 @@ Every call takes a record `{ char name[32]; u32 size; u32 phys; u32 vaddr; }` (4
 | `_IOW('M', 5)` | Flush the CPU caches for the mapping at `vaddr` and `size` (and the outer cache by `phys`), then mark the block cached |
 | `_IOW('M', 6)` / `_IOW('M', 7)` | Mark the block at `phys` cached / uncached, for later mappings |
 
-The record goes back to the caller whether or not the call succeeded. As in the vendor module, the ioctl returns 0 even for commands it rejects, so callers test `phys`.
+The record goes back to the caller whether or not the call succeeded. A failed allocation or lookup returns −1 with `phys` 0. As in the vendor module, a command it does not know (a record of another size included) logs `ioctl cmd error` and returns 0, so callers test `phys`.
 
 `mmap` with the physical address as the offset maps it write-back for a cached block and uncached otherwise. Like the vendor module, it maps any physical address. It logs the first mapping outside the zone, so anything that relies on that can be found before it is refused.
 
