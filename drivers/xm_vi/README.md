@@ -28,7 +28,7 @@ Each way's buffers come from one MMZ block named `vi_way[N]`, sized buffers × w
 | 2 / 3 `ENABLE` / `DISABLE` | `way` | Starts or stops the way's store engine. Fails if the way has not been set up. |
 | 4 `GET_FRAME` | frame record, in/out | Waits up to 2 s for a filled buffer and hands out the oldest one. On a descriptor opened `O_NONBLOCK` it returns `EAGAIN` at once instead of waiting. |
 | 5 `RELEASE_FRAME` | frame record | Gives the buffer back to the hardware. Fails unless the record is a frame that is currently handed out. |
-| 6 `INIT` | none | Stops the store engines and 3D noise reduction, waits 200 ms for their DMA to finish if either was running, then resets VI and forgets every way. |
+| 6 `INIT` | none | Stops the store engines and 3D noise reduction, waits 200 ms for their DMA to finish, then resets VI and forgets every way. |
 | 7 `SET_RATE` | `{way, rate, keep_mask}` | Sets the store engine's frame rate and keep mask, then does what `SET_MODE` does with the same argument (the vendor driver does this too). |
 | 8 `SET_MODE` | `{way, mode, val}` | Mode 2 passes each filled buffer straight to the engine `val` selects (0 or 1) instead of to `GET_FRAME`. This path is untested. |
 

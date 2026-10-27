@@ -186,21 +186,14 @@ static inline u32 vi_read(u32 off)
  */
 static void vi_quiesce(void)
 {
-	bool busy = false;
 	int i;
 
-	for (i = 0; i < VI_HW_WAYS; i++) {
-		if (vi_read(REG_STORE(i) + ST_ENABLE)) {
-			vi_write(REG_STORE(i) + ST_ENABLE, 0);
-			busy = true;
-		}
-	}
-	if (vi_read(REG_NR3D)) {
-		vi_write(REG_NR3D, 0);
-		busy = true;
-	}
-	if (busy)
-		msleep(VI_QUIESCE_MS);
+	for (i = 0; i < VI_HW_WAYS; i++)
+		vi_write(REG_STORE(i) + ST_ENABLE, 0);
+	vi_write(REG_NR3D, 0);
+	/* always: the enables may have been cleared just before, with the DMA
+	 * still running */
+	msleep(VI_QUIESCE_MS);
 }
 
 /*
@@ -480,6 +473,18 @@ int vi_get_frame(struct vi_frame *f)
 }
 EXPORT_SYMBOL(vi_get_frame);
 
+/* Give buffer k of the way back to the hardware; vi_lock held */
+static void vi_put_buf(u32 way, u32 k)
+{
+	struct vi_way *v = &ways[way];
+
+	v->held &= ~(1u << k);
+	v->buf[k].owner = NULL;
+	if (way < VI_HW_WAYS)
+		vi_write(REG_STORE(way) + ST_FULL, ~(1u << k));
+	v->full_seen &= ~(1u << k);
+}
+
 int vi_release_frame(struct vi_frame *f)
 {
 	struct vi_way *v;
@@ -499,11 +504,7 @@ int vi_release_frame(struct vi_frame *f)
 			f->seq);
 		return -1;
 	}
-	v->held &= ~(1u << k);
-	v->buf[k].owner = NULL;
-	if (f->way < VI_HW_WAYS)
-		vi_write(REG_STORE(f->way) + ST_FULL, ~(1u << k));
-	v->full_seen &= ~(1u << k);
+	vi_put_buf(f->way, k);
 	spin_unlock_irqrestore(&vi_lock, flags);
 	return 0;
 }
@@ -513,24 +514,16 @@ EXPORT_SYMBOL(vi_release_frame);
  * forgets does not keep buffers from the hardware until the next VI init */
 static void vi_release_owned(struct file *owner)
 {
-	struct vi_frame f;
 	unsigned long flags;
 	u32 way, k;
 
-	for (way = 0; way < VI_WAYS; way++) {
-		for (k = 0; k < VI_MAX_BUFS; k++) {
-			spin_lock_irqsave(&vi_lock, flags);
-			f.way = way;
-			f.seq = ways[way].buf[k].seq;
-			if (!(ways[way].held & 1u << k) ||
-			    ways[way].buf[k].owner != owner) {
-				spin_unlock_irqrestore(&vi_lock, flags);
-				continue;
-			}
-			spin_unlock_irqrestore(&vi_lock, flags);
-			vi_release_frame(&f);
-		}
-	}
+	spin_lock_irqsave(&vi_lock, flags);
+	for (way = 0; way < VI_WAYS; way++)
+		for (k = 0; k < VI_MAX_BUFS; k++)
+			if (ways[way].held & 1u << k &&
+			    ways[way].buf[k].owner == owner)
+				vi_put_buf(way, k);
+	spin_unlock_irqrestore(&vi_lock, flags);
 }
 
 static irqreturn_t vi_irq(int irq, void *dev_id)
@@ -628,9 +621,12 @@ static long vi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		mutex_unlock(&vi_cfg_lock);
 		return ret;
 	case VI_IOC_ENABLE:
-		return vi_store_enable(a.way, 1);
 	case VI_IOC_DISABLE:
-		return vi_store_enable(a.way, 0);
+		/* not while VI init drains the DMA */
+		mutex_lock(&vi_cfg_lock);
+		ret = vi_store_enable(a.way, cmd == VI_IOC_ENABLE);
+		mutex_unlock(&vi_cfg_lock);
+		return ret;
 	case VI_IOC_GET_FRAME:
 		/* poll() watches the ways this descriptor asks for */
 		if (a.frame.way < VI_WAYS)
