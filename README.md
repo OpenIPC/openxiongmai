@@ -228,8 +228,15 @@ Measured on an XM550 + IMX335 (150-round limit per test):
 | `-n`: ext channel 1 enabled, no frames taken | froze at run 4 |
 | `-0`: channel 0 only | froze at run 3 |
 | `-i`: VI init only, VI never set up | 150 runs clean |
+| `-N`: 3D noise reduction off before the init (`0x30040000` = 0, 200 ms) | **310 runs clean**: 110 + 100 with `devmem`, 100 with `-N`, over three boots. The baseline froze at run 7 in between |
 
-So the condition is VI capturing at the time of the init. Disabling the channels doesn't avoid it, and neither does leaving ext channel 1 out. Putting the sensor into standby doesn't stop VI either: its frame interrupts keep coming from the ISP's timing. `-B` and `-A` run commands right before and after the init, for testing other ways around it.
+So the condition is VI capturing at the time of the init. Disabling the channels doesn't avoid it, and neither does leaving ext channel 1 out. Putting the sensor into standby doesn't stop VI either: its frame interrupts keep coming from the ISP's timing.
+
+**The way around it: turn 3D noise reduction off before the VI init.**
+- **Why it works:** VI init pulses a reset (`0x01590000`, then 1, to the system controller at `0x2000011c`) that covers the ISP. 3D-NR is a bus master: it reads and writes reference frames in DDR for as long as it's on. With it off and its DMA given a few frames to stop, the reset no longer freezes the bus.
+- **No lasting effect:** the reset puts the 3D-NR control back to its default (`0x45`, on), so the setup that follows is unchanged.
+- **Using it:** `-N` does this, through the ISP driver's register write. `-B` and `-A` run commands right before and after the init, for testing other ways around it.
+- **Leak limit:** each run's channel setup leaks VI driver vmalloc (about 8 MB). A boot lasts about 110 runs before setup fails with ENOMEM. Reboot between long tests.
 
 ## CI
 
