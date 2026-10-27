@@ -127,7 +127,7 @@ To add a sensor:
 |--------|----------|--------|
 | `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder | Same `/dev/h264` ABI as the vendor `xm530_h264.ko`; ran majestic on an XM550 in place of it |
 | `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
-| `xm_vi` | XM530/XM550 video input: capture window, scalers and frame buffers (`/dev/vi`) | Same ABI as the vendor `xm530_vi.ko`, without its vmalloc leak; ran majestic on an XM550 in place of it |
+| `xm_vi` | XM530/XM550 video input: capture window, scalers and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm530_vi.ko`, without its vmalloc leak; ran majestic on an XM550 in place of it |
 
 ## Open encoder
 
