@@ -632,6 +632,11 @@ static long vi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case VI_IOC_DISABLE:
 		return vi_store_enable(a.way, 0);
 	case VI_IOC_GET_FRAME:
+		/* poll() watches the ways this descriptor asks for */
+		if (a.frame.way < VI_WAYS)
+			file->private_data =
+				(void *)((unsigned long)file->private_data |
+					 1ul << a.frame.way);
 		ret = vi_take_frame(&a.frame, file, file->f_flags & O_NONBLOCK);
 		if (ret)
 			return ret;
@@ -699,11 +704,14 @@ static const struct file_operations vi_proc_fops = {
 	.release = single_release,
 };
 
-/* Readable while any way has a filled buffer to hand out; GET_FRAME on a
- * descriptor opened O_NONBLOCK then returns -EAGAIN for a way that has none */
+/* Readable while a way has a filled buffer waiting: any of the ways this
+ * descriptor has taken frames from, or any way before its first GET_FRAME.
+ * GET_FRAME on a descriptor opened O_NONBLOCK returns -EAGAIN for a way that
+ * has none. */
 static unsigned int vi_poll(struct file *file, poll_table *wait)
 {
 	unsigned long flags;
+	unsigned long ways_of = (unsigned long)file->private_data;
 	unsigned int mask = 0;
 	int i;
 
@@ -711,10 +719,16 @@ static unsigned int vi_poll(struct file *file, poll_table *wait)
 		poll_wait(file, &ways[i].wq, wait);
 	spin_lock_irqsave(&vi_lock, flags);
 	for (i = 0; i < VI_WAYS; i++)
-		if (ways[i].nready)
+		if ((!ways_of || ways_of & 1ul << i) && ways[i].nready)
 			mask = POLLIN | POLLRDNORM;
 	spin_unlock_irqrestore(&vi_lock, flags);
 	return mask;
+}
+
+static int vi_file_open(struct inode *inode, struct file *file)
+{
+	file->private_data = NULL; /* ways taken from, for poll() */
+	return 0;
 }
 
 static int vi_file_release(struct inode *inode, struct file *file)
@@ -726,6 +740,7 @@ static int vi_file_release(struct inode *inode, struct file *file)
 static const struct file_operations vi_fops = {
 	.owner = THIS_MODULE,
 	.unlocked_ioctl = vi_ioctl,
+	.open = vi_file_open,
 	.poll = vi_poll,
 	.release = vi_file_release,
 };

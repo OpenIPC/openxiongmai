@@ -36,7 +36,7 @@ Errors return −1 (`EPERM`), as the vendor driver does, except `EAGAIN` from a 
 
 The frame record is 32 bytes: `{way, seq, phys_y, phys_c, w, h, u64 pts}`. `pts` is the interrupt time in microseconds. `seq` counts the frames handed out on that way, and `RELEASE_FRAME` matches it. Other kernel modules can use the same calls through the exported `vi_get_frame()` and `vi_release_frame()`.
 
-`poll()` on `/dev/vi` reports it readable while any way has a filled buffer waiting to be handed out. The vendor driver has no `poll`.
+`poll()` on `/dev/vi` reports it readable while a way has a filled buffer waiting to be handed out. It watches the ways that descriptor has called `GET_FRAME` on, or every way before its first `GET_FRAME`. The vendor driver has no `poll`.
 
 ## Buffers and interrupts
 
