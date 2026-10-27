@@ -96,6 +96,9 @@ extern int mmz_get_addr(const char *name, u32 *size, u32 *phys);
 #define VI_IOC_SET_MODE _IOW('V', 8, struct vi_mode)
 
 #define VI_MODE_BIND 2
+#define VI_BIND_DESTS 2 /* bind val: REG_BIND_IDX0 or REG_BIND_IDX1 */
+/* largest frame SET_CHN takes, beyond any XM530/XM550 sensor */
+#define VI_MAX_DIM 8192
 /* GET_FRAME waits this long for a frame */
 #define VI_WAIT_JIFFIES 200
 
@@ -122,14 +125,18 @@ struct vi_frame {
 struct vi_buf {
 	u32 phys_y, phys_c;
 	u64 pts;
+	u32 seq; /* while held: the frame number it was handed out as */
 };
 
 struct vi_way {
 	struct vi_buf buf[VI_MAX_BUFS];
 	u32 full_seen; /* ST_FULL at the last interrupt */
-	u32 held;      /* given to user space, not released */
+	u32 held; /* given to user space, not released */
+	/* filled buffers not yet handed out, oldest first */
+	u8 ready[VI_MAX_BUFS];
+	u32 nready;
 	u32 recv, sent, dropped;
-	u32 stat;      /* ST_STAT at the last interrupt */
+	u32 stat; /* ST_STAT at the last interrupt */
 	u32 w, h;
 	u32 mmz_size;
 	u32 rate, mask;
@@ -166,10 +173,11 @@ static inline u32 vi_read(u32 off)
  * Reset VI (and with it the ISP blocks on the same reset line) and forget
  * every way. As the vendor driver: it does not quiesce DMA first, so a
  * caller must not do this while 3D noise reduction is running
- * (tools/xm-vi-hang -N).
+ * (tools/xm-vi-hang -N). Frames held across it can no longer be released.
  */
 static void vi_reset(void)
 {
+	unsigned long flags;
 	int i;
 
 	writel(VI_RESET_ASSERT, reset_reg);
@@ -177,11 +185,13 @@ static void vi_reset(void)
 	writel(VI_RESET_RELEASE, reset_reg);
 	udelay(1250);
 
+	spin_lock_irqsave(&vi_lock, flags);
 	memset(&cap, 0, sizeof(cap));
-	for (i = 0; i < VI_WAYS; i++) {
+	for (i = 0; i < VI_WAYS; i++)
 		memset(&ways[i], 0, offsetof(struct vi_way, wq));
-		init_waitqueue_head(&ways[i].wq);
-	}
+	spin_unlock_irqrestore(&vi_lock, flags);
+	for (i = 0; i < VI_WAYS; i++)
+		wake_up_interruptible(&ways[i].wq);
 }
 
 static int vi_store_enable(u32 way, u32 on)
@@ -241,6 +251,10 @@ static int vi_set_chn(u32 way, u32 w, u32 h)
 
 	if (way >= VI_WAYS)
 		return -1;
+	if (!w || w > VI_MAX_DIM || h < 2 || h > VI_MAX_DIM) {
+		pr_err("VI: invalid size %ux%u\n", w, h);
+		return -1;
+	}
 	v = &ways[way];
 	frame = w * h + w * h / 2;
 	snprintf(name, sizeof(name), "vi_way[%u]", way);
@@ -252,12 +266,19 @@ static int vi_set_chn(u32 way, u32 w, u32 h)
 		vi_write(REG_STORE(way) + ST_NBUF, nbuf[way] - 1);
 	spin_unlock_irqrestore(&vi_lock, flags);
 
-	/* the way's buffers, in MMZ by name */
+	/* the way's buffers, in MMZ by name; the block outlives VI init and
+	 * module reloads, so reuse one already there */
 	if (!v->mmz_size) {
 		size = nbuf[way] * frame;
 		if (mmz_alloc(name, size, &phys)) {
-			pr_err("VI: can't malloc memory\n");
-			return -1;
+			u32 have;
+
+			if (mmz_get_addr(name, &have, &phys) || !phys ||
+			    have < size) {
+				pr_err("VI: can't malloc memory\n");
+				return -1;
+			}
+			size = have;
 		}
 		v->mmz_size = size;
 	} else if (v->mmz_size < nbuf[way] * frame) {
@@ -362,6 +383,8 @@ static int vi_set_mode(const struct vi_mode *m, bool rate)
 	}
 	if (!v->mmz_size)
 		return -1;
+	if (m->mode == VI_MODE_BIND && m->val >= VI_BIND_DESTS)
+		return -1;
 	spin_lock_irqsave(&vi_lock, flags);
 	v->mode_val = m->val;
 	v->mode = m->mode;
@@ -386,23 +409,25 @@ int vi_get_frame(struct vi_frame *f)
 	if (f->way >= VI_WAYS)
 		return -1;
 	v = &ways[f->way];
-	left = wait_event_interruptible_timeout(v->wq, v->sent < v->recv,
+	left = wait_event_interruptible_timeout(v->wq, v->nready,
 						VI_WAIT_JIFFIES);
 	if (left < 0)
 		return left;
 
 	spin_lock_irqsave(&vi_lock, flags);
-	if (v->sent >= v->recv) {
+	if (!v->nready) {
 		spin_unlock_irqrestore(&vi_lock, flags);
 		return -1;
 	}
-	k = v->sent % nbuf[f->way];
+	k = v->ready[0];
+	v->nready--;
+	memmove(v->ready, v->ready + 1, v->nready);
 	f->phys_y = v->buf[k].phys_y;
 	f->phys_c = v->buf[k].phys_c;
 	f->w = v->w;
 	f->h = v->h;
 	f->pts = v->buf[k].pts;
-	f->seq = v->sent++;
+	f->seq = v->buf[k].seq = v->sent++;
 	v->held |= 1u << k;
 	spin_unlock_irqrestore(&vi_lock, flags);
 	return 0;
@@ -419,13 +444,15 @@ int vi_release_frame(struct vi_frame *f)
 		return -1;
 	v = &ways[f->way];
 	spin_lock_irqsave(&vi_lock, flags);
-	if (f->seq >= v->sent) {
+	for (k = 0; k < VI_MAX_BUFS; k++)
+		if (v->held & 1u << k && v->buf[k].seq == f->seq)
+			break;
+	if (k == VI_MAX_BUFS) {
 		spin_unlock_irqrestore(&vi_lock, flags);
 		pr_warn("vi: chn[%u] frame = %u is not using\n", f->way,
 			f->seq);
 		return -1;
 	}
-	k = f->seq % nbuf[f->way];
 	v->held &= ~(1u << k);
 	if (f->way < VI_HW_WAYS)
 		vi_write(REG_STORE(f->way) + ST_FULL, ~(1u << k));
@@ -437,7 +464,7 @@ EXPORT_SYMBOL(vi_release_frame);
 
 static irqreturn_t vi_irq(int irq, void *dev_id)
 {
-	u32 way = (u32)(uintptr_t)dev_id, full, fresh, all;
+	u32 way = (u32)(uintptr_t)dev_id, full, fresh;
 	struct vi_way *v = &ways[way];
 	struct timeval now;
 	int k = -1;
@@ -469,10 +496,8 @@ static irqreturn_t vi_irq(int irq, void *dev_id)
 		k = 3;
 		break;
 	default:
-		/* more than one at once: give them all back */
-		all = ~(~0u << nbuf[way]);
-		if (fresh == all)
-			vi_write(REG_STORE(way) + ST_FULL, ~all);
+		/* more than one at once, order unknown: give them back */
+		vi_write(REG_STORE(way) + ST_FULL, ~fresh);
 		pr_warn("vi: chn[%u] buffers 0x%x at once\n", way, fresh);
 		full &= ~fresh;
 		v->dropped++;
@@ -482,9 +507,13 @@ static irqreturn_t vi_irq(int irq, void *dev_id)
 		v->buf[k].pts = (u64)now.tv_sec * 1000000 + now.tv_usec;
 		v->recv++;
 		if (v->mode == VI_MODE_BIND) {
-			vi_write(v->mode_val ? REG_BIND_IDX1 : REG_BIND_IDX0, k);
+			vi_write(v->mode_val ? REG_BIND_IDX1 : REG_BIND_IDX0,
+				 k);
 			vi_write(REG_STORE(way) + ST_FULL, ~fresh);
+			full &= ~fresh;
 			v->sent++;
+		} else if (v->nready < VI_MAX_BUFS) {
+			v->ready[v->nready++] = k;
 		}
 	}
 	v->full_seen = full;
@@ -532,6 +561,7 @@ static long vi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			return ret;
 		if (copy_to_user(uarg, &a.frame, sizeof(a.frame))) {
 			pr_err("vi_ioctl: copy_to_user error.\n");
+			vi_release_frame(&a.frame);
 			return -1;
 		}
 		return 0;
@@ -611,6 +641,8 @@ static int __init xm_vi_init(void)
 		ret = -ENOMEM;
 		goto unmap;
 	}
+	for (i = 0; i < VI_WAYS; i++)
+		init_waitqueue_head(&ways[i].wq);
 	vi_reset();
 	for (i = 0; i < VI_HW_WAYS; i++) {
 		ret = request_irq(VI_IRQ_FIRST + i, vi_irq, 0, "vi_back_v",
