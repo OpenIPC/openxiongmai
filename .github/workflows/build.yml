@@ -230,10 +230,17 @@ jobs:
           make -C drivers/xm_vi KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
+      # The MMZ driver reimplements the XM530/XM550 mmz.ko.
+      - name: Build xm_mmz
+        if: matrix.soc == 'xm530'
+        run: |
+          make -C drivers/xm_mmz KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
       - name: Verify modules
         run: |
           modules="drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/hx280enc.ko"
-          [ "${{ matrix.soc }}" = xm530 ] && modules="$modules drivers/xm_vi/open_vi.ko"
+          [ "${{ matrix.soc }}" = xm530 ] && modules="$modules drivers/xm_vi/open_vi.ko drivers/xm_mmz/open_mmz.ko"
           for ko in $modules; do
             [ -f "$ko" ] || { echo "MISSING: $ko" >&2; exit 1; }
             ${CROSS_COMPILE}readelf -h "$ko" | grep -q 'Machine:.*ARM' \
