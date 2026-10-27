@@ -1,10 +1,10 @@
 # xm_vi
 
-`xm_vi` is the video input (VI) driver for the XM530/XM550. It replaces the vendor's `xm530_vi.ko` without changes to applications that use it. Load it after `mmz.ko`, in place of the vendor module:
+`xm_vi` is the video input (VI) driver for the XM530/XM550, built as `open_vi.ko` (module `open_vi`, the name OpenIPC firmware gives the open modules that replace vendor ones). It replaces the vendor's `xm530_vi.ko` without changes to applications that use it. Load it after `mmz.ko`, in place of the vendor module:
 
 ```sh
 rmmod xm530_vi
-insmod xm_vi.ko buffer=2      # buffers per way, 1-4 (otherwise 4); one value per way
+insmod open_vi.ko buffer=2      # buffers per way, 1-4 (otherwise 4); one value per way
 ```
 
 Issue #34 records how the vendor module works and the register map behind this driver.
