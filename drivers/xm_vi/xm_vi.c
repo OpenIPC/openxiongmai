@@ -22,6 +22,8 @@
 #include <linux/io.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
+#include <linux/poll.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
 #include <linux/seq_file.h>
@@ -79,6 +81,9 @@ extern int mmz_get_addr(const char *name, u32 *size, u32 *phys);
 #define REG_BIND_C(val, k) (0xd2054 + (val) * 32 + 4 * (k))
 #define REG_BIND_IDX0 0xd2098
 #define REG_BIND_IDX1 0xd209c
+/* 3D noise reduction control (ISP): on, it reads and writes reference
+ * frames in DDR, and a reset in the middle of that DMA freezes the bus */
+#define REG_NR3D 0x40000
 
 /* store engine addresses: DDR offset in 8-byte units */
 #define DDR_BASE 0x80000000u
@@ -101,6 +106,8 @@ extern int mmz_get_addr(const char *name, u32 *size, u32 *phys);
 #define VI_MAX_DIM 8192
 /* GET_FRAME waits this long for a frame */
 #define VI_WAIT_JIFFIES 200
+/* DMA drain before the reset: three frames at 15 fps */
+#define VI_QUIESCE_MS 200
 
 struct vi_dev_attr {
 	u32 x, y, w, h;
@@ -126,6 +133,7 @@ struct vi_buf {
 	u32 phys_y, phys_c;
 	u64 pts;
 	u32 seq; /* while held: the frame number it was handed out as */
+	struct file *owner; /* while held through /dev/vi: by which open file */
 };
 
 struct vi_way {
@@ -155,6 +163,8 @@ MODULE_PARM_DESC(buffer, "buffers per way, 1-4");
 static void __iomem *regs;
 static void __iomem *reset_reg;
 static DEFINE_SPINLOCK(vi_lock);
+/* serialises setup and VI init, which sleep */
+static DEFINE_MUTEX(vi_cfg_lock);
 static struct vi_dev_attr cap;
 static struct vi_way ways[VI_WAYS];
 static u32 nbuf[VI_WAYS];
@@ -170,16 +180,32 @@ static inline u32 vi_read(u32 off)
 }
 
 /*
+ * Stop the DMA the reset below would cut off: the store engines and 3D noise
+ * reduction, which the vendor driver leaves running (the XM550 freeze,
+ * tools/xm-vi-hang -N). Whoever sets the ISP up again turns 3D-NR back on.
+ */
+static void vi_quiesce(void)
+{
+	int i;
+
+	for (i = 0; i < VI_HW_WAYS; i++)
+		vi_write(REG_STORE(i) + ST_ENABLE, 0);
+	vi_write(REG_NR3D, 0);
+	/* always: the enables may have been cleared just before, with the DMA
+	 * still running */
+	msleep(VI_QUIESCE_MS);
+}
+
+/*
  * Reset VI (and with it the ISP blocks on the same reset line) and forget
- * every way. As the vendor driver: it does not quiesce DMA first, so a
- * caller must not do this while 3D noise reduction is running
- * (tools/xm-vi-hang -N). Frames held across it can no longer be released.
+ * every way. Frames held across it can no longer be released. Sleeps.
  */
 static void vi_reset(void)
 {
 	unsigned long flags;
 	int i;
 
+	vi_quiesce();
 	writel(VI_RESET_ASSERT, reset_reg);
 	udelay(1250);
 	writel(VI_RESET_RELEASE, reset_reg);
@@ -399,7 +425,9 @@ static int vi_set_mode(const struct vi_mode *m, bool rate)
 	return 0;
 }
 
-int vi_get_frame(struct vi_frame *f)
+/* Hand out the oldest filled buffer of f->way; owner is the open file that
+ * gets it, NULL for kernel callers */
+static int vi_take_frame(struct vi_frame *f, struct file *owner, bool nonblock)
 {
 	struct vi_way *v;
 	unsigned long flags;
@@ -409,10 +437,15 @@ int vi_get_frame(struct vi_frame *f)
 	if (f->way >= VI_WAYS)
 		return -1;
 	v = &ways[f->way];
-	left = wait_event_interruptible_timeout(v->wq, v->nready,
-						VI_WAIT_JIFFIES);
-	if (left < 0)
-		return left;
+	if (nonblock) {
+		if (!v->nready)
+			return -EAGAIN;
+	} else {
+		left = wait_event_interruptible_timeout(v->wq, v->nready,
+							VI_WAIT_JIFFIES);
+		if (left < 0)
+			return left;
+	}
 
 	spin_lock_irqsave(&vi_lock, flags);
 	if (!v->nready) {
@@ -429,10 +462,28 @@ int vi_get_frame(struct vi_frame *f)
 	f->pts = v->buf[k].pts;
 	f->seq = v->buf[k].seq = v->sent++;
 	v->held |= 1u << k;
+	v->buf[k].owner = owner;
 	spin_unlock_irqrestore(&vi_lock, flags);
 	return 0;
 }
+
+int vi_get_frame(struct vi_frame *f)
+{
+	return vi_take_frame(f, NULL, false);
+}
 EXPORT_SYMBOL(vi_get_frame);
+
+/* Give buffer k of the way back to the hardware; vi_lock held */
+static void vi_put_buf(u32 way, u32 k)
+{
+	struct vi_way *v = &ways[way];
+
+	v->held &= ~(1u << k);
+	v->buf[k].owner = NULL;
+	if (way < VI_HW_WAYS)
+		vi_write(REG_STORE(way) + ST_FULL, ~(1u << k));
+	v->full_seen &= ~(1u << k);
+}
 
 int vi_release_frame(struct vi_frame *f)
 {
@@ -453,14 +504,27 @@ int vi_release_frame(struct vi_frame *f)
 			f->seq);
 		return -1;
 	}
-	v->held &= ~(1u << k);
-	if (f->way < VI_HW_WAYS)
-		vi_write(REG_STORE(f->way) + ST_FULL, ~(1u << k));
-	v->full_seen &= ~(1u << k);
+	vi_put_buf(f->way, k);
 	spin_unlock_irqrestore(&vi_lock, flags);
 	return 0;
 }
 EXPORT_SYMBOL(vi_release_frame);
+
+/* Give back what an open file still holds, so a consumer that dies or
+ * forgets does not keep buffers from the hardware until the next VI init */
+static void vi_release_owned(struct file *owner)
+{
+	unsigned long flags;
+	u32 way, k;
+
+	spin_lock_irqsave(&vi_lock, flags);
+	for (way = 0; way < VI_WAYS; way++)
+		for (k = 0; k < VI_MAX_BUFS; k++)
+			if (ways[way].held & 1u << k &&
+			    ways[way].buf[k].owner == owner)
+				vi_put_buf(way, k);
+	spin_unlock_irqrestore(&vi_lock, flags);
+}
 
 static irqreturn_t vi_irq(int irq, void *dev_id)
 {
@@ -547,16 +611,29 @@ static long vi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	}
 	switch (cmd) {
 	case VI_IOC_SET_DEV:
+		mutex_lock(&vi_cfg_lock);
 		vi_set_dev(&a.dev);
+		mutex_unlock(&vi_cfg_lock);
 		return 0;
 	case VI_IOC_SET_CHN:
-		return vi_set_chn(a.chn.way, a.chn.w, a.chn.h);
+		mutex_lock(&vi_cfg_lock);
+		ret = vi_set_chn(a.chn.way, a.chn.w, a.chn.h);
+		mutex_unlock(&vi_cfg_lock);
+		return ret;
 	case VI_IOC_ENABLE:
-		return vi_store_enable(a.way, 1);
 	case VI_IOC_DISABLE:
-		return vi_store_enable(a.way, 0);
+		/* not while VI init drains the DMA */
+		mutex_lock(&vi_cfg_lock);
+		ret = vi_store_enable(a.way, cmd == VI_IOC_ENABLE);
+		mutex_unlock(&vi_cfg_lock);
+		return ret;
 	case VI_IOC_GET_FRAME:
-		ret = vi_get_frame(&a.frame);
+		/* poll() watches the ways this descriptor asks for */
+		if (a.frame.way < VI_WAYS)
+			file->private_data =
+				(void *)((unsigned long)file->private_data |
+					 1ul << a.frame.way);
+		ret = vi_take_frame(&a.frame, file, file->f_flags & O_NONBLOCK);
 		if (ret)
 			return ret;
 		if (copy_to_user(uarg, &a.frame, sizeof(a.frame))) {
@@ -568,12 +645,20 @@ static long vi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case VI_IOC_RELEASE_FRAME:
 		return vi_release_frame(&a.frame);
 	case VI_IOC_INIT:
+		mutex_lock(&vi_cfg_lock);
 		vi_reset();
+		mutex_unlock(&vi_cfg_lock);
 		return 0;
 	case VI_IOC_SET_RATE:
-		return vi_set_mode(&a.mode, true);
+		mutex_lock(&vi_cfg_lock);
+		ret = vi_set_mode(&a.mode, true);
+		mutex_unlock(&vi_cfg_lock);
+		return ret;
 	case VI_IOC_SET_MODE:
-		return vi_set_mode(&a.mode, false);
+		mutex_lock(&vi_cfg_lock);
+		ret = vi_set_mode(&a.mode, false);
+		mutex_unlock(&vi_cfg_lock);
+		return ret;
 	default:
 		pr_err("vi_ioctl: cmd error\n");
 		return 0;
@@ -615,9 +700,45 @@ static const struct file_operations vi_proc_fops = {
 	.release = single_release,
 };
 
+/* Readable while a way has a filled buffer waiting: any of the ways this
+ * descriptor has taken frames from, or any way before its first GET_FRAME.
+ * GET_FRAME on a descriptor opened O_NONBLOCK returns -EAGAIN for a way that
+ * has none. */
+static unsigned int vi_poll(struct file *file, poll_table *wait)
+{
+	unsigned long flags;
+	unsigned long ways_of = (unsigned long)file->private_data;
+	unsigned int mask = 0;
+	int i;
+
+	for (i = 0; i < VI_WAYS; i++)
+		poll_wait(file, &ways[i].wq, wait);
+	spin_lock_irqsave(&vi_lock, flags);
+	for (i = 0; i < VI_WAYS; i++)
+		if ((!ways_of || ways_of & 1ul << i) && ways[i].nready)
+			mask = POLLIN | POLLRDNORM;
+	spin_unlock_irqrestore(&vi_lock, flags);
+	return mask;
+}
+
+static int vi_file_open(struct inode *inode, struct file *file)
+{
+	file->private_data = NULL; /* ways taken from, for poll() */
+	return 0;
+}
+
+static int vi_file_release(struct inode *inode, struct file *file)
+{
+	vi_release_owned(file);
+	return 0;
+}
+
 static const struct file_operations vi_fops = {
 	.owner = THIS_MODULE,
 	.unlocked_ioctl = vi_ioctl,
+	.open = vi_file_open,
+	.poll = vi_poll,
+	.release = vi_file_release,
 };
 
 static struct miscdevice vi_misc = {
