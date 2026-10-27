@@ -236,7 +236,19 @@ So the condition is VI capturing at the time of the init. Disabling the channels
 - **Why it works:** VI init pulses a reset (`0x01590000`, then 1, to the system controller at `0x2000011c`) that covers the ISP. 3D-NR is a bus master: it reads and writes reference frames in DDR for as long as it's on. With it off and its DMA given a few frames to stop, the reset no longer freezes the bus.
 - **No lasting effect:** the reset puts the 3D-NR control back to its default (`0x45`, on), so the setup that follows is unchanged.
 - **Using it:** `-N` does this, through the ISP driver's register write. `-B` and `-A` run commands right before and after the init, for testing other ways around it.
-- **Leak limit:** each run's channel setup leaks VI driver vmalloc (about 8 MB). A boot lasts about 110 runs before setup fails with ENOMEM. Reboot between long tests.
+- **Leak limit:** each run leaks about 7 MB of VI driver vmalloc. A boot lasts about 110 runs before setup fails with ENOMEM. Reboot between long tests.
+
+**The VI driver's vmalloc leak.** Every VI init leaks the channels' buffer mappings.
+- **Cause:** channel setup (`0x400c5601`) maps each capture buffer twice, for luma and chroma. It unmaps the previous mappings only if their pointers are still stored. VI init clears the driver's state table without unmapping anything.
+- **Way around it:** channel setup does the unmapping before it checks the new size. So a setup with a size VI refuses ("too small", here 64×64), on disabled channels, before the MMZ reset and the init, leaves only tiny mappings to leak. `-S` does this.
+- **Measured (XM550):**
+
+  | | vmalloc per run |
+  |---|---|
+  | without `-S` | 7,316 kB |
+  | with `-S` | 72 kB |
+
+  That's about 12,700 runs to exhaustion instead of about 110. 200 runs of `-N -S` were clean.
 
 ## CI
 

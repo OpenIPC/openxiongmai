@@ -92,7 +92,8 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 - **Setup:** `isp_writes.h` holds the ISP/MIPI writes an SDK start makes after VI init (IMX335, 1080p), recorded from `/dev/isp` `_IOW('I', 1, 12)`.
 - **MMZ reset:** VI channel setup fails with EPERM unless MMZ was reset (`_IO('M', 0)`), because VI takes its buffers from MMZ.
 - **Results:** disabling channels doesn't help, and channel 0 alone is enough. Turning 3D noise reduction off (`0x30040000` = 0) and waiting a few frames before the init avoids it (310 runs clean, `-N`). VI init resets the ISP through the system controller (`0x2000011c`), and 3D-NR's DDR DMA is what that reset must not interrupt.
-- **Leak limit:** each channel setup leaks about 8 MB of vmalloc in `xm530_vi.ko`, so a boot lasts about 110 runs.
+- **Leak limit:** VI init clears the driver's table of channel buffer mappings without unmapping them, which leaks about 7 MB of vmalloc a run, so a boot lasts about 110 runs.
+- **Leak workaround (`-S`):** channel setup unmaps the old mappings before it checks the size. So a refused 64×64 setup on disabled channels, before MMZ reset and VI init, leaves only 8–12 KB mappings to leak (72 kB a run). Channel setup looks its buffers up in MMZ by name (`vi_way[N]`), so after an MMZ reset it fails with EPERM until VI init.
 - **One core:** a log line written right before a freezing call never leaves the board, so the tool pauses before the init.
 
 ### Kernel drivers

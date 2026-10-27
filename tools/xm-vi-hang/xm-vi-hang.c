@@ -22,7 +22,7 @@
  * then stop it. Expect to power-cycle the board: unless a watchdog is
  * armed, nothing resets it from this hang.
  *
- * Usage: xm-vi-hang [-t seconds] [-0] [-i] [-M] [-n] [-N] [-p] [-x]
+ * Usage: xm-vi-hang [-t seconds] [-0] [-i] [-M] [-n] [-N] [-p] [-S] [-x]
  *                   [-B command] [-A command]
  *   -t  take frames for this long (default 3)
  *   -0  set up channel 0 only (no ext channel 1)
@@ -34,12 +34,16 @@
  *   -x  disable the channels before exiting
  *   -N  turn 3D noise reduction off before the VI init, and give its DMA a
  *       few frames to stop: the way around the hang
+ *   -S  unmap the channels' buffers before the VI init. VI init forgets
+ *       them without unmapping, which leaks about 7 MB of vmalloc a run; a
+ *       channel setup with a size VI refuses unmaps them first.
  * A run that fails a step exits 1, so `while xm-vi-hang; do ...; done`
  * stops rather than counting it.
  *   -B  run this shell command right before the VI init
  *   -A  run this shell command right after it (say, to put the sensor into
  *       standby around the init and wake it again)
  */
+#include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -108,7 +112,7 @@ static int disable_channels(int vi, int main_only) {
 
 int main(int argc, char **argv) {
   int secs = 3, mmz_reset = 1, init_only = 0, no_frames = 0, pre = 0, post = 0,
-      main_only = 0, nr_off = 0, c;
+      main_only = 0, nr_off = 0, shrink = 0, c;
   const char *before = NULL, *after = NULL;
   uint32_t dev[4] = {0, 0, 1920, 1080}, c0[3] = {0, 1920, 1080};
   uint32_t c1[3] = {1, 704, 576}, e0 = 0, e1 = 1;
@@ -116,7 +120,7 @@ int main(int argc, char **argv) {
   long frames = 0;
   char msg[96];
 
-  while ((c = getopt(argc, argv, "t:0iMnNpxB:A:")) != -1)
+  while ((c = getopt(argc, argv, "t:0iMnNpSxB:A:")) != -1)
     switch (c) {
     case 't':
       secs = atoi(optarg);
@@ -142,6 +146,9 @@ int main(int argc, char **argv) {
     case 'N':
       nr_off = 1;
       break;
+    case 'S':
+      shrink = 1;
+      break;
     case 'p':
       pre = 1;
       break;
@@ -150,7 +157,7 @@ int main(int argc, char **argv) {
       break;
     default:
       fprintf(stderr,
-              "usage: %s [-t seconds] [-0] [-i] [-M] [-n] [-N] [-p] [-x] "
+              "usage: %s [-t seconds] [-0] [-i] [-M] [-n] [-N] [-p] [-S] [-x] "
               "[-B command] [-A command]\n",
               argv[0]);
       return 2;
@@ -174,6 +181,22 @@ int main(int argc, char **argv) {
       return fail("3D-NR off");
     usleep(200000); /* three frames at 15 fps */
     say("3D-NR off");
+  }
+  if (shrink) {
+    /* A channel setup unmaps the channel's old buffer mappings before it
+     * checks the new size, so one with a size VI refuses ("too small")
+     * unmaps them and stops there. The channels are disabled first, so
+     * nothing uses the mappings until the init clears them. */
+    uint32_t s1[3] = {1, 64, 64}, s0[3] = {0, 64, 64};
+
+    if (disable_channels(vi, main_only))
+      return 1;
+    if ((!main_only && ioctl(vi, VI_SET_CHN, s1) == 0) ||
+        ioctl(vi, VI_SET_CHN, s0) == 0)
+      return fail("64x64 channel taken, buffers not unmapped");
+    if (errno != EPERM)
+      return fail("unmap channel buffers");
+    say("channel buffers unmapped");
   }
   if (before && system(before) != 0)
     return fail("-B command");
