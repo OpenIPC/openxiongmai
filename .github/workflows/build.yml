@@ -223,9 +223,18 @@ jobs:
           make -C drivers/hx280enc KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
+      # The VI driver reimplements xm530_vi.ko; XM510 has a different VI block.
+      - name: Build xm_vi
+        if: matrix.soc == 'xm530'
+        run: |
+          make -C drivers/xm_vi KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
       - name: Verify modules
         run: |
-          for ko in drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/hx280enc.ko; do
+          modules="drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/hx280enc.ko"
+          [ "${{ matrix.soc }}" = xm530 ] && modules="$modules drivers/xm_vi/xm_vi.ko"
+          for ko in $modules; do
             [ -f "$ko" ] || { echo "MISSING: $ko" >&2; exit 1; }
             ${CROSS_COMPILE}readelf -h "$ko" | grep -q 'Machine:.*ARM' \
               || { echo "$ko is not an ARM object" >&2; exit 1; }

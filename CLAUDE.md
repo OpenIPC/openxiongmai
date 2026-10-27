@@ -100,6 +100,7 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 
 - `drivers/xm_i2c`: a misc-device stub. Its read, write and ioctl handlers are placeholders that only print "not supported".
 - `drivers/hx280enc`: the Hantro 6280/7280/8270/8290 video encoder driver. It implements the `/dev/h264` ioctl ABI of the vendor `xm530_h264.ko`, including the Xiongmai `'k'` 9-12 extensions (`HX280ENC_IOCWAITDONE` and the `/proc` statistics records). The decompiled `H264ProcType` and `VencInfo` structs don't match the vendor record sizes, so the driver stores those records as raw bytes.
+- `drivers/xm_vi`: the XM530/XM550 video input driver, a drop-in for the vendor `xm530_vi.ko` (`/dev/vi`, `'V'` 0-8, the 32-byte frame record, `vi_get_frame`/`vi_release_frame` exports, `buffer=` parameter). It writes the same registers as the vendor module (issue #34 has the map) but keeps no per-buffer kernel mappings, so a restart leaks no vmalloc. It needs `mmz.ko` loaded first and builds against the XM530 kernel only. VI init still resets the ISP without stopping 3D noise reduction first.
 
 ## Conventions
 
