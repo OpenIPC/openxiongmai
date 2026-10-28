@@ -261,3 +261,10 @@ jobs:
               *) echo "unexpected vermagic for $ko, want ${{ matrix.kernel_version }}" >&2; exit 1 ;;
             esac
           done
+          # the open VI drivers export the frame API kernel callers use
+          vi=drivers/xm_vi/open_vi.ko
+          [ "${{ matrix.soc }}" = xm510 ] && vi=drivers/xm510_vi/open_vi.ko
+          for sym in vi_get_frame vi_release_frame; do
+            ${CROSS_COMPILE}nm "$vi" | grep -q " __ksymtab_$sym\$" \
+              || { echo "$vi does not export $sym" >&2; exit 1; }
+          done

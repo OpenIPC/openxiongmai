@@ -104,6 +104,8 @@ extern int mmz_get_addr(const char *name, u32 *size, u32 *phys);
 #define VI_MAX_DIM 4096
 /* GET_FRAME waits this long for a frame */
 #define VI_WAIT_JIFFIES 200
+/* a store engine's DMA drain before its layout changes: two frames at 25 fps */
+#define VI_DRAIN_MS 80
 /* DMA drain before the reset: three frames at 15 fps */
 #define VI_QUIESCE_MS 200
 
@@ -229,6 +231,36 @@ static void vi_set_dev(const struct vi_dev_attr *a)
 	spin_unlock_irqrestore(&vi_lock, flags);
 }
 
+static void vi_block_name(char *name, size_t len, u32 chn)
+{
+	snprintf(name, len, "vi_way[%u]", chn);
+}
+
+/*
+ * Whether the block a channel has is still its block: an MMZ reset forgets
+ * every block, VI init or not, and the zone is then handed out again. Only
+ * an MMZ module that looks names up (open_mmz) can tell; with one that
+ * cannot, the block is taken to be there, as the vendor driver does.
+ */
+static bool vi_block_valid(u32 chn)
+{
+	struct vi_chn *c = &chns[chn];
+	int (*get_addr)(const char *name, u32 *size, u32 *phys);
+	char name[16];
+	u32 phys = 0, have = 0;
+	bool ok = true;
+
+	get_addr = symbol_get(mmz_get_addr);
+	if (!get_addr)
+		return true;
+	vi_block_name(name, sizeof(name), chn);
+	if (get_addr(name, &have, &phys) || phys != c->phys ||
+	    have < c->mmz_size)
+		ok = false;
+	symbol_put(mmz_get_addr);
+	return ok;
+}
+
 /* The channel's MMZ block, "vi_way[chn]": made on the first setup since VI
  * init; one made before it (by a previous load) is found by name where the
  * MMZ module can look names up */
@@ -240,7 +272,7 @@ static int vi_get_block(u32 chn, u32 size)
 	u32 phys, have;
 	int ret = -1;
 
-	snprintf(name, sizeof(name), "vi_way[%u]", chn);
+	vi_block_name(name, sizeof(name), chn);
 	if (!mmz_alloc(name, size, &phys)) {
 		c->phys = phys;
 		c->mmz_size = size;
@@ -265,7 +297,7 @@ static int vi_set_chn(u32 chn, u32 w, u32 h)
 	struct vi_chn *c;
 	struct vi_chn *c0 = &chns[0];
 	unsigned long flags;
-	u32 stride, frame, k;
+	u32 stride, frame, k, on;
 
 	if (chn >= VI_CHNS || !w || w > VI_MAX_DIM || h < 2 ||
 	    h > VI_MAX_DIM) {
@@ -277,14 +309,30 @@ static int vi_set_chn(u32 chn, u32 w, u32 h)
 		return -1;
 	}
 	c = &chns[chn];
+	for (k = 0; k < nbuf; k++)
+		if (c->state[k] == BUF_HELD) {
+			pr_err("VI: chn[%u] has frames held\n", chn);
+			return -1;
+		}
 	stride = vi_stride(w);
 	frame = stride * h + stride * h / 2;
+	if (c->mmz_size && !vi_block_valid(chn)) {
+		pr_warn("VI: chn[%u] block is gone from MMZ\n", chn);
+		c->mmz_size = 0;
+	}
 	if (!c->mmz_size) {
 		if (vi_get_block(chn, nbuf * frame))
 			return -1;
 	} else if (c->mmz_size < nbuf * frame) {
 		pr_err("VI: too large size\n");
 		return -1;
+	}
+
+	/* not while the engine writes through the old layout */
+	on = vi_read(REG_STORE(chn) + ST_ENABLE);
+	if (on) {
+		vi_write(REG_STORE(chn) + ST_ENABLE, 0);
+		msleep(VI_DRAIN_MS);
 	}
 
 	spin_lock_irqsave(&vi_lock, flags);
@@ -308,12 +356,16 @@ static int vi_set_chn(u32 chn, u32 w, u32 h)
 		vi_write(REG_CROP0 + 4, w);
 		vi_write(REG_CROP0 + 8, 0);
 		vi_write(REG_CROP0 + 12, h);
-	} else if (chn == 1) {
-		vi_write(REG_SCALE1 + 0, (c0->w << 10) / w);
-		vi_write(REG_SCALE1 + 4, (c0->h << 10) / h);
+	}
+	/* channel 1 scales from channel 0: again when either changes */
+	if (chns[1].w && chns[1].h && c0->w && c0->h) {
+		vi_write(REG_SCALE1 + 0, (c0->w << 10) / chns[1].w);
+		vi_write(REG_SCALE1 + 4, (c0->h << 10) / chns[1].h);
 		vi_write(REG_SCALE1 + 8, 0);
 	}
 	spin_unlock_irqrestore(&vi_lock, flags);
+	if (on)
+		vi_write(REG_STORE(chn) + ST_ENABLE, on);
 	return 0;
 }
 
@@ -403,13 +455,16 @@ int vi_get_frame(struct vi_frame *f)
 }
 EXPORT_SYMBOL(vi_get_frame);
 
-int vi_release_frame(struct vi_frame *f)
+/* Free a held buffer for whoever took it: the open file, NULL for kernel
+ * callers */
+static int vi_put_frame(const struct vi_frame *f, struct file *owner)
 {
 	unsigned long flags;
 
 	spin_lock_irqsave(&vi_lock, flags);
 	if (f->chn >= VI_CHNS || f->idx >= VI_MAX_BUFS ||
-	    chns[f->chn].state[f->idx] != BUF_HELD) {
+	    chns[f->chn].state[f->idx] != BUF_HELD ||
+	    chns[f->chn].owner[f->idx] != owner) {
 		spin_unlock_irqrestore(&vi_lock, flags);
 		pr_warn("vi: chn[%u] frame = %u is not using\n", f->chn,
 			f->idx);
@@ -419,6 +474,11 @@ int vi_release_frame(struct vi_frame *f)
 	chns[f->chn].owner[f->idx] = NULL;
 	spin_unlock_irqrestore(&vi_lock, flags);
 	return 0;
+}
+
+int vi_release_frame(struct vi_frame *f)
+{
+	return vi_put_frame(f, NULL);
 }
 EXPORT_SYMBOL(vi_release_frame);
 
@@ -544,22 +604,21 @@ static long vi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		mutex_unlock(&vi_cfg_lock);
 		return ret;
 	case VI_IOC_GET_FRAME:
-		/* poll() watches the channels this descriptor asks for */
-		if (a.frame.chn < VI_CHNS)
-			file->private_data =
-				(void *)((unsigned long)file->private_data |
-					 1ul << a.frame.chn);
 		ret = vi_take_frame(&a.frame, file, file->f_flags & O_NONBLOCK);
 		if (ret)
 			return ret;
 		if (copy_to_user(uarg, &a.frame, sizeof(a.frame))) {
 			pr_err("vi_ioctl: copy_to_user error.\n");
-			vi_release_frame(&a.frame);
+			vi_put_frame(&a.frame, file);
 			return -1;
 		}
+		/* poll() watches the channels this descriptor takes from */
+		file->private_data = (void *)((unsigned long)file->private_data |
+					      1ul << a.frame.chn);
 		return 0;
 	case VI_IOC_RELEASE_FRAME:
-		return vi_release_frame(&a.frame);
+		/* only by the descriptor that took it */
+		return vi_put_frame(&a.frame, file);
 	case VI_IOC_INIT:
 		mutex_lock(&vi_cfg_lock);
 		vi_reset();
@@ -643,7 +702,7 @@ static const struct file_operations vi_proc_fops = {
 };
 
 /* Readable while a channel has a ready buffer: any of the channels this
- * descriptor has taken frames from, or any before its first GET_FRAME */
+ * descriptor has taken frames from, or any before its first frame */
 static unsigned int vi_poll(struct file *file, poll_table *wait)
 {
 	unsigned long chns_of = (unsigned long)file->private_data;
@@ -751,7 +810,9 @@ static void __exit xm510_vi_exit(void)
 {
 	remove_proc_entry("umap/vi", NULL);
 	misc_deregister(&vi_misc);
+	/* the vendor driver's enables off, then the store engines' DMA */
 	vi_stop();
+	msleep(VI_QUIESCE_MS);
 	free_irq(VI_IRQ_FRONT, &vi_front_dev);
 	free_irq(VI_IRQ_BACK, NULL);
 	iounmap(reset_reg);
