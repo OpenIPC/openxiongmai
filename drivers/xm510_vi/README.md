@@ -24,10 +24,10 @@ Each channel's buffers come from one MMZ block named `vi_way[N]`, sized buffers 
 | ioctl | Argument | Does |
 |---|---|---|
 | 0 `SET_DEV` | `{x0, y0, x1, y1}` | Capture window, and the frame interrupts on |
-| 1 `SET_CHN` | `{chn, w, h}` | Channel size: allocates its MMZ block the first time after VI init, lays out its buffers, sets channel 0's crop or channel 1's scaler. Fails on a bad channel or size, a block too small for it, or channel 1 before channel 0 has a size. |
+| 1 `SET_CHN` | `{chn, w, h}` | Channel size: allocates its MMZ block the first time after VI init, lays out its buffers, sets channel 0's crop or channel 1's scaler. Fails on a bad channel or size, a block too small for it, a channel with frames held, or channel 1 before channel 0 has a size. An enabled store engine is paused while its layout changes. |
 | 2 `ENABLE` / 3 `DISABLE` | `chn` | Store engine on/off. Enable fails on a channel with no buffers. |
 | 4 `GET_FRAME` | `{chn, idx, y, c, stride, h}` (24 bytes) | Takes the oldest ready buffer. It waits up to 2 s, and fails with −1 if no frame arrives in that time. |
-| 5 `RELEASE_FRAME` | the same record | Frees buffer `idx` of `chn`. Fails, with the vendor's "is not using" message, if it isn't held. |
+| 5 `RELEASE_FRAME` | the same record | Frees buffer `idx` of `chn`. Fails, with the vendor's "is not using" message, if it isn't held, or was taken through another descriptor. |
 | 6 `INIT` | – | Stops the store engines, waits 200 ms for their DMA to drain, resets VI through the system controller (`0x2000007c`), forgets every channel. |
 | 7 `SET_RATE` | `{chn, rate, mask}` | Frame rate control: `rate` is input frames − 1, `mask` the frames of those to keep. |
 
@@ -40,7 +40,9 @@ What differs from the vendor driver:
 - **VI init:** quiesces the store engines before the reset, which the vendor driver does with them still writing.
 - **Layout:** a channel's buffers are laid out again from its block whenever its size changes, instead of keeping the first layout.
 - **Ready buffers:** a buffer a reader holds is never marked ready again.
-- **Block reuse:** a block made before VI init (by an earlier load) is found by name when the MMZ module can look names up (`open_mmz`). The vendor XM510 `mmz.ko` can't, and then the block must be new, after an MMZ reset.
+- **Releases:** only the descriptor that took a frame can release it (kernel callers release what kernel callers took).
+- **Live resizing:** `SET_CHN` refuses a channel with frames held, pauses a running engine while it rewrites the layout, and sets channel 1's scaler again whenever channel 0 or channel 1 changes size.
+- **Block reuse:** a block made before VI init (by an earlier load) is found by name when the MMZ module can look names up (`open_mmz`), and a block MMZ has since forgotten (an MMZ reset) is allocated again. The vendor XM510 `mmz.ko` can't look names up, and then the block must be new, after an MMZ reset.
 
 ## `/proc/umap/vi`
 
@@ -51,6 +53,6 @@ It has the vendor's layout: the capture window and channel 0's size, then channe
 On an XM510 + JX-H62 with majestic (1280×720 main stream on channel 0, 704×576 configured on channel 1):
 - **`/proc`:** same window, sizes, rates and MMZ addresses as with the vendor driver.
 - **Video:** H.264 decodes to the same picture and frame count as with the vendor driver over the same 6 s.
-- **Frame calls:** on channel 1, `poll` reports a ready frame; non-blocking `GET_FRAME` returns the three ready buffers oldest first, then `EAGAIN`; a released buffer is filled again within 200 ms; a second release is refused; a process that exits holding frames has them released, and the channel fills again.
+- **Frame calls:** a resize of channel 1 while it runs gives frames at the new size and back; on channel 1, `poll` reports a ready frame; non-blocking `GET_FRAME` returns the three ready buffers oldest first, then `EAGAIN`; a released buffer is filled again within 200 ms; a second release is refused; a process that exits holding frames has them released, and the channel fills again.
 - **Restarts:** ten majestic restarts and fifteen `kill -9` with video each time, but for one `kill -9` after which the leftover vendor `isp` daemon ignored SIGTERM and the next majestic could not start the ISP. That has not come back in fourteen more.
 - **Not this driver:** unloading the media modules logs `BUG: Bad page state` from the vendor `xm510_isp.ko`'s exit, with the vendor VI as well.
