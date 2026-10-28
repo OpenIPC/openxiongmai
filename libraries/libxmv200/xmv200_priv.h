@@ -13,16 +13,14 @@ struct xmv200_isp_sensor {
   uint8_t flip; /* SmartSens 0x3221: 0x66 mirrors and flips */
 };
 
-/* one ISP channel: a sensor's capture, before VPSS */
+/* one ISP channel: a sensor's capture, before VPSS (the capture size and
+ * timing are the sensor mode's, in its tuning) */
 struct xmv200_isp_chn {
   uint32_t chn;
-  uint32_t mipi;            /* the receiver a second channel takes */
-  uint32_t x0, y0;          /* crop inside the sensor's output */
-  uint32_t width, height;   /* the capture */
-  uint32_t hts, frame_lines; /* the sensor mode's line length and VTS */
-  uint32_t exposure;        /* starting exposure, lines */
+  uint32_t mipi;                  /* the receiver a second channel takes */
+  uint32_t x0, y0;                /* the lens' crop in the sensor's output */
   uint32_t out_width, out_height; /* the picture VPSS makes of it */
-  int ldc;                  /* lens distortion correction */
+  int ldc;                        /* lens distortion correction */
 };
 
 struct xmv200_isp_cfg {

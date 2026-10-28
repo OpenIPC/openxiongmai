@@ -63,17 +63,41 @@ enum {
 };
 #define XMV200_OP_VICU_IRQ(on) ((on) ? XMV200_OP_VICU_IRQ1 : XMV200_OP_VICU_IRQ0)
 
+struct xmv200_reg {
+  uint32_t addr, val;
+};
+
 struct xmv200_sns_tuning {
+  /* the mode: the sensor's output, the clocks and the MIPI receiver */
+  uint32_t width, height;
+  uint32_t sns_clk[2];   /* 0x20000074 / 0x20000078 */
+  uint32_t pll[2][5];    /* the ISP PLL before and after the sensors start:
+                          * 0x14, 0x44, 0x48, 0x50, 0x54 */
+  const struct xmv200_reg *mipi;
+  int n_mipi;
+  uint32_t mipi_ctrl;    /* 0x30004000 */
+  uint32_t vi_sync;      /* 0x3000430c / 0x30004310 */
+  /* isp.ko's structural commands as the vendor ISP gives them for channel
+   * 0 (libxmv200 sets the channel and the board's choices) */
+  uint32_t comm[14];     /* 0x4962 */
+  uint32_t chn_init[13]; /* 0x490e */
+  uint32_t chn_attr[7];  /* 0x4908 */
+  uint32_t dgain;        /* 0x4964 */
+  uint32_t gain[4];      /* 0x4965 */
+  uint32_t ldc[12];      /* 0x49e9 */
+  uint32_t buf_size[XMV200_BUF_COUNT]; /* the channel buffers */
   const struct xmv200_sns_reg *init_regs;
   int n_init_regs;
   const struct xmv200_sns_reg *mode_regs;
   int n_mode_regs;
+  const struct xmv200_sns_reg *exposure_regs; /* the starting exposure */
+  int n_exposure_regs;
   const uint16_t *program;
   int n_program;
   const struct xmv200_isp_block *blocks;
   const uint8_t *page; /* isp.ko's shared parameter page, three channels */
   uint32_t page_size;
-  const uint8_t *ldc;
+  const uint8_t *ldc_table;
   uint32_t ldc_size;
 };
 

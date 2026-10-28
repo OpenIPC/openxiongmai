@@ -18,6 +18,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "sns_tuning.h"
 #include "xmv200.h"
 #include "xmv200_priv.h"
 
@@ -42,9 +43,17 @@ static int isp_fd = -1, mem_fd = -1;
 static unsigned count;
 
 void xmv200_ae_init(const struct xmv200_isp_cfg *c) {
+  const struct xmv200_sns_tuning *t = c->tuning;
+  uint32_t lines = 0;
+
+  /* the mode's starting exposure: 0x3e00..0x3e02 hold lines << 4 */
+  for (int i = 0; i < t->n_exposure_regs; i++)
+    if (t->exposure_regs[i].reg >= 0x3e00 && t->exposure_regs[i].reg <= 0x3e02)
+      lines |= (uint32_t)t->exposure_regs[i].val
+               << (8 * (0x3e02 - t->exposure_regs[i].reg));
   cfg = c;
   for (int i = 0; i < c->n_chn; i++)
-    st[i] = (struct ae_state){c->chn[i].exposure, 0, 0x100, 0x100, 0x100};
+    st[i] = (struct ae_state){lines >> 4, 0, 0x100, 0x100, 0x100};
   isp_fd = open("/dev/isp", O_RDWR);
   mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
 }
@@ -67,7 +76,7 @@ static void apply(int c) {
  * exposure lines first and gain last (and back in the other order) */
 static void ae_step(int c, uint32_t y) {
   struct ae_state *a = &st[c];
-  uint32_t max_lines = cfg->chn[c].frame_lines - 4;
+  uint32_t max_lines = cfg->tuning->chn_attr[2] - 4; /* VTS */
   /* total = lines * again * dgain / 0x100 */
   uint64_t total = (uint64_t)a->lines * (1u << a->again) * a->dgain / 0x100;
   uint64_t want;

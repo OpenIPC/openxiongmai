@@ -19,24 +19,19 @@
 #include "xmv200.h"
 #include "xmv200_priv.h"
 
-struct reg {
-  uint32_t addr, val;
-};
-
 #define SYS 0x20000000
 #define VI 0x30000000
 
-/* the ISP's PLL (the vendor's clock setup for 1080p30-class sensors):
- * unlock, VCO and dividers, reset and enable, lock; waits between */
-static void isp_pll(uint32_t vco, uint32_t d44, uint32_t d48, uint32_t d50,
-                    uint32_t d54) {
+/* the ISP's PLL: unlock, VCO and dividers, reset and enable, lock; waits
+ * between. p: the mode's 0x14, 0x44, 0x48, 0x50, 0x54. */
+static void isp_pll(const uint32_t *p) {
   xmv200_reg_write(SYS, 1);
   xmv200_reg_write(SYS + 0x10, 0x010a8000);
-  xmv200_reg_write(SYS + 0x14, vco);
-  xmv200_reg_write(SYS + 0x44, d44);
-  xmv200_reg_write(SYS + 0x48, d48);
-  xmv200_reg_write(SYS + 0x50, d50);
-  xmv200_reg_write(SYS + 0x54, d54);
+  xmv200_reg_write(SYS + 0x14, p[0]);
+  xmv200_reg_write(SYS + 0x44, p[1]);
+  xmv200_reg_write(SYS + 0x48, p[2]);
+  xmv200_reg_write(SYS + 0x50, p[3]);
+  xmv200_reg_write(SYS + 0x54, p[4]);
   xmv200_reg_write(SYS + 0x10, 0x800a8000);
   usleep(100);
   xmv200_reg_write(SYS + 0x10, 0x810a8000);
@@ -44,24 +39,6 @@ static void isp_pll(uint32_t vco, uint32_t d44, uint32_t d48, uint32_t d50,
   xmv200_reg_write(SYS, 0);
   xmv200_reg_write(SYS + 0x50490, 1);
 }
-
-/* the MIPI combo receiver: two sensors, two lanes each, RAW10 */
-static const struct reg mipi_2x2lane[] = {
-    {VI + 0x402c, 0},          {VI + 0x4008, 0x2b010044},
-    {VI + 0x400c, 0x001600b8}, {VI + 0x4010, 0},
-    {VI + 0x4004, 0x00080404}, {VI + 0x4094, 0x3ff},
-    {VI + 0x409c, 0},          {VI + 0x40a0, 1},
-    {VI + 0x40a4, 0},          {VI + 0x40b4, 0},
-    {VI + 0x40b8, 1},          {VI + 0x40c8, 0},
-    {VI + 0x40cc, 0},          {VI + 0x40e4, 0x38},
-    {VI + 0x40e8, 1},          {VI + 0x40ec, 0},
-    {VI + 0x41bc, 0},          {VI + 0x4240, 1},
-    {VI + 0x4244, 0x440},      {VI + 0x4248, 1},
-    {VI + 0x424c, 0x440},      {VI + 0x423c, 0},
-    {VI + 0x4300, 0xf},        {VI + 0x4304, 0},
-    {VI + 0x4308, 0xf},        {VI + 0x430c, 0x21},
-    {VI + 0x4310, 0x21},
-};
 
 struct board {
   const char *name;
@@ -88,13 +65,9 @@ static const struct board boards[] = {
                 .n_chn = 2,
                 .chn =
                     {
-                        {.chn = 0, .x0 = 1, .y0 = 0, .width = 1930,
-                         .height = 1080, .hts = 2640, .frame_lines = 2250,
-                         .exposure = 750, .out_width = 2304,
+                        {.chn = 0, .x0 = 1, .y0 = 0, .out_width = 2304,
                          .out_height = 1296, .ldc = 1},
-                        {.chn = 1, .mipi = 1, .x0 = 3, .y0 = 3, .width = 1930,
-                         .height = 1080, .hts = 2640, .frame_lines = 2250,
-                         .exposure = 750, .out_width = 2304,
+                        {.chn = 1, .mipi = 1, .x0 = 3, .y0 = 3, .out_width = 2304,
                          .out_height = 1296},
                     },
                 .sensor = {{.bus = 0, .addr = 0x30, .flip = 0x00},
@@ -112,9 +85,7 @@ static const struct board boards[] = {
             {
                 .tuning = &xmv200_tuning_sc2336,
                 .n_chn = 1,
-                .chn = {{.chn = 0, .x0 = 1, .y0 = 0, .width = 1930,
-                         .height = 1080, .hts = 2640, .frame_lines = 2250,
-                         .exposure = 750, .out_width = 1920,
+                .chn = {{.chn = 0, .x0 = 1, .y0 = 0, .out_width = 1920,
                          .out_height = 1080}},
                 .sensor = {{.bus = 0, .addr = 0x30, .flip = 0x00}},
             },
@@ -228,7 +199,9 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
             popcount(b->stream[s].groups) * 3 / 2,
         3};
   pools[np++] = (struct xmv200_vb_pool){
-      1920 * ((b->isp.chn[0].height + 15) & ~15u) * 3 / 2, 3};
+      (b->isp.tuning->width & ~0xfu) * ((b->isp.tuning->height + 15) & ~15u) *
+          3 / 2,
+      3};
   if (xmv200_vb_init(pools, np))
     return -1;
 
@@ -279,11 +252,11 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
 
   /* clocks: the sensors', the ISP out of reset, the ISP's PLL */
   xmv200_reg_write(SYS, 1);
-  xmv200_reg_write(SYS + 0x74, 0xc104c103);
-  xmv200_reg_write(SYS + 0x78, 0xc105c0ff);
+  xmv200_reg_write(SYS + 0x74, b->isp.tuning->sns_clk[0]);
+  xmv200_reg_write(SYS + 0x78, b->isp.tuning->sns_clk[1]);
   xmv200_reg_write(SYS, 0);
   xmv200_reg_write(SYS + 0x11c, 1);
-  isp_pll(0x20b60000, 0x0d620d62, 0x051f051f, 0x051f0000, 0x051f0509);
+  isp_pll(b->isp.tuning->pll[0]);
 
   /* the sensors out of reset, the receiver */
   for (int c = 0; c < n; c++) {
@@ -293,13 +266,13 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
     xmv200_i2c_write(s->bus, s->addr, 0x0103, 2, 1, 1);
     xmv200_i2c_write(s->bus, s->addr, 0x0100, 2, 1, 1);
     if (c == 0)
-      for (unsigned i = 0; i < sizeof(mipi_2x2lane) / sizeof(mipi_2x2lane[0]);
-           i++)
-        xmv200_reg_write(mipi_2x2lane[i].addr, mipi_2x2lane[i].val);
+      for (int i = 0; i < b->isp.tuning->n_mipi; i++)
+        xmv200_reg_write(b->isp.tuning->mipi[i].addr,
+                         b->isp.tuning->mipi[i].val);
     xmv200_reg_write(VI, 2);
     xmv200_reg_write(VI + 0x18, c);
   }
-  isp_pll(0x24848000, 0x0d410d41, 0x05090517, 0x05170000, 0x05090505);
+  isp_pll(b->isp.tuning->pll[1]);
 
   if (xmv200_isp_start(&b->isp))
     return -1;
