@@ -131,8 +131,10 @@ static unsigned long reset_at; /* jiffies of the last reset */
 
 #ifdef CONFIG_ARCH_XM510
 #define MMZ_MARKER 0 /* the XM510 module lays blocks with no marker */
+#define MMZ_LAST_NR 3 /* and knows ioctls 0-3, on 40-byte records only */
 #else
 #define MMZ_MARKER 1
+#define MMZ_LAST_NR 7
 #endif
 
 /* The space a block takes: its size and the marker, to the next page */
@@ -538,7 +540,8 @@ static long mmz_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	len = _IOC_SIZE(cmd);
 	if (_IOC_TYPE(cmd) != 'M' ||
 	    (len != sizeof(r) && len != offsetof(struct mmz_rec, vaddr)) ||
-	    _IOC_NR(cmd) < 1 || _IOC_NR(cmd) > 7) {
+	    _IOC_NR(cmd) < 1 || _IOC_NR(cmd) > MMZ_LAST_NR ||
+	    (!MMZ_MARKER && len != offsetof(struct mmz_rec, vaddr))) {
 		pr_err("mmz: ioctl cmd error\n");
 		return 0;
 	}
@@ -837,6 +840,12 @@ static int __init xm_mmz_init(void)
 		pr_err("mmz: allocator=cma needs a kernel with CMA\n");
 		return -EINVAL;
 #endif
+		/* CMA blocks carry the marker, and /proc lists them only in the
+		 * XM530 layout */
+		if (!MMZ_MARKER) {
+			pr_err("mmz: allocator=cma is for XM530/XM550\n");
+			return -EINVAL;
+		}
 		use_cma = true;
 	} else if (strcmp(allocator, "xm")) {
 		pr_err("mmz: allocator is xm or cma\n");

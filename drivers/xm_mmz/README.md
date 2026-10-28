@@ -16,7 +16,8 @@ The XM510 (3.0 kernel) has an older `mmz.ko`, and a build against a kernel with 
 - **Layout:** each block starts on the page after the previous one, with no overrun marker.
 - **`/proc/umap/mmz`:** the zone, then start, size and name per block, with no overrun flag and no free-space line.
 - **Interface:** the old module's is a subset of this one: ioctls 0–3 on 40-byte records, and `mmz_alloc`/`mmz_free`. It has no `mmap`, so XM510 user space maps the zone through `/dev/mem`.
-- **No CMA mode:** the XM510 kernel has no CMA, and 32 MB of DDR leaves nothing to lend.
+- **Commands:** only ioctls 0–3 on 40-byte records; anything else logs `ioctl cmd error` and returns 0, as the old module does.
+- **No CMA mode:** `allocator=cma` is refused. The XM510 kernel has no CMA, and 32 MB of DDR leaves nothing to lend.
 
 ```sh
 insmod open_mmz.ko mmz_start=0x81200000 mmz_size=0xe00000   # XM510: mem=18M of 32 MB
