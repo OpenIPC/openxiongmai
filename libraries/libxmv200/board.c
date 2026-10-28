@@ -15,9 +15,12 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+#include "board_prog.h"
 #include "sns_tuning.h"
 #include "xmv200.h"
 #include "xmv200_priv.h"
+
+extern const struct xmv200_prog xmv200_prog_x6e_weq;
 
 #define SYS 0x20000000
 #define VI 0x30000000
@@ -42,6 +45,9 @@ static void isp_pll(const uint32_t *p) {
 
 struct board {
   const char *name;
+  /* a chip whose start-up is a board program (board_prog.h) */
+  const char *chip;
+  const struct xmv200_prog *prog;
   struct xmv200_isp_cfg isp;
   /* the encoded streams: VPSS channel n of the groups in groups goes to
    * VENC channel n, spliced top to bottom when there are several */
@@ -91,6 +97,19 @@ static const struct board boards[] = {
             },
         .n_streams = 2,
         .stream = {{1920, 1080, 0x13c680, 1}, {640, 360, 0xbb800, 1}},
+        .fps = 12,
+    },
+};
+
+/* program boards: the chip, the program and what VENC gets */
+static const struct board prog_boards[] = {
+    {
+        /* XM535D1 X6E-WEQ: two SC2336 spliced, encoded at 2304x2592 */
+        .name = "x6e-weq",
+        .chip = "xm535d1",
+        .prog = &xmv200_prog_x6e_weq,
+        .n_streams = 2,
+        .stream = {{2304, 2592, 0, 1}, {640, 720, 0, 1}},
         .fps = 12,
     },
 };
@@ -272,8 +291,27 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
   for (unsigned i = 0; !b && i < sizeof(boards) / sizeof(boards[0]); i++)
     if (!strcmp(boards[i].name, name))
       b = &boards[i];
+  for (unsigned i = 0; !b && i < sizeof(prog_boards) / sizeof(prog_boards[0]);
+       i++)
+    if (!strcmp(prog_boards[i].name, name))
+      b = &prog_boards[i];
   if (!b)
     return -1;
+  if (b->prog) {
+    xmv200_venc_set_engine(b->chip);
+    if (xmv200_prog_run(b->prog) || xmv200_isp_frames_start())
+      return -1;
+    if (info) {
+      memset(info, 0, sizeof(*info));
+      info->n_streams = b->n_streams;
+      info->fps = b->fps;
+      for (int s = 0; s < b->n_streams; s++) {
+        info->stream[s].width = b->stream[s].width;
+        info->stream[s].height = b->stream[s].height;
+      }
+    }
+    return 0;
+  }
   n = b->isp.n_chn;
 
   fd_vpss = open_dev("/dev/vpss");

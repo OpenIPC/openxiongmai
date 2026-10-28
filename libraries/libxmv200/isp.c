@@ -255,12 +255,29 @@ static int run_program(const struct xmv200_isp_chn *c,
   return 0;
 }
 
+static int frames_ae; /* answer each frame with its exposure (XM535) */
+
+/* isp.ko's frame wait: the return value has a bit per channel with a new
+ * frame. The XM535's offline BPU takes a channel's frame only after the
+ * exposure for it (0x4964/0x4965) came, as the vendor AE sends it. */
 static void *isp_frames(void *p) {
   uint32_t arg[3];
 
-  while (isp_running)
-    if (ioctl(isp_fd, ISP_WAIT_FRAME, arg) < 0)
+  while (isp_running) {
+    int r = ioctl(isp_fd, ISP_WAIT_FRAME, arg);
+
+    if (r < 0) {
       usleep(20000);
+      continue;
+    }
+    for (uint32_t c = 0; frames_ae && c < 3; c++)
+      if (r & 1 << c) {
+        uint32_t e[2] = {c, 0x109}, g[4] = {c, 0x1db, 0x100, 0x247};
+
+        ioctl(isp_fd, ISP_EXPOSURE, e);
+        ioctl(isp_fd, ISP_GAIN, g);
+      }
+  }
   return NULL;
 }
 
@@ -327,6 +344,17 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   isp_running = 1;
   pthread_create(&isp_thread, NULL, isp_frames, NULL);
   return 0;
+}
+
+/* the frame waits alone, for boards whose ISP a board program set up */
+int xmv200_isp_frames_start(void) {
+  frames_ae = 1;
+  if (isp_fd < 0)
+    isp_fd = open("/dev/isp", O_RDWR);
+  if (isp_fd < 0)
+    return -1;
+  isp_running = 1;
+  return pthread_create(&isp_thread, NULL, isp_frames, NULL);
 }
 
 void xmv200_isp_stop(void) {

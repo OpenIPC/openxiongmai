@@ -27,7 +27,7 @@ def physread(ph,sz):
     gdb.execute('maint packet Qqemu.PhyMemMode:1',to_string=True)
     try: return bytes(inf.read_memory(ph,sz))
     finally: gdb.execute('maint packet Qqemu.PhyMemMode:0',to_string=True)
-pend={}; cnt={}; blocks={}; runs=0; n=0; pages=8
+pend={}; cnt={}; blocks={}; runs=0; n=0; pages=8; stop_at=None
 # the isp binary's pointer to its mapping of the shared pages
 PAGEPTR=int(os.environ.get('CAP_PAGEPTR','0xadbb4'),0)
 while True:
@@ -42,10 +42,11 @@ while True:
         continue
     dev=H.get(pc)
     if not dev: continue
+    if stop_at is not None and n>=stop_at: break
     cmd=int(gdb.parse_and_eval('$r1'))&0xffffffff; arg=int(gdb.parse_and_eval('$r2'))&0xffffffff
     k=(dev,cmd); c=cnt.get(k,0); cnt[k]=c+1; n+=1
     if c<60:
-        sz=0x600 if dev=='sys' else (cmd>>16)&0x3fff or (ISZ.get(cmd,0x40) if dev=='isp' else 0x40)
+        sz=0x600 if (dev,cmd)==('sys',0x400c5300) else (cmd>>16)&0x3fff or (ISZ.get(cmd,0x40) if dev=='isp' else 0x40)
         d=rd(arg,sz) if 0x1000<arg<0xc0000000 else b''
         out.write('IOCTL %d %s %08x %08x %s\n'%(n,dev,cmd,arg,d.hex() if d is not None else '<unreadable>'))
     if dev=='mmz' and cmd in (0xc02c4d01,0xc02c4d04):
@@ -61,5 +62,8 @@ while True:
             if 'isp_ldc_ch0' in blocks:
                 sz,ph=blocks['isp_ldc_ch0']; open(OUT+'/ldc.bin','wb').write(physread(ph,sz))
             else: open(OUT+'/ldc.bin','wb').write(b'')
-            out.write('SNAPSHOT\n'); break
+            out.write('SNAPSHOT\n')
+            # CAP_CONTINUE=N: keep logging N more calls (the encoder's)
+            stop_at=n+int(os.environ.get('CAP_CONTINUE','0'))
+            if stop_at==n: break
 gdb.execute('detach',to_string=True)

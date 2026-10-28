@@ -32,6 +32,7 @@ struct xmv200_isp_cfg {
 
 int xmv200_isp_start(const struct xmv200_isp_cfg *cfg);
 void xmv200_isp_stop(void);
+int xmv200_isp_frames_start(void);
 void xmv200_ae_init(const struct xmv200_isp_cfg *cfg);
 
 #endif
