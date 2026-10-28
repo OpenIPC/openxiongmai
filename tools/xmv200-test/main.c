@@ -111,6 +111,47 @@ int main(int argc, char **argv) {
     running = 0;
     return 0;
   }
-  fprintf(stderr, "usage: %s probe|replay\n", argv[0]);
+  if (argc > 1 && !strcmp(argv[1], "encode")) {
+    /* the recorded board: main 2304x2592 (two sensors spliced) on venc
+     * channel 0, sub 640x720 on channel 1 */
+    static uint8_t buf[2 << 20];
+    struct xmv200_venc *e[2];
+    FILE *out[2] = {fopen("/tmp/main.h265", "wb"), fopen("/tmp/sub.h265", "wb")};
+    int n = argc > 2 ? atoi(argv[2]) : 30, got[2] = {0, 0};
+    pthread_t t;
+
+    replay(0);
+    pthread_create(&t, NULL, isp_frames, NULL);
+    if (xmv200_venc_create(&e[0], 2304, 2592, 12, 35, 24) ||
+        xmv200_venc_create(&e[1], 640, 720, 12, 35, 24)) {
+      fprintf(stderr, "venc create failed\n");
+      return 1;
+    }
+    for (int i = 0; i < 4 * n && (got[0] < n || got[1] < n); i++) {
+      struct xmv200_frame f;
+      uint32_t chn;
+      int len;
+
+      if (xmv200_frame_get(&f)) {
+        printf("frame %d: none\n", i);
+        continue;
+      }
+      chn = f.chn;
+      len = chn < 2 ? xmv200_venc_encode(e[chn], &f, buf, sizeof(buf)) : -1;
+      xmv200_frame_release(&f);
+      if (len < 0) {
+        printf("frame %d: chn %u len %d\n", i, chn, len);
+        continue;
+      }
+      fwrite(buf, 1, len, out[chn]);
+      if (got[chn]++ < 3 || i % 10 == 0)
+        printf("chn %u frame %d: %d bytes\n", chn, got[chn], len);
+    }
+    fclose(out[0]);
+    fclose(out[1]);
+    running = 0;
+    return 0;
+  }
+  fprintf(stderr, "usage: %s probe|replay|encode [n]\n", argv[0]);
   return 1;
 }

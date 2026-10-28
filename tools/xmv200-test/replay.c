@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -25,7 +26,7 @@ struct step {
 #include REPLAY_DATA
 
 static const char *const devs[] = {"/dev/isp", "/dev/vpss", "/dev/vb",
-                                   "/dev/sys", "/dev/mmz"};
+                                   "/dev/sys", "/dev/mmz", "/dev/venc_info"};
 
 /* recorded MMZ block -> ours */
 static struct {
@@ -36,6 +37,8 @@ static int nreloc;
 /* Words that hold an address of a recorded block: plain, or as
  * (phys - 0x80000000) >> 4 the way the ISP and VPSS take them. */
 static void relocate(uint8_t *p, uint32_t len) {
+  if (getenv("XMV200_NORELOC"))
+    return;
   for (uint32_t i = 0; i + 4 <= len; i += 4) {
     uint32_t w;
 
@@ -57,7 +60,7 @@ static void relocate(uint8_t *p, uint32_t len) {
 }
 
 int replay(int verbose) {
-  static int fd[5] = {-1, -1, -1, -1, -1};
+  static int fd[6] = {-1, -1, -1, -1, -1, -1};
   static uint8_t buf[0x1000];
   int n = sizeof(steps) / sizeof(steps[0]);
 

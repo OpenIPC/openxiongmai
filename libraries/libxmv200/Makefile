@@ -4,7 +4,7 @@ CC = $(CROSS_COMPILE)gcc
 AR = $(CROSS_COMPILE)ar
 override CFLAGS += -Werror -Wall -std=gnu99 -O2
 
-OBJECTS = sys.o
+OBJECTS = sys.o venc.o
 
 libxmv200.a: $(OBJECTS)
 	$(AR) rcs $@ $^

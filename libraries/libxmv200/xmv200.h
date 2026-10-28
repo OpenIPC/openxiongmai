@@ -47,6 +47,34 @@ struct xmv200_vb_pool {
 };
 int xmv200_vb_init(const struct xmv200_vb_pool *pools, int n);
 
+/*
+ * H.265 encoding on the hevc.ko engine, one encoder per stream size. Frames
+ * come from venc.ko's FIFO, which the VPSS channels bound to VENC fill.
+ * qp 0 = 35, gop 0 = two seconds.
+ */
+struct xmv200_venc;
+int xmv200_venc_create(struct xmv200_venc **v, uint32_t width,
+                       uint32_t height, uint32_t fps, uint32_t qp,
+                       uint32_t gop);
+void xmv200_venc_destroy(struct xmv200_venc *v);
+void xmv200_venc_request_idr(struct xmv200_venc *v);
+
+/* A picture VPSS queued for a VENC channel (venc.ko's FIFO, every channel's
+ * pictures in one queue). Each must be released. */
+struct xmv200_frame {
+  uint32_t chn; /* the VENC channel its VPSS channel is bound to */
+  uint32_t y, c, width, height, stride;
+  uint64_t pts;
+  uint32_t priv[10];
+};
+int xmv200_frame_get(struct xmv200_frame *f); /* waits up to 2 s */
+void xmv200_frame_release(struct xmv200_frame *f);
+
+/* Encodes a frame into out (Annex B, parameter sets before each IDR).
+ * Returns the length, or -1. */
+int xmv200_venc_encode(struct xmv200_venc *v, const struct xmv200_frame *f,
+                       uint8_t *out, int cap);
+
 #ifdef __cplusplus
 }
 #endif
