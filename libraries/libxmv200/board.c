@@ -23,6 +23,7 @@
 extern const struct xmv200_prog xmv200_prog_x6e_weq;
 extern const struct xmv200_prog xmv200_prog_x2w_wng;
 extern const struct xmv200_prog xmv200_prog_x9_we2q;
+extern const struct xmv200_prog xmv200_prog_x3_wq_b;
 
 #define SYS 0x20000000
 #define VI 0x30000000
@@ -137,6 +138,15 @@ static const struct board prog_boards[] = {
                    {640, 360, 0, 2},
                    {1920, 1080, 0, 4},
                    {640, 360, 0, 4}},
+        .fps = 12,
+    },
+    {
+        /* XM533 X3-WQ-B: one SC2337P, 2304x1296 and 800x448 */
+        .name = "x3-wq-b",
+        .chip = "xm533",
+        .prog = &xmv200_prog_x3_wq_b,
+        .n_streams = 2,
+        .stream = {{2304, 1296, 0, 1}, {800, 448, 0, 1}},
         .fps = 12,
     },
 };

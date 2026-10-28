@@ -14,11 +14,13 @@
  * the engine. The engine writes only slice_segment_data(); the parameter
  * sets and the slice header are ours.
  *
- * Two engines, with their own register maps (struct engine):
+ * Three engines, with their own register maps (struct engine):
  * - v3, the XM530V200's: CTB 32, SAO; reference and reconstruction as
  *   offsets in a ring from its base;
- * - v1, the XM535D1/D2's: CTB 16, no SAO; absolute addresses, the ring's
- *   bounds in registers, and it scales the source to the picture.
+ * - v1, the XM535D1/D2/W1's: CTB 16, no SAO; absolute addresses, the ring's
+ *   bounds in registers, and it scales the source to the picture;
+ * - x533, the XM533's: v3's job and list, CTB 16 and no SAO as v1, with
+ *   absolute addresses and the ring's bounds in registers of its own.
  * Reference and reconstruction share a ring of one picture plus 96 lines:
  * each picture's reconstruction starts 96 lines below the last one's, so it
  * never overwrites rows the next picture still reads.
@@ -158,6 +160,48 @@ static const uint32_t v1_p_s[] = {0x23,      0x2b,       0x205,    0x8,
                                   0x0,       0x316a08c8, 0x8,      0x8310411,
                                   0x253a56d7, 0x319d6f9d};
 
+/* x533 (XM533): from the vendor encoder's jobs; its presets at the v3 ones'
+ * offsets plus 0x2c0 */
+static const uint16_t x533_tmpl_off[] = {
+    0x008, 0x00c, 0x010, 0x014, 0x018, 0x01c, 0x020, 0x024, 0x03c, 0x048, 0x064,
+    0x068, 0x06c, 0x070, 0x074, 0x078, 0x07c, 0x080, 0x084, 0x088, 0x08c, 0x090,
+    0x094, 0x098, 0x09c, 0x0a0, 0x0a4, 0x0a8, 0x0ac, 0x0b0, 0x0b4, 0x0b8, 0x0bc,
+    0x0c0, 0x0c4, 0x0c8, 0x0cc, 0x0d0, 0x0d4, 0x0dc, 0x0e0, 0x0e4, 0x0e8, 0x0ec,
+    0x0f0, 0x0f4, 0x0f8, 0x0fc, 0x100, 0x104, 0x108, 0x10c, 0x110, 0x114, 0x118,
+    0x11c, 0x120, 0x124, 0x128, 0x12c, 0x130, 0x134, 0x138, 0x13c, 0x140, 0x144,
+    0x148, 0x14c, 0x150, 0x154, 0x158, 0x15c, 0x160, 0x164, 0x16c, 0x174, 0x178,
+    0x17c, 0x180, 0x184, 0x188, 0x18c, 0x190, 0x194, 0x198, 0x19c, 0x1a0, 0x1a4,
+    0x1a8, 0x1ac, 0x1b0, 0x1b4, 0x1b8, 0x1bc, 0x1c0, 0x1c8, 0x1cc, 0x1d0, 0x288,
+    0x28c, 0x290, 0x294, 0x298, 0x29c, 0x2a0, 0x2b0, 0x2c4, 0x2c8, 0x2cc, 0x2d4,
+    0x2d8, 0x2dc, 0x2e0, 0x2e4, 0x2e8, 0x2ec};
+static const uint32_t x533_tmpl_val[] = {
+    0x3, 0x3, 0x3, 0x1, 0x7, 0x0, 0x0, 0x0, 0x0, 0x100000, 0x0, 0xf, 0x20,
+    0x20c4146, 0x720928b, 0xc34e3d0, 0x11493515, 0x165d865a, 0x1b71d79f,
+    0x20862fff, 0x3fffffff, 0x3fffffff, 0x0, 0xe66, 0x0, 0x0, 0x0, 0x0, 0x0,
+    0x0, 0x0, 0x10, 0x0, 0x0, 0xc, 0x53924, 0x14aa, 0x10, 0x22, 0x1, 0x0, 0x2,
+    0xf0d0c0c, 0xb3, 0x180, 0x169, 0xbb, 0xc0, 0xc5, 0x16c, 0xcd, 0x27d017,
+    0x285ffd, 0x2a4fee, 0x29cfe9, 0x2b3003, 0x221ffd, 0x1e9ffd, 0xa, 0x76,
+    0x28a, 0x145, 0xda, 0x66, 0x28f, 0x11c07d, 0x31f000, 0x28f000, 0x245000,
+    0x35f000, 0x29a000, 0x20d000, 0x14, 0x46, 0x1, 0x5, 0xe, 0x28, 0x1, 0x18,
+    0x17161616, 0x15151515, 0x1413, 0x383a4048, 0x4a, 0x1, 0x1, 0x180c,
+    0x28282828, 0x20202020, 0x20202020, 0x2020, 0x10101819, 0x1d1c, 0x1, 0x0,
+    0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x3e807d0, 0xbb80fa0,
+    0x138a1770, 0x1e, 0x0, 0x40008, 0x100020, 0x400080, 0x820739c, 0x1d};
+static const uint16_t x533_type_off[] = {
+    0x2a4, 0x2a8, 0x2ac, 0x2b4, 0x2b8, 0x2bc, 0x2c0, 0x2d0};
+static const uint32_t x533_idr[] = {
+    0x4b7, 0x1c, 0x29, 0x4, 0x3e8, 0x1, 0x1, 0x83103fe};
+static const uint32_t x533_p1[] = {
+    0x92, 0x1a, 0x26, 0x16, 0x2c8, 0xa, 0x1, 0x83103fe};
+static const uint32_t x533_p[] = {
+    0xe0, 0x1a, 0x26, 0x16, 0x2c8, 0xa, 0x0, 0x8310000};
+static const uint32_t x533_idr_s[] = {
+    0x1892, 0x1c, 0x29, 0x4, 0x3e8, 0x1, 0x0, 0x83103fe};
+static const uint32_t x533_p1_s[] = {
+    0x28f, 0x1a, 0x26, 0xa, 0x2c8, 0xa, 0x0, 0x83103fe};
+static const uint32_t x533_p_s[] = {
+    0x3a6, 0x1a, 0x26, 0xa, 0x2c8, 0xa, 0x0, 0x8310000};
+
 /* v1: the rate-distortion tables the vendor encoder writes from user space
  * (+0x58 selects a bank, +0x800.. its entries), the same for every picture */
 static const struct {
@@ -271,7 +315,7 @@ struct engine {
   int list_word;                        /* the list pointer in the job */
   int nregs;                            /* entries in the list */
   int ctb, sao;
-  int ring_abs; /* reference/reconstruction as addresses (v1), not offsets */
+  enum { MAP_V3, MAP_V1, MAP_X533 } map; /* the register map */
   int qp_i_up;  /* the IDR's QP above the P pictures' */
   /* the template, and the IDR / first P / later P presets (and theirs for
    * pictures up to 1280 wide) */
@@ -285,19 +329,25 @@ struct engine {
 
 #define N(a) ((int)(sizeof(a) / sizeof((a)[0])))
 static const struct engine engines[] = {
-    {"v3", 0x40384805, 0xc0344802, 0x38, 13, 189, 32, 1, 0, 0, v3_tmpl_off,
+    {"v3", 0x40384805, 0xc0344802, 0x38, 13, 189, 32, 1, MAP_V3, 0, v3_tmpl_off,
      v3_tmpl_val, N(v3_tmpl_off), v3_type_off, N(v3_type_off),
      {{v3_idr, v3_p1, v3_p}, {v3_idr_s, v3_p1_s, v3_p_s}}},
-    {"v1", 0x40484805, 0xc0444802, 0x48, 17, 350, 16, 0, 1, 3, v1_tmpl_off,
+    {"v1", 0x40484805, 0xc0444802, 0x48, 17, 350, 16, 0, MAP_V1, 3, v1_tmpl_off,
      v1_tmpl_val, N(v1_tmpl_off), v1_type_off, N(v1_type_off),
      {{v1_idr, v1_p1, v1_p}, {v1_idr_s, v1_p1_s, v1_p_s}}},
+    {"x533", 0x40384805, 0xc0344802, 0x38, 13, 189, 16, 0, MAP_X533, 3,
+     x533_tmpl_off, x533_tmpl_val, N(x533_tmpl_off), x533_type_off,
+     N(x533_type_off),
+     {{x533_idr, x533_p1, x533_p}, {x533_idr_s, x533_p1_s, x533_p_s}}},
 };
 
 static const struct engine *the_engine;
 
 /* the chip's engine: the board's, or by the kernel's machine name */
 void xmv200_venc_set_engine(const char *chip) {
-  the_engine = !strncmp(chip, "xm535", 5) ? &engines[1] : &engines[0];
+  the_engine = !strncmp(chip, "xm535", 5)   ? &engines[1]
+               : !strncmp(chip, "xm533", 5) ? &engines[2]
+                                            : &engines[0];
 }
 
 static const struct engine *engine(void) {
@@ -309,6 +359,8 @@ static const struct engine *engine(void) {
     while (f && fgets(line, sizeof(line), f))
       if (!strncmp(line, "Hardware", 8) && strstr(line, "xm535"))
         xmv200_venc_set_engine("xm535");
+      else if (!strncmp(line, "Hardware", 8) && strstr(line, "xm533"))
+        xmv200_venc_set_engine("xm533");
     if (f)
       fclose(f);
   }
@@ -570,7 +622,7 @@ static void venc_regs(struct xmv200_venc *v) {
   memset(v->regs, 0, sizeof(v->regs));
   for (int i = 0; i < e->n_tmpl; i++)
     reg(v, e->tmpl_off[i], e->tmpl_val[i]);
-  if (!e->ring_abs) {
+  if (e->map == MAP_V3) {
     reg(v, 0x034, v->width - 1);
     reg(v, 0x038, v->height - 1);
     reg(v, 0x044, v->qp);
@@ -586,6 +638,15 @@ static void venc_regs(struct xmv200_venc *v) {
       reg(v, o, v->width);
     reg(v, 0x2c0, v->width > 1280);
     reg(v, 0x2d8, v->width > 1280);
+  } else if (e->map == MAP_X533) {
+    reg(v, 0x034, v->width - 1);
+    reg(v, 0x038, v->height - 1);
+    reg(v, 0x200, v->luma.phys + rsz); /* the rings' ends and starts */
+    reg(v, 0x204, v->luma.phys);
+    reg(v, 0x208, v->chroma.phys + rsz / 2);
+    reg(v, 0x20c, v->chroma.phys);
+    for (uint32_t o = 0x22c; o <= 0x238; o += 4)
+      reg(v, o, v->width * 4);
   } else {
     reg(v, 0x044, v->width - 1);
     reg(v, 0x048, v->height - 1);
@@ -631,7 +692,7 @@ int xmv200_venc_create(struct xmv200_venc **pv, uint32_t width,
   if (v->stream_map == MAP_FAILED)
     goto fail;
   ioctl(v->fd_hevc, HEVC_RESET, &reset);
-  if (v->e->ring_abs)
+  if (v->e->map == MAP_V1)
     for (int i = 0; i < N(v1_rd); i++)
       xmv200_reg_write(0x21000000 + v1_rd[i].off, v1_rd[i].val);
   venc_regs(v);
@@ -691,7 +752,7 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
   /* the reference is the last reconstruction; this one starts 96 lines
    * below it in the ring */
   uint32_t ref = idr ? lsz : v->recon, rec = idr ? 0 : (v->recon + rsz - band) % rsz;
-  if (!e->ring_abs) {
+  if (e->map == MAP_V3) {
     reg(v, 0x040, !idr);
     reg(v, 0x1e0, f->y);
     reg(v, 0x1e4, f->c);
@@ -701,6 +762,19 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
     reg(v, 0x244, ref / 2);
     reg(v, 0x248, rec);
     reg(v, 0x24c, rec / 2);
+  } else if (e->map == MAP_X533) {
+    reg(v, 0x040, !idr);
+    reg(v, 0x044, idr ? v->qp_i : v->qp);
+    reg(v, 0x1e0, f->y);
+    reg(v, 0x1e4, f->c);
+    reg(v, 0x224, f->stride);
+    reg(v, 0x228, f->stride);
+    reg(v, 0x210, v->stream.phys + HDR_ROOM);
+    reg(v, 0x1d4, lsz / 4);
+    reg(v, 0x1e8, v->luma.phys + ref);
+    reg(v, 0x1ec, v->chroma.phys + ref / 2);
+    reg(v, 0x1f0, v->luma.phys + rec);
+    reg(v, 0x1f4, v->chroma.phys + rec / 2);
   } else {
     reg(v, 0x054, !idr);
     reg(v, 0x05c, idr ? v->qp_i : v->qp);
@@ -764,8 +838,9 @@ void xmv200_frame_release(struct xmv200_frame *f) {
 
 int xmv200_venc_encode(struct xmv200_venc *v, const struct xmv200_frame *f,
                        uint8_t *out, int cap) {
-  /* v3 encodes what VPSS made; v1 scales any source to the picture */
-  if (!v->e->ring_abs && (f->width != v->width || f->height != v->height))
+  /* v3 and x533 encode what VPSS (or VI) made; v1 scales any source to the
+   * picture */
+  if (v->e->map != MAP_V1 && (f->width != v->width || f->height != v->height))
     return -1;
   return encode(v, f, out, cap);
 }

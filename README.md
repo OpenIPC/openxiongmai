@@ -9,7 +9,7 @@ The goal is to replace the proprietary SDK that Xiongmai ships with its camera b
 | SoC | Status | What's here |
 |-----|--------|-------------|
 | XM530 | Primary target | Sensor libraries, ISP application library, MPI reimplementation |
-| XM530V200, XM535D1/D2/W1 | Streams on the vendor kernel modules | `libxmv200`: sensors, ISP bring-up, VPSS, H.265, AE/AWB |
+| XM530V200, XM533, XM535D1/D2/W1 | Streams on the vendor kernel modules | `libxmv200`: sensors, ISP bring-up, VPSS, H.265, AE/AWB |
 | XM510 | Kernel modules | `hx280enc` and `xm_i2c` build against the XM510 vendor kernel tree |
 | XM322 / XM350 / XM520 / XM540 / XM550 | Headers only | Register maps in `libraries/isp/include/xm/` |
 
@@ -262,7 +262,7 @@ So the condition is VI capturing at the time of the init. Disabling the channels
 
 ## The V200 series: `libxmv200`
 
-The XM530V200 (and the XM535D1/D2/W1 after it) has a different media pipeline from the XM530's. VI, the ISP (BPU) and 3D noise reduction live in `isp.ko`. VPSS scales and splices. The VENC side is a frame queue (`venc.ko`) in front of an H.265 engine (`hevc.ko`). The vendor ships it as kernel modules and two statically linked programs: `Sofia`, and an `isp` daemon that runs the sensors and the ISP. `libxmv200` replaces both programs and runs on the vendor modules:
+The XM530V200 (and the XM533 and XM535D1/D2/W1 after it) has a different media pipeline from the XM530's. VI, the ISP (BPU) and 3D noise reduction live in `isp.ko`. VPSS scales and splices. The VENC side is a frame queue (`venc.ko`) in front of an H.265 engine (`hevc.ko`). The vendor ships it as kernel modules and two statically linked programs: `Sofia`, and an `isp` daemon that runs the sensors and the ISP. `libxmv200` replaces both programs and runs on the vendor modules:
 
 - **Board start** (`board.c`): `xmv200_board_start("<board>")` brings the whole pipeline up in the vendor's order:
   - MMZ, the VB pools;
@@ -278,15 +278,16 @@ The XM530V200 (and the XM535D1/D2/W1 after it) has a different media pipeline fr
 
 XM530V200 boards: `x6c-weq` (two SC2336 spliced into 2304x2592, plus 640x720), `x2-wq2` (one SC2336, 1920x1080 plus 640x360), and `auto`, which probes the sensors on I2C against the tunings.
 
-The XM535 chips (D1, D2, W1) start from a **board program** (`board_prog.c`) instead: the board's whole vendor start-up as data, made by `tools/xmv200-capture/gen_board.py` from a capture. It holds the sensor I2C writes (with their bus), the register writes and device ioctls, and the shared ISP page. MMZ blocks are allocated again by name, and the addresses later payloads hold are relocated. The encoder engine is the XM535's own (`venc.c` profile v1).
+The XM533 and XM535 chips (D1, D2, W1) start from a **board program** (`board_prog.c`) instead: the board's whole vendor start-up as data, made by `tools/xmv200-capture/gen_board.py` from a capture. It holds the sensor I2C writes (with their bus), the register writes and device ioctls, and the shared ISP page. MMZ blocks are allocated again by name, and the addresses later payloads hold are relocated. The encoder engines are those chips' own (`venc.c` profiles v1 for the XM535s, x533 for the XM533).
 
 | Board | Chip | Sensors | Streams (VENC channel order) |
 |-------|------|---------|------------------------------|
 | `x6e-weq` | XM535D1 | two SC2336, spliced | 2304x2592, 640x720 |
 | `x2w-wng` | XM535W1 | one SC1346 | 1920x1080, 800x448 |
 | `x9-we2q` | XM535D2 | three SC2336 (bus 0, and bus 2 at 0x30/0x32) | per camera n: 1920x1080 and 640x360 as streams 2n and 2n + 1 |
+| `x3-wq-b` | XM533 | one SC2337P | 2304x1296, 800x448 |
 
-The XM535 boards need the vendor's memory split: `mem=` as in the vendor firmware (29M on a 64 MB XM535D1, 70M on a 128 MB XM535D2), the rest MMZ.
+These boards need the vendor's memory split: `mem=` as in the vendor firmware (29M on a 64 MB XM535D1, 70M on a 128 MB XM535D2, 32M on a 64 MB XM533), the rest MMZ.
 
 ```sh
 make -C tools/xmv200-test CROSS_COMPILE=arm-openipc-linux-musleabi-
