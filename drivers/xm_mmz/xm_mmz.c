@@ -41,6 +41,7 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/namei.h>
 #include <linux/platform_device.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
@@ -83,6 +84,7 @@ struct mmz_block {
 	void *vaddr; /* the kernel's mapping */
 	u32 room; /* what was allocated: guarded(size) when it was */
 	bool stale; /* forgotten by a reset, not yet freed */
+	unsigned long stale_at; /* jiffies of that reset */
 	int maps; /* user mappings */
 };
 
@@ -115,8 +117,9 @@ static u32 cma_used; /* the room of every CMA block, stale ones included */
 static struct platform_device *mmz_pdev;
 /* Held while CMA blocks are freed, and by /proc while it reads them */
 static DEFINE_MUTEX(reap_lock);
-static void reap_stale(struct work_struct *work);
-static DECLARE_DELAYED_WORK(reap_work, reap_stale);
+static void reap_stale(bool all);
+static void reap_work_fn(struct work_struct *work);
+static DECLARE_DELAYED_WORK(reap_work, reap_work_fn);
 static unsigned long reset_at; /* jiffies of the last reset */
 
 /* The space a block takes: its size and the marker, to the next page */
@@ -354,8 +357,9 @@ static int try_alloc_cma(const char *name, u32 size, u32 *phys, bool cached,
 		if (pos->phys > b->phys)
 			break;
 	list_add_tail(&b->list, &pos->list);
-	spin_unlock_irqrestore(&mmz_lock, flags);
+	/* under the lock: a reset and the reaper may free b once it is out */
 	*phys = b->phys;
+	spin_unlock_irqrestore(&mmz_lock, flags);
 	return 0;
 
 exists:
@@ -391,35 +395,56 @@ static int alloc_cma(const char *name, u32 size, u32 *phys, bool cached)
 	if (ret != -ENOMEM)
 		return ret ? -1 : 0;
 	if (any_stale()) {
+		/* a signal cuts the wait short, not the hold: the reaper frees
+		 * only blocks whose hold is over */
 		until = reset_at + msecs_to_jiffies(cma_hold_ms);
 		if (time_before(jiffies, until))
 			msleep_interruptible(jiffies_to_msecs(until - jiffies));
-		flush_delayed_work(&reap_work);
-		reap_stale(NULL);
+		reap_stale(false);
 	}
 	return try_alloc_cma(name, size, phys, cached, false) ? -1 : 0;
 }
 
-/* Free the stale CMA blocks nothing maps */
-static void reap_stale(struct work_struct *work)
+/*
+ * Free the stale CMA blocks nothing maps whose hold is over, or all of them;
+ * come back for the next one whose hold is not
+ */
+static void reap_stale(bool all)
 {
+	const unsigned long hold = msecs_to_jiffies(cma_hold_ms);
+	unsigned long flags, next = 0;
 	struct mmz_block *b, *n;
-	unsigned long flags;
+	bool again = false;
 	LIST_HEAD(gone);
 
 	mutex_lock(&reap_lock);
 	spin_lock_irqsave(&mmz_lock, flags);
-	list_for_each_entry_safe (b, n, &cma_blocks, list)
-		if (b->stale && !b->maps) {
+	list_for_each_entry_safe (b, n, &cma_blocks, list) {
+		if (!b->stale || b->maps)
+			continue;
+		if (all || !time_before(jiffies, b->stale_at + hold)) {
 			list_move(&b->list, &gone);
 			cma_used -= b->room;
+		} else if (!again || time_before(b->stale_at + hold, next)) {
+			next = b->stale_at + hold;
+			again = true;
 		}
+	}
 	spin_unlock_irqrestore(&mmz_lock, flags);
 	list_for_each_entry_safe (b, n, &gone, list) {
 		dma_free_coherent(&mmz_pdev->dev, b->room, b->vaddr, b->phys);
 		kfree(b);
 	}
 	mutex_unlock(&reap_lock);
+	if (again)
+		schedule_delayed_work(&reap_work, time_before(jiffies, next) ?
+							  next - jiffies :
+							  0);
+}
+
+static void reap_work_fn(struct work_struct *work)
+{
+	reap_stale(false);
 }
 
 /* As the vendor's: blocks are released only by a reset */
@@ -457,10 +482,14 @@ static void reset_blocks(void)
 
 	spin_lock_irqsave(&mmz_lock, flags);
 	list_splice_init(&blocks, &gone);
-	list_for_each_entry (b, &cma_blocks, list)
-		b->stale = true;
-	spin_unlock_irqrestore(&mmz_lock, flags);
 	reset_at = jiffies;
+	/* a block forgotten before is held again: whatever ran meanwhile may
+	 * have left the hardware writing to it */
+	list_for_each_entry (b, &cma_blocks, list) {
+		b->stale = true;
+		b->stale_at = reset_at;
+	}
+	spin_unlock_irqrestore(&mmz_lock, flags);
 	if (use_cma)
 		schedule_delayed_work(&reap_work,
 				      msecs_to_jiffies(cma_hold_ms));
@@ -593,8 +622,9 @@ static int cma_mmap(struct vm_area_struct *vma, u32 phys, unsigned long len)
 	b = find_cma(phys);
 	if (!b || len > b->room - (phys - b->phys)) {
 		spin_unlock_irqrestore(&mmz_lock, flags);
-		pr_warn_ratelimited("mmz: mmap of %#x+%#lx is no CMA block (by %s)\n",
-				    phys, len, current->comm);
+		pr_warn_ratelimited(
+			"mmz: mmap of %#x+%#lx is no CMA block (by %s)\n", phys,
+			len, current->comm);
 		return -EINVAL;
 	}
 	b->maps++;
@@ -610,6 +640,14 @@ static int cma_mmap(struct vm_area_struct *vma, u32 phys, unsigned long len)
 		return -EAGAIN;
 	}
 	return 0;
+}
+
+static bool no_ram(unsigned long pfn, unsigned long pages)
+{
+	while (pages--)
+		if (pfn_valid(pfn++))
+			return false;
+	return true;
 }
 
 static int mmz_mmap(struct file *file, struct vm_area_struct *vma)
@@ -628,10 +666,12 @@ static int mmz_mmap(struct file *file, struct vm_area_struct *vma)
 	spin_unlock_irqrestore(&mmz_lock, flags);
 	if (cma)
 		return cma_mmap(vma, phys, len);
-	/* Linux's own memory, a CMA block freed since among it */
-	if (use_cma && pfn_valid(vma->vm_pgoff)) {
-		pr_warn_ratelimited("mmz: mmap of %#x+%#lx is no CMA block (by %s)\n",
-				    phys, len, current->comm);
+	/* Linux's own memory, a CMA block freed since among it, anywhere in the
+	 * range */
+	if (use_cma && !no_ram(vma->vm_pgoff, len >> PAGE_SHIFT)) {
+		pr_warn_ratelimited(
+			"mmz: mmap of %#x+%#lx is no CMA block (by %s)\n", phys,
+			len, current->comm);
 		return -EINVAL;
 	}
 
@@ -733,7 +773,18 @@ static const struct file_operations mmz_fops = {
 	.mmap = mmz_mmap,
 };
 
-static struct proc_dir_entry *umap_dir;
+/* /proc/umap: shared with the other media drivers (hx280enc's venc and h264
+ * do not need this module), so it is made once and never removed */
+static void umap_mkdir(void)
+{
+	struct path p;
+
+	if (!kern_path("/proc/umap", LOOKUP_DIRECTORY, &p)) {
+		path_put(&p);
+		return;
+	}
+	proc_mkdir("umap", NULL);
+}
 
 static struct miscdevice mmz_misc = {
 	.minor = MISC_DYNAMIC_MINOR,
@@ -768,15 +819,13 @@ static int __init xm_mmz_init(void)
 		mmz_pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 		mmz_pdev->dev.dma_mask = &mmz_pdev->dev.coherent_dma_mask;
 	}
-	umap_dir = proc_mkdir("umap", NULL);
+	umap_mkdir();
 	if (!proc_create("umap/mmz", 0444, NULL, &mmz_proc_fops))
 		pr_err("mmz: create mmz proc fail!\n");
 	ret = misc_register(&mmz_misc);
 	if (ret) {
 		pr_err("mmz: register device failed!\n");
 		remove_proc_entry("umap/mmz", NULL);
-		if (umap_dir)
-			remove_proc_entry("umap", NULL);
 		if (mmz_pdev)
 			platform_device_unregister(mmz_pdev);
 		return ret;
@@ -790,14 +839,11 @@ static void __exit xm_mmz_exit(void)
 {
 	misc_deregister(&mmz_misc);
 	remove_proc_entry("umap/mmz", NULL);
-	/* the media modules that add to it are gone before this one */
-	if (umap_dir)
-		remove_proc_entry("umap", NULL);
 	reset_blocks();
 	if (use_cma) {
 		/* nothing maps a block now: a mapping holds /dev/mmz open */
 		cancel_delayed_work_sync(&reap_work);
-		reap_stale(NULL);
+		reap_stale(true);
 		platform_device_unregister(mmz_pdev);
 	}
 }
