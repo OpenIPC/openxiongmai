@@ -75,6 +75,13 @@ jobs:
             echo "xm-vi-hang is not static" >&2; exit 1
           fi
           echo "::endgroup::"
+          echo "::group::tools/xm-rgn-test"
+          make -C tools/xm-rgn-test CROSS_COMPILE="$CROSS_COMPILE"
+          ${CROSS_COMPILE}readelf -h tools/xm-rgn-test/xm-rgn-test | grep -q 'Machine:.*ARM'
+          if ${CROSS_COMPILE}readelf -d tools/xm-rgn-test/xm-rgn-test | grep -q NEEDED; then
+            echo "xm-rgn-test is not static" >&2; exit 1
+          fi
+          echo "::endgroup::"
           echo "::group::tools/xmhevc-test"
           make -C tools/xmhevc-test CROSS_COMPILE="$CROSS_COMPILE"
           ${CROSS_COMPILE}readelf -h tools/xmhevc-test/xmhevc-test | grep -q 'Machine:.*ARM'
@@ -252,6 +259,13 @@ jobs:
           make -C drivers/xm510_isp KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
+      # The region (OSD) driver reimplements xm530_rgn.ko.
+      - name: Build xm530_rgn
+        if: matrix.soc == 'xm530'
+        run: |
+          make -C drivers/xm530_rgn KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
       # The MMZ driver reimplements mmz.ko: the XM530/XM550 one, and the
       # XM510's older one on CONFIG_ARCH_XM510.
       - name: Build xm_mmz
@@ -262,7 +276,7 @@ jobs:
       - name: Verify modules
         run: |
           modules="drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/open_h264.ko drivers/xm_mmz/open_mmz.ko"
-          [ "${{ matrix.soc }}" = xm530 ] && modules="$modules drivers/xm_vi/open_vi.ko drivers/xm530_isp/open_isp.ko"
+          [ "${{ matrix.soc }}" = xm530 ] && modules="$modules drivers/xm_vi/open_vi.ko drivers/xm530_isp/open_isp.ko drivers/xm530_rgn/open_rgn.ko"
           [ "${{ matrix.soc }}" = xm510 ] && modules="$modules drivers/xm510_vi/open_vi.ko drivers/xm510_isp/open_isp.ko"
           for ko in $modules; do
             [ -f "$ko" ] || { echo "MISSING: $ko" >&2; exit 1; }

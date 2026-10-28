@@ -11,3 +11,4 @@ compile_flags.txt
 tools/xmvenc-test/xmvenc-test
 tools/xmhevc-test/xmhevc-test
 tools/xm-vi-hang/xm-vi-hang
+tools/xm-rgn-test/xm-rgn-test

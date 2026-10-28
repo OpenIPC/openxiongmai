@@ -40,6 +40,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 │   ├── xm510_isp/               XM510 ISP device (/dev/isp)
 │   ├── xm510_vi/                XM510 video input driver (/dev/vi)
 │   ├── xm530_isp/               XM530/XM550 ISP device (/dev/isp)
+│   ├── xm530_rgn/               XM530/XM550 region (OSD) driver (/dev/rgn)
 │   ├── xm_i2c/                  /dev/xm_i2c misc-device (stub)
 │   ├── xm_mmz/                  XM530/XM550/XM510 media memory zone (/dev/mmz)
 │   └── xm_vi/                   XM530/XM550 video input driver (/dev/vi)
@@ -57,6 +58,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
     └── libsns_X50_XM530/        libsns_X50_XM530.so: "X50" sensor family
 
 tools/
+├── xm-rgn-test/                 Draws OSD overlays and covers from the shell (MIT)
 ├── xm-vi-hang/                  Reproduces the VI driver hang without a camera application (MIT)
 ├── xmhevc-test/                 Raw /dev/mv500 H.265 session, the interface reference (MIT)
 └── xmvenc-test/                 Encodes H.264, H.265 or JPEG with libxmvenc (MIT)
@@ -85,6 +87,7 @@ make -C drivers/xm_vi    KDIR=/path/to/linux   # XM530 kernel only
 make -C drivers/xm510_vi KDIR=/path/to/linux   # XM510 kernel only
 make -C drivers/xm510_isp KDIR=/path/to/linux  # XM510 kernel only
 make -C drivers/xm530_isp KDIR=/path/to/linux  # XM530 kernel only
+make -C drivers/xm530_rgn KDIR=/path/to/linux  # XM530 kernel only
 make -C drivers/xm_mmz   KDIR=/path/to/linux
 ```
 
@@ -134,6 +137,7 @@ To add a sensor:
 | Module | Function | Status |
 |--------|----------|--------|
 | `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder, built as `open_h264.ko` | Same `/dev/h264` ABI as the vendor `xm530_h264.ko`; ran majestic on an XM550 in place of it, and on an XM510 in place of `xm510_h264.ko` |
+| `xm530_rgn` | XM530/XM550 regions (OSD): bitmap overlays and coloured covers that VI draws over each channel (`/dev/rgn`) | Builds `open_rgn.ko`. Same ABI as the vendor `xm530_rgn.ko`, with its inputs checked; drew overlays and covers into an XM550's streams under majestic |
 | `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
 | `xm_mmz` | XM530/XM550 media memory zone: the named, physically contiguous DMA buffers the SDK and video drivers share (`/dev/mmz`) | Builds `open_mmz.ko`. Same parameters, ioctls, exports and `/proc/umap/mmz` as the vendor `mmz.ko`; ran majestic on an XM550 in place of it |
 | `xm510_isp` | XM510 ISP device: register access, a shared page and the frame-start signal for the vendor `isp` daemon (`/dev/isp`) | Builds `open_isp.ko`. Same ABI as the vendor `xm510_isp.ko`, without its `Bad page state` on unload or its hang after a bad address; ran majestic on an XM510 in place of it |
@@ -279,5 +283,5 @@ All external inputs are pinned: the kernel commits, the firmware commit, and the
 ## License
 
 GPL v3. See [LICENSE](LICENSE). The exceptions:
-- `libraries/libxmvenc`, `tools/xmvenc-test`, `tools/xmhevc-test` and `tools/xm-vi-hang` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
+- `libraries/libxmvenc`, `tools/xmvenc-test`, `tools/xmhevc-test`, `tools/xm-vi-hang` and `tools/xm-rgn-test` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
 - `libraries/libxmvenc/cabac_tbl.c` and `cabac_tbl.h` are under the Apache License 2.0, from Rockchip MPP.
