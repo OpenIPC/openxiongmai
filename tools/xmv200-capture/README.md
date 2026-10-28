@@ -51,3 +51,11 @@ calls. It recognizes that process because it is the only user of `/dev/isp`
 and the only allocator of the `isp_*` MMZ blocks. Payload words that hold
 buffer addresses become patches, which libxmv200 resolves against the
 buffers it allocates itself.
+
+## All sensors at once
+
+`gen_all.sh CAPTURES_DIR` regenerates every tuning from a directory of
+captures (one subdirectory per chip ID, as `capture.sh` leaves them). It
+takes each sensor's name from the vendor ISP's console log, and writes
+`sns_registry.c`, the chip ID to tuning table that `xmv200_board_start("auto")`
+probes against.

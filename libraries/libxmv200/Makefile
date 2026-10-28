@@ -4,7 +4,9 @@ CC = $(CROSS_COMPILE)gcc
 AR = $(CROSS_COMPILE)ar
 override CFLAGS += -Werror -Wall -std=gnu99 -O2
 
-OBJECTS = sys.o venc.o isp.o ae.o board.o sns_sc2336_tuning.o
+# the sensor tunings and their registry (tools/xmv200-capture/gen_all.sh)
+SENSORS = $(patsubst %.c,%.o,$(wildcard sns_*_tuning.c)) sns_registry.o
+OBJECTS = sys.o venc.o isp.o ae.o board.o $(SENSORS)
 
 libxmv200.a: $(OBJECTS)
 	$(AR) rcs $@ $^

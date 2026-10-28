@@ -161,12 +161,115 @@ static int open_dev(const char *path) {
   return fd;
 }
 
+/*
+ * "auto": the SmartSens sensors on bus 0 at 0x30 and 0x32 (their chip ID
+ * at 0x3107/0x3108) and the tuning for them. Two of a kind are spliced top
+ * to bottom, as the X6C-WEQ's; one gives its own picture. Each stream has
+ * a 640-wide sub stream beside it.
+ */
+static int chip_id(int bus, uint8_t addr, uint32_t *id) {
+  uint32_t hi, lo;
+
+  if (xmv200_i2c_read(bus, addr, 0x3107, 2, &hi, 1) ||
+      xmv200_i2c_read(bus, addr, 0x3108, 2, &lo, 1))
+    return -1;
+  *id = (hi & 0xff) << 8 | (lo & 0xff);
+  return 0;
+}
+
+static const struct xmv200_sns *sensor_named(const char *name) {
+  for (int i = 0; i < xmv200_n_sensors; i++)
+    if (!strcmp(xmv200_sensors[i].name, name))
+      return &xmv200_sensors[i];
+  return NULL;
+}
+
+static const struct xmv200_sns *probe(int bus, uint8_t addr) {
+  uint32_t id, ext;
+
+  if (chip_id(bus, addr, &id))
+    return NULL;
+  /* SC2336, SC2336P and SC2337P all read 0xcb3a in standby: streaming,
+   * the P parts read 0x9b3a, and 0x801e tells them apart (the vendor ISP's
+   * test) */
+  if (id == 0xcb3a || id == 0x9b3a) {
+    const char *name = "SC2336";
+
+    xmv200_i2c_write(bus, addr, 0x0100, 2, 1, 1);
+    usleep(3000);
+    if (!chip_id(bus, addr, &id) && id == 0x9b3a &&
+        !xmv200_i2c_read(bus, addr, 0x801e, 2, &ext, 1))
+      name = ext & 0xf ? "SC2337P" : "SC2336P";
+    xmv200_i2c_write(bus, addr, 0x0100, 2, 0, 1);
+    if (sensor_named(name))
+      return sensor_named(name);
+    fprintf(stderr, "libxmv200: %s at 0x%02x: no tuning\n", name, addr);
+    return NULL;
+  }
+  for (int i = 0; i < xmv200_n_sensors; i++)
+    if (xmv200_sensors[i].chip_id == id)
+      return &xmv200_sensors[i];
+  fprintf(stderr, "libxmv200: sensor %04x at 0x%02x: no tuning\n", id, addr);
+  return NULL;
+}
+
+static int auto_board(struct board *b) {
+  static const uint8_t addrs[] = {0x30, 0x32};
+  const struct xmv200_sns *s[2] = {NULL, NULL};
+  int n = 0;
+
+  /* the sensors answer only once they are clocked */
+  xmv200_reg_write(SYS, 1);
+  xmv200_reg_write(SYS + 0x74, 0xc104c103);
+  xmv200_reg_write(SYS + 0x78, 0xc105c0ff);
+  xmv200_reg_write(SYS, 0);
+  usleep(10000);
+  for (int i = 0; i < 2; i++)
+    if ((s[n] = probe(0, addrs[i])) != NULL) {
+      b->isp.sensor[n] = (struct xmv200_isp_sensor){0, addrs[i], 0};
+      n++;
+    }
+  if (!n || (n == 2 && s[0] != s[1]))
+    return -1;
+  const struct xmv200_sns_tuning *t = s[0]->tuning;
+  uint32_t w = t->width & ~0xfu, h = t->height & ~0x7u;
+
+  memset(&b->isp.chn, 0, sizeof(b->isp.chn));
+  b->name = "auto";
+  b->isp.tuning = t;
+  b->isp.n_chn = n;
+  for (int c = 0; c < n; c++)
+    b->isp.chn[c] = (struct xmv200_isp_chn){
+        .chn = c, .mipi = c, .x0 = 1, .y0 = 0, .out_width = w,
+        .out_height = h, .ldc = 0};
+  if (n == 2)
+    b->isp.sensor[1].flip = 0x66; /* the second lens is mounted turned */
+  b->n_streams = 2;
+  b->stream[0].width = w;
+  b->stream[0].height = h;
+  b->stream[0].stream_buf = w * h * n / 4 + 0x10000;
+  b->stream[0].groups = (1u << n) - 1;
+  b->stream[1].width = 640;
+  b->stream[1].height = (640 * h / w) & ~0x7u;
+  b->stream[1].stream_buf = 0xbb800;
+  b->stream[1].groups = (1u << n) - 1;
+  b->fps = 12;
+  fprintf(stderr, "libxmv200: %d x %s, %ux%u\n", n, s[0]->name, w, h * n);
+  return 0;
+}
+
 int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
+  static struct board detected;
   const struct board *b = NULL;
   int fd_vpss, fd_sys, fd_venc, fd_rgn, fd_hevc, n;
   uint32_t reset = 0x10002;
 
-  for (unsigned i = 0; i < sizeof(boards) / sizeof(boards[0]); i++)
+  if (!strcmp(name, "auto")) {
+    if (auto_board(&detected))
+      return -1;
+    b = &detected;
+  }
+  for (unsigned i = 0; !b && i < sizeof(boards) / sizeof(boards[0]); i++)
     if (!strcmp(boards[i].name, name))
       b = &boards[i];
   if (!b)

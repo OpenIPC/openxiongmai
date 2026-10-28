@@ -101,6 +101,15 @@ struct xmv200_sns_tuning {
   uint32_t ldc_size;
 };
 
+/* the sensors there are tunings for (sns_registry.c, generated) */
+struct xmv200_sns {
+  uint16_t chip_id; /* SmartSens 0x3107 << 8 | 0x3108 */
+  const char *name;
+  const struct xmv200_sns_tuning *tuning;
+};
+extern const struct xmv200_sns xmv200_sensors[];
+extern const int xmv200_n_sensors;
+
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336;
 
 #endif
