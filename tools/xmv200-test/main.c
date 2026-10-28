@@ -184,6 +184,8 @@ int main(int argc, char **argv) {
         printf("frame %d: none\n", i);
         continue;
       }
+      if (f.chn == 0)
+        xmv200_ae_frame(&f);
       len = (int)f.chn < info.n_streams
                 ? xmv200_venc_encode(e[f.chn], &f, buf, sizeof(buf))
                 : -1;

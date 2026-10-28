@@ -145,7 +145,8 @@ static int vpss(int fd, uint32_t cmd, uint32_t grp, uint32_t chn,
   memset(&r, 0, sizeof(r));
   r.grp = grp;
   r.chn = chn;
-  memcpy(r.f, f, n * 4);
+  if (n)
+    memcpy(r.f, f, n * 4);
   if (ioctl(fd, cmd, &r) < 0) {
     fprintf(stderr, "libxmv200: vpss %#x grp %u chn %u failed\n", cmd, grp,
             chn);
@@ -270,6 +271,7 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
 
   if (xmv200_isp_start(&b->isp))
     return -1;
+  xmv200_ae_init(&b->isp);
 
   if (info) {
     memset(info, 0, sizeof(*info));
