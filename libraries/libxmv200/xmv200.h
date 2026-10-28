@@ -48,6 +48,19 @@ struct xmv200_vb_pool {
 int xmv200_vb_init(const struct xmv200_vb_pool *pools, int n);
 
 /*
+ * A board's whole pipeline: sensors, ISP, VPSS, the VENC channels. After it
+ * the streams' pictures queue for xmv200_frame_get.
+ */
+struct xmv200_board_info {
+  int n_streams;
+  uint32_t fps;
+  struct {
+    uint32_t width, height; /* what VENC channel n gets */
+  } stream[2];
+};
+int xmv200_board_start(const char *board, struct xmv200_board_info *info);
+
+/*
  * H.265 encoding on the hevc.ko engine, one encoder per stream size. Frames
  * come from venc.ko's FIFO, which the VPSS channels bound to VENC fill.
  * qp 0 = 35, gop 0 = two seconds.

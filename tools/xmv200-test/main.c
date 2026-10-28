@@ -152,6 +152,54 @@ int main(int argc, char **argv) {
     running = 0;
     return 0;
   }
-  fprintf(stderr, "usage: %s probe|replay|encode [n]\n", argv[0]);
+  if (argc > 2 && !strcmp(argv[1], "run")) {
+    /* the board's pipeline from libxmv200 alone, its streams to files */
+    static uint8_t buf[2 << 20];
+    struct xmv200_board_info info;
+    struct xmv200_venc *e[2];
+    FILE *out[2];
+    int n = argc > 3 ? atoi(argv[3]) : 30, got[2] = {0, 0};
+
+    if (xmv200_board_start(argv[2], &info)) {
+      fprintf(stderr, "board %s: start failed\n", argv[2]);
+      return 1;
+    }
+    for (int s = 0; s < info.n_streams; s++) {
+      char path[32];
+
+      snprintf(path, sizeof(path), "/tmp/stream%d.h265", s);
+      out[s] = fopen(path, "wb");
+      if (xmv200_venc_create(&e[s], info.stream[s].width,
+                             info.stream[s].height, info.fps, 35,
+                             2 * info.fps)) {
+        fprintf(stderr, "venc %d: create failed\n", s);
+        return 1;
+      }
+    }
+    for (int i = 0; i < 4 * n && (got[0] < n || got[1] < n); i++) {
+      struct xmv200_frame f;
+      int len;
+
+      if (xmv200_frame_get(&f)) {
+        printf("frame %d: none\n", i);
+        continue;
+      }
+      len = (int)f.chn < info.n_streams
+                ? xmv200_venc_encode(e[f.chn], &f, buf, sizeof(buf))
+                : -1;
+      xmv200_frame_release(&f);
+      if (len < 0) {
+        printf("frame %d: chn %u not encoded\n", i, f.chn);
+        continue;
+      }
+      fwrite(buf, 1, len, out[f.chn]);
+      if (got[f.chn]++ < 2 || got[f.chn] % 10 == 0)
+        printf("stream %u frame %d: %d bytes\n", f.chn, got[f.chn], len);
+    }
+    for (int s = 0; s < info.n_streams; s++)
+      fclose(out[s]);
+    return 0;
+  }
+  fprintf(stderr, "usage: %s probe | run <board> [frames] | replay | encode [n]\n", argv[0]);
   return 1;
 }
