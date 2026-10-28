@@ -66,12 +66,13 @@ static const struct reg mipi_2x2lane[] = {
 struct board {
   const char *name;
   struct xmv200_isp_cfg isp;
-  /* the encoded streams: VPSS channel n of every group goes, spliced
-   * top to bottom, to VENC channel n */
+  /* the encoded streams: VPSS channel n of the groups in groups goes to
+   * VENC channel n, spliced top to bottom when there are several */
   int n_streams;
   struct {
-    uint32_t width, height; /* per group; the stream is n_chn times taller */
+    uint32_t width, height; /* per group */
     uint32_t stream_buf;
+    uint32_t groups; /* mask */
   } stream[2];
   uint32_t fps;
 };
@@ -100,10 +101,36 @@ static const struct board boards[] = {
                            {.bus = 0, .addr = 0x32, .flip = 0x66}},
             },
         .n_streams = 2,
-        .stream = {{2304, 1296, 0x38f400}, {640, 360, 0xbb800}},
+        .stream = {{2304, 1296, 0x38f400, 3}, {640, 360, 0xbb800, 3}},
+        .fps = 12,
+    },
+    {
+        /* XM530V200 X2-WQ2 (dual-lens zoom): the wide lens' SC2336 alone,
+         * 1080p and 360p */
+        .name = "x2-wq2",
+        .isp =
+            {
+                .tuning = &xmv200_tuning_sc2336,
+                .n_chn = 1,
+                .chn = {{.chn = 0, .x0 = 1, .y0 = 0, .width = 1930,
+                         .height = 1080, .hts = 2640, .frame_lines = 2250,
+                         .exposure = 750, .out_width = 1920,
+                         .out_height = 1080}},
+                .sensor = {{.bus = 0, .addr = 0x30, .flip = 0x00}},
+            },
+        .n_streams = 2,
+        .stream = {{1920, 1080, 0x13c680, 1}, {640, 360, 0xbb800, 1}},
         .fps = 12,
     },
 };
+
+static int popcount(uint32_t m) {
+  int n = 0;
+
+  for (; m; m >>= 1)
+    n += m & 1;
+  return n;
+}
 
 /* vpss.ko: one 128-byte record, {grp, chn, -, -, fields from +0x10} */
 struct vpss_rec {
@@ -197,7 +224,9 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
 
   for (int s = 0; s < b->n_streams; s++)
     pools[np++] = (struct xmv200_vb_pool){
-        b->stream[s].width * b->stream[s].height * n * 3 / 2, 3};
+        b->stream[s].width * b->stream[s].height *
+            popcount(b->stream[s].groups) * 3 / 2,
+        3};
   pools[np++] = (struct xmv200_vb_pool){
       1920 * ((b->isp.chn[0].height + 15) & ~15u) * 3 / 2, 3};
   if (xmv200_vb_init(pools, np))
@@ -219,8 +248,11 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
       uint32_t splice[2] = {g + 1, s};
       uint32_t bind[3] = {MOD_VENC, 0, s};
 
+      if (!(b->stream[s].groups & 1u << g))
+        continue;
       if (vpss(fd_vpss, VPSS_SET_CHN_ATTR, g, s, attr, 5) ||
-          vpss(fd_vpss, VPSS_SET_SPLICE, g, s, splice, 2) ||
+          (popcount(b->stream[s].groups) > 1 &&
+           vpss(fd_vpss, VPSS_SET_SPLICE, g, s, splice, 2)) ||
           vpss(fd_vpss, VPSS_ENABLE_CHN, g, s, NULL, 0) ||
           vpss(fd_vpss, VPSS_BIND, g, s, bind, 3) ||
           sys_bind(fd_sys, MOD_VPSS, g, s, MOD_VENC, 0, s) < 0)
@@ -237,7 +269,7 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
     cfg[1] = 1;
     cfg[2] = cfg[5] = 0x109; /* H.265 */
     cfg[3] = b->stream[s].width;
-    cfg[4] = b->stream[s].height * n;
+    cfg[4] = b->stream[s].height * popcount(b->stream[s].groups);
     cfg[8] = b->stream[s].stream_buf;
     cfg[10] = 0xf;
     cfg[22] = 1;
@@ -279,7 +311,8 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
     info->fps = b->fps;
     for (int s = 0; s < b->n_streams; s++) {
       info->stream[s].width = b->stream[s].width;
-      info->stream[s].height = b->stream[s].height * n;
+      info->stream[s].height =
+          b->stream[s].height * popcount(b->stream[s].groups);
     }
   }
   return 0;
