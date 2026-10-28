@@ -12,6 +12,12 @@ ISZ={0x495b:0x24,0x4913:8,0x490a:0xc,0x4908:0x1c,0x4909:4,0x490e:0x34,0x4912:0x1
  0x496d:0xd0,0x496e:0x214,0x496f:0x6c,0x4970:0xa4,0x4971:0x20c,0x4973:0x28,0x4974:0x10,0x4975:0x20,0x4976:0x20,
  0x4977:0x5c,0x497f:0x18,0x49d2:0x40,0x49d7:0x28,0x49db:0x38,0x49dc:0x13c,0x49de:0x10,0x49df:0x88,0x49e0:0x18,0x49e2:0x18,
  0x49e3:0x164,0x49e4:0x110,0x49e5:0x1d8,0x49e6:0x1d8,0x49e7:0xa0,0x49e8:0x30,0x49e9:0x30,0x49f0:0x184}
+# another chip's modules: their ioctl handlers ({addr: dev}) and the
+# commands' sizes (merged into the XM530V200's, the larger kept)
+if os.environ.get('CAP_H'):
+    H=eval(os.environ['CAP_H'])
+for k,v in eval(os.environ.get('CAP_ISZ','{}')).items():
+    ISZ[k]=max(ISZ.get(k,0),v)
 out=open(os.environ['XM_REGTRACE_FILE'],'a',buffering=1)
 for a in H: gdb.execute('hbreak *%#x'%a,to_string=True)
 def rd(a,n):
@@ -21,7 +27,9 @@ def physread(ph,sz):
     gdb.execute('maint packet Qqemu.PhyMemMode:1',to_string=True)
     try: return bytes(inf.read_memory(ph,sz))
     finally: gdb.execute('maint packet Qqemu.PhyMemMode:0',to_string=True)
-pend={}; cnt={}; blocks={}; runs=0; n=0
+pend={}; cnt={}; blocks={}; runs=0; n=0; pages=8
+# the isp binary's pointer to its mapping of the shared pages
+PAGEPTR=int(os.environ.get('CAP_PAGEPTR','0xadbb4'),0)
 while True:
     try: gdb.execute('continue',to_string=True)
     except Exception as e: out.write('END %s\n'%e); break
@@ -43,11 +51,13 @@ while True:
     if dev=='mmz' and cmd in (0xc02c4d01,0xc02c4d04):
         lr=int(gdb.parse_and_eval('$lr'))&0xffffffff
         pend[sp]=(lr,arg,gdb.Breakpoint('*%#x'%lr,type=gdb.BP_HARDWARE_BREAKPOINT,internal=True))
+    if dev=='isp' and cmd==0x400c490c and d:
+        pages=struct.unpack_from('<I',d,4)[0] or 8
     if dev=='isp' and cmd==0x495e:
         runs+=1
         if runs==NCH:
-            pg=struct.unpack('<I',rd(0xadbb4,4))[0]
-            open(OUT+'/page.bin','wb').write(rd(pg,8*4096))
+            pg=struct.unpack('<I',rd(PAGEPTR,4))[0]
+            open(OUT+'/page.bin','wb').write(rd(pg,pages*4096))
             if 'isp_ldc_ch0' in blocks:
                 sz,ph=blocks['isp_ldc_ch0']; open(OUT+'/ldc.bin','wb').write(physread(ph,sz))
             else: open(OUT+'/ldc.bin','wb').write(b'')

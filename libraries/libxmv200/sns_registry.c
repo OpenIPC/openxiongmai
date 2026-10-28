@@ -3,24 +3,46 @@
  * tools/xmv200-capture/gen_all.sh. Do not edit. */
 #include "sns_tuning.h"
 
+extern const struct xmv200_sns_tuning xmv200_tuning_sc1336;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1345;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1346;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc1a4t;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc200ai;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc223ap;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc231ai;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2331;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2337p;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc307c;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc3235;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc3335;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc3338;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc401ai;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc430ai;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc4336;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc500ai;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc831hai;
 
 const struct xmv200_sns xmv200_sensors[] = {
+    {0xca3f, "SC1336", &xmv200_tuning_sc1336},
     {0xda23, "SC1345", &xmv200_tuning_sc1345},
     {0xda4d, "SC1346", &xmv200_tuning_sc1346},
+    {0x9a4d, "SC1A4T", &xmv200_tuning_sc1a4t},
     {0xcb1c, "SC200AI", &xmv200_tuning_sc200ai},
     {0xcb3e, "SC223AP", &xmv200_tuning_sc223ap},
+    {0xcb6a, "SC231AI", &xmv200_tuning_sc231ai},
     {0xcb5c, "SC2331", &xmv200_tuning_sc2331},
     {0xcb3a, "SC2336", &xmv200_tuning_sc2336},
     {0x9b3a, "SC2337P", &xmv200_tuning_sc2337p},
+    {0xcb07, "SC307C", &xmv200_tuning_sc307c},
+    {0xcc05, "SC3235", &xmv200_tuning_sc3235},
+    {0xcc1a, "SC3335", &xmv200_tuning_sc3335},
     {0xcc41, "SC3338", &xmv200_tuning_sc3338},
+    {0xcd2e, "SC401AI", &xmv200_tuning_sc401ai},
+    {0xce39, "SC430AI", &xmv200_tuning_sc430ai},
+    {0xdc42, "SC4336", &xmv200_tuning_sc4336},
+    {0xce1f, "SC500AI", &xmv200_tuning_sc500ai},
+    {0xc170, "SC831HAI", &xmv200_tuning_sc831hai},
 };
 
 const int xmv200_n_sensors = sizeof(xmv200_sensors) / sizeof(xmv200_sensors[0]);
