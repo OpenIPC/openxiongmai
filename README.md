@@ -9,7 +9,7 @@ The goal is to replace the proprietary SDK that Xiongmai ships with its camera b
 | SoC | Status | What's here |
 |-----|--------|-------------|
 | XM530 | Primary target | Sensor libraries, ISP application library, MPI reimplementation |
-| XM510 | Kernel modules | `hx280enc`, `xm_mmz`, `xm510_vi`, `xm510_isp` and `xm_i2c` build against the XM510 kernel |
+| XM510 | Kernel modules | `hx280enc`, `xm_mmz`, `xm510_vi`, `xm510_isp`, `xm510_rgn` and `xm_i2c` build against the XM510 kernel |
 | XM322 / XM350 / XM520 / XM540 / XM550 | Headers only | Register maps in `libraries/isp/include/xm/` |
 
 ## How the Xiongmai SDK works
@@ -38,6 +38,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 ├── drivers/                     Kernel modules (out-of-tree kbuild)
 │   ├── hx280enc/                Hantro 6280/7280/8270/8290 video encoder driver
 │   ├── xm510_isp/               XM510 ISP device (/dev/isp)
+│   ├── xm510_rgn/               XM510 region (OSD) driver (/dev/rgn)
 │   ├── xm510_vi/                XM510 video input driver (/dev/vi)
 │   ├── xm530_isp/               XM530/XM550 ISP device (/dev/isp)
 │   ├── xm530_rgn/               XM530/XM550 region (OSD) driver (/dev/rgn)
@@ -58,7 +59,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
     └── libsns_X50_XM530/        libsns_X50_XM530.so: "X50" sensor family
 
 tools/
-├── xm-rgn-test/                 Draws OSD overlays and covers from the shell (MIT)
+├── xm-rgn-test/                 Draws OSD overlays and covers from the shell, XM530/XM550 and XM510 (MIT)
 ├── xm-vi-hang/                  Reproduces the VI driver hang without a camera application (MIT)
 ├── xmhevc-test/                 Raw /dev/mv500 H.265 session, the interface reference (MIT)
 └── xmvenc-test/                 Encodes H.264, H.265 or JPEG with libxmvenc (MIT)
@@ -88,6 +89,7 @@ make -C drivers/xm510_vi KDIR=/path/to/linux   # XM510 kernel only
 make -C drivers/xm510_isp KDIR=/path/to/linux  # XM510 kernel only
 make -C drivers/xm530_isp KDIR=/path/to/linux  # XM530 kernel only
 make -C drivers/xm530_rgn KDIR=/path/to/linux  # XM530 kernel only
+make -C drivers/xm510_rgn KDIR=/path/to/linux  # XM510 kernel only
 make -C drivers/xm_mmz   KDIR=/path/to/linux
 ```
 
@@ -141,6 +143,7 @@ To add a sensor:
 | `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
 | `xm_mmz` | XM530/XM550 media memory zone: the named, physically contiguous DMA buffers the SDK and video drivers share (`/dev/mmz`) | Builds `open_mmz.ko`. Same parameters, ioctls, exports and `/proc/umap/mmz` as the vendor `mmz.ko`; ran majestic on an XM550 in place of it |
 | `xm510_isp` | XM510 ISP device: register access, a shared page and the frame-start signal for the vendor `isp` daemon (`/dev/isp`) | Builds `open_isp.ko`. Same ABI as the vendor `xm510_isp.ko`, without its `Bad page state` on unload or its hang after a bad address; ran majestic on an XM510 in place of it |
+| `xm510_rgn` | XM510 regions (OSD): 1-bit bitmap overlays and covers that VI draws over the picture (`/dev/rgn`) | Builds `open_rgn.ko`. Same ABI as the vendor `xm510_rgn.ko`, with its inputs checked and no unbounded spin; drew overlays and covers into an XM510's stream under majestic |
 | `xm530_isp` | XM530/XM550 ISP device: register access, interrupt waits, a shared block, AWB statistics and the MIPI delay sweep for the vendor ISP library (`/dev/isp`) | Builds `open_isp.ko`. Same ABI as the vendor `xm530_isp.ko`, without its unchecked event index, AWB parameters and mapping length; ran majestic on an XM550 in place of it |
 | `xm510_vi` | XM510 video input: capture window, crop, scaler and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm510_vi.ko`, plus release on close and `poll`; ran majestic on an XM510 in place of it |
 | `xm_vi` | XM530/XM550 video input: capture window, scalers and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm530_vi.ko`, without its vmalloc leak; ran majestic on an XM550 in place of it |

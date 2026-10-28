@@ -266,6 +266,14 @@ jobs:
           make -C drivers/xm530_rgn KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
+      # The XM510 region (OSD) driver reimplements xm510_rgn.ko, a different
+      # block from the XM530's.
+      - name: Build xm510_rgn
+        if: matrix.soc == 'xm510'
+        run: |
+          make -C drivers/xm510_rgn KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
       # The MMZ driver reimplements mmz.ko: the XM530/XM550 one, and the
       # XM510's older one on CONFIG_ARCH_XM510.
       - name: Build xm_mmz
@@ -277,7 +285,7 @@ jobs:
         run: |
           modules="drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/open_h264.ko drivers/xm_mmz/open_mmz.ko"
           [ "${{ matrix.soc }}" = xm530 ] && modules="$modules drivers/xm_vi/open_vi.ko drivers/xm530_isp/open_isp.ko drivers/xm530_rgn/open_rgn.ko"
-          [ "${{ matrix.soc }}" = xm510 ] && modules="$modules drivers/xm510_vi/open_vi.ko drivers/xm510_isp/open_isp.ko"
+          [ "${{ matrix.soc }}" = xm510 ] && modules="$modules drivers/xm510_vi/open_vi.ko drivers/xm510_isp/open_isp.ko drivers/xm510_rgn/open_rgn.ko"
           for ko in $modules; do
             [ -f "$ko" ] || { echo "MISSING: $ko" >&2; exit 1; }
             ${CROSS_COMPILE}readelf -h "$ko" | grep -q 'Machine:.*ARM' \
