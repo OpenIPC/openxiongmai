@@ -66,6 +66,9 @@ int xmv200_board_start(const char *board, struct xmv200_board_info *info);
  * qp 0 = 35, gop 0 = two seconds.
  */
 struct xmv200_venc;
+/* the chip whose encoder engine to drive ("xm530v200", "xm535d1", ...);
+ * without it, the kernel's machine name */
+void xmv200_venc_set_engine(const char *chip);
 int xmv200_venc_create(struct xmv200_venc **v, uint32_t width,
                        uint32_t height, uint32_t fps, uint32_t qp,
                        uint32_t gop);
