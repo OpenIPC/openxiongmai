@@ -64,4 +64,7 @@ On an XM550 + IMX335 with majestic:
 - **Restarts:** five majestic restarts and two `kill -9`, with video every time.
 - **Unload:** unloading logs nothing.
 
-The MIPI sweep (ioctls 6 and 7) has not been run on hardware.
+- **The MIPI sweep:**
+  - ioctl 6 runs it over all 256 delays and logs each good run and `finish`, under live video (which breaks while the delays change, so majestic restarts);
+  - ioctl 7 runs it again after it finished, and a second ioctl 6 replaces the thread;
+  - unloading during a sweep stops it, and video comes back after a majestic restart.
