@@ -21,6 +21,7 @@
 #include "xmv200_priv.h"
 
 extern const struct xmv200_prog xmv200_prog_x6e_weq;
+extern const struct xmv200_prog xmv200_prog_x2w_wng;
 
 #define SYS 0x20000000
 #define VI 0x30000000
@@ -110,6 +111,16 @@ static const struct board prog_boards[] = {
         .prog = &xmv200_prog_x6e_weq,
         .n_streams = 2,
         .stream = {{2304, 2592, 0, 1}, {640, 720, 0, 1}},
+        .fps = 12,
+    },
+    {
+        /* XM535W1 X2W-WNG: one SC1346, its 720p encoded at 1080p, and
+         * 800x448 */
+        .name = "x2w-wng",
+        .chip = "xm535w1",
+        .prog = &xmv200_prog_x2w_wng,
+        .n_streams = 2,
+        .stream = {{1920, 1080, 0, 1}, {800, 448, 0, 1}},
         .fps = 12,
     },
 };

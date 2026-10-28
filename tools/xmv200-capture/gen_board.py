@@ -21,11 +21,13 @@ import struct
 import sys
 
 trace, page_bin, name = sys.argv[1:4]
-DEV = {'isp': 0, 'vpss': 1, 'vb': 2, 'sys': 3, 'mmz': 4, 'venc': 5, 'hevc': 6}
+DEV = {'isp': 0, 'vpss': 1, 'vb': 2, 'sys': 3, 'mmz': 4, 'venc': 5, 'hevc': 6,
+       'vi': 7, 'h264': 8}
 SKIP = {('mmz', 0x402c4d05), ('mmz', 0x402c4d06), ('isp', 0x490a),
         ('isp', 0x4909), ('venc', 0xc0284902), ('venc', 0x40284903),
         ('venc', 0x40284905), ('venc', 0x40104904), ('vpss', 0x4080500e),
-        ('vpss', 0x4080500f), ('hevc', 0x4803), ('hevc', 0x4804)}
+        ('vpss', 0x4080500f), ('hevc', 0x4803), ('hevc', 0x4804),
+        ('mmz', 0x402c4d07)}
 OWN_MMZ = (b'venc', b'stream', b'IA_', b'firm_mem', b'mempool', b'dst_mem')
 BASE = {'sysctl': 0x20000000, 'isp2.vi': 0x30000000, 'isp2.vpss': 0x34000000,
         'isp2.bpu': 0x32000000}

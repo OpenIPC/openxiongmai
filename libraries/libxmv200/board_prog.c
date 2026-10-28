@@ -15,9 +15,9 @@
 #include "board_prog.h"
 #include "xmv200.h"
 
-static const char *const devs[] = {"/dev/isp", "/dev/vpss", "/dev/vb",
-                                   "/dev/sys", "/dev/mmz", "/dev/venc_info",
-                                   "/dev/h265"};
+static const char *const devs[] = {"/dev/isp",  "/dev/vpss", "/dev/vb",
+                                   "/dev/sys",  "/dev/mmz",  "/dev/venc_info",
+                                   "/dev/h265", "/dev/vi",   "/dev/h264"};
 
 struct reloc {
   uint32_t old, new, size;
@@ -47,7 +47,7 @@ static void relocate(uint8_t *p, uint32_t len, const struct reloc *r, int n) {
 int xmv200_prog_run(const struct xmv200_prog *p) {
   static struct reloc reloc[64];
   static uint8_t buf[0x800];
-  int fd[7] = {-1, -1, -1, -1, -1, -1, -1}, nreloc = 0, last_isp = -1;
+  int fd[9] = {-1, -1, -1, -1, -1, -1, -1, -1, -1}, nreloc = 0, last_isp = -1;
   uint8_t *page = NULL;
 
   for (int i = 0; i < p->n_steps; i++) {
