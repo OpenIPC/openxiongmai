@@ -1,6 +1,6 @@
 # xm_mmz
 
-`xm_mmz` is the media memory zone of the XM530/XM550, built as `open_mmz.ko`. It replaces the vendor `mmz.ko` without changes to the drivers or applications that use it.
+`xm_mmz` is the media memory zone of the XM530/XM550 and the XM510, built as `open_mmz.ko`. It replaces the vendor `mmz.ko` without changes to the drivers or applications that use it.
 
 The SDK and the video drivers take their DMA buffers from one physically contiguous region that Linux does not use. `mem=` on the kernel command line keeps it out, and the module gets it as `mmz_start` and `mmz_size`. `load_xiongmai` passes what lies between `mem=` and the end of DDR:
 
@@ -9,6 +9,20 @@ insmod open_mmz.ko mmz_start=0x85000000 mmz_size=0x3000000   # XM550: mem=80M of
 ```
 
 Load it before the drivers that use it (`open_vi`/`xm530_vi`, `xm530_rgn`).
+
+## XM510
+
+The XM510 (3.0 kernel) has an older `mmz.ko`, and a build against a kernel with `CONFIG_ARCH_XM510` does what that one does:
+- **Layout:** each block starts on the page after the previous one, with no overrun marker.
+- **`/proc/umap/mmz`:** the zone, then start, size and name per block, with no overrun flag and no free-space line.
+- **Interface:** the old module's is a subset of this one: ioctls 0–3 on 40-byte records, and `mmz_alloc`/`mmz_free`. It has no `mmap`, so XM510 user space maps the zone through `/dev/mem`.
+- **No CMA mode:** the XM510 kernel has no CMA, and 32 MB of DDR leaves nothing to lend.
+
+```sh
+insmod open_mmz.ko mmz_start=0x81200000 mmz_size=0xe00000   # XM510: mem=18M of 32 MB
+```
+
+On an XM510 + JX-H62 with majestic, `open_mmz` laid out the same 12 blocks at the same addresses as the vendor module, and video streamed.
 
 ## Blocks
 

@@ -21,6 +21,12 @@
  * User space reaches it through /dev/mmz with a record per call: 44 bytes on
  * XM530/XM550, 40 on XM510, which has no user address in it.
  *
+ * The XM510's mmz.ko (3.0 kernel) is an older one, and on CONFIG_ARCH_XM510
+ * this does what it does: blocks are laid on the next page with no marker,
+ * and /proc/umap/mmz has its layout, without the overrun flag and the free
+ * space. Its interface is a subset of this one (ioctls 0-3, mmz_alloc and
+ * mmz_free) and it has no mmap: user space maps the zone through /dev/mem.
+ *
  * allocator=cma (XM530/XM550 on a kernel with CONFIG_CMA) takes the blocks
  * from the kernel's CMA area instead, with dma_alloc_coherent(), so memory the
  * media pipeline does not use stays Linux's. Kernel blocks named in zone_names
@@ -44,6 +50,7 @@
 #include <linux/namei.h>
 #include <linux/platform_device.h>
 #include <linux/proc_fs.h>
+#include <linux/ratelimit.h>
 #include <linux/sched.h>
 #include <linux/seq_file.h>
 #include <linux/slab.h>
@@ -122,10 +129,16 @@ static void reap_work_fn(struct work_struct *work);
 static DECLARE_DELAYED_WORK(reap_work, reap_work_fn);
 static unsigned long reset_at; /* jiffies of the last reset */
 
+#ifdef CONFIG_ARCH_XM510
+#define MMZ_MARKER 0 /* the XM510 module lays blocks with no marker */
+#else
+#define MMZ_MARKER 1
+#endif
+
 /* The space a block takes: its size and the marker, to the next page */
 static u32 guarded(u32 size)
 {
-	return ALIGN(size + sizeof(mmz_marker), PAGE_SIZE);
+	return ALIGN(size + (MMZ_MARKER ? sizeof(mmz_marker) : 0), PAGE_SIZE);
 }
 
 static struct mmz_block *find_name(const char *name)
@@ -225,7 +238,9 @@ static int alloc_block(const char *name, u32 size, u32 *phys, bool cached)
 	spin_unlock_irqrestore(&mmz_lock, flags);
 
 	/* From locals: once the lock is dropped a reset may free b */
-	if (guard_marker(at, size, true)) {
+	if (!MMZ_MARKER) {
+		/* nothing to write */
+	} else if (guard_marker(at, size, true)) {
 		spin_lock_irqsave(&mmz_lock, flags);
 		list_for_each_entry (b, &blocks, list)
 			if (b->phys == at) {
@@ -687,6 +702,25 @@ static int mmz_mmap(struct file *file, struct vm_area_struct *vma)
 	return 0;
 }
 
+/* The XM510 module's layout: start, size and name, nothing else */
+static int xm510_seq_show(struct seq_file *s)
+{
+	struct mmz_block *b;
+	unsigned long flags;
+
+	seq_puts(s, "--START-------------------SIZE--------------------NAME"
+		    "-------\n");
+	/* seq_printf() does not sleep, and there is no marker to map */
+	spin_lock_irqsave(&mmz_lock, flags);
+	list_for_each_entry (b, &blocks, list)
+		seq_printf(s, "%#-10x\t\t%#-10x\t\t%s\n", b->phys, b->size,
+			   b->name);
+	spin_unlock_irqrestore(&mmz_lock, flags);
+	seq_puts(s, "-------------------------------------------------------"
+		    "------\n");
+	return 0;
+}
+
 static int mmz_seq_show(struct seq_file *s, void *unused)
 {
 	struct mmz_block *b, *copy;
@@ -696,6 +730,8 @@ static int mmz_seq_show(struct seq_file *s, void *unused)
 
 	seq_puts(s, "[MMZ] openxiongmai xm_mmz\n\n");
 	seq_printf(s, "[%#x--------%#x]\n", mmz_start, mmz_start + mmz_size);
+	if (!MMZ_MARKER)
+		return xm510_seq_show(s);
 	seq_puts(s, "--START-----------SIZE----------------OVERFLOW----NAME"
 		    "---------------\n");
 
@@ -797,10 +833,10 @@ static int __init xm_mmz_init(void)
 	int ret;
 
 	if (!strcmp(allocator, "cma")) {
-		if (!IS_ENABLED(CONFIG_CMA)) {
-			pr_err("mmz: allocator=cma needs a kernel with CMA\n");
-			return -EINVAL;
-		}
+#ifndef CONFIG_CMA
+		pr_err("mmz: allocator=cma needs a kernel with CMA\n");
+		return -EINVAL;
+#endif
 		use_cma = true;
 	} else if (strcmp(allocator, "xm")) {
 		pr_err("mmz: allocator is xm or cma\n");
