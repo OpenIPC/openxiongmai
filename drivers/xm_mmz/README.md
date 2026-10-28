@@ -20,6 +20,27 @@ The allocator is the vendor's, kept as it is:
 - **Freeing:** freeing a block succeeds and does nothing. Only a reset releases memory, and it releases every block at once. So whoever starts the media pipeline resets first; majestic and the SDK do.
 - **Caching:** "cached" is a flag a block carries for `mmap`. It is mapped write-back instead of uncached.
 
+## CMA mode
+
+With `allocator=cma`, the blocks come from the kernel's CMA area through `dma_alloc_coherent()` instead of from the zone. Memory the media pipeline isn't using stays with Linux, and the pipeline still gets contiguous buffers. It needs an XM530/XM550 kernel with `CONFIG_CMA` and the two OpenIPC/linux changes that keep the vendor modules' ABI (OpenIPC/linux#157), and it needs `open_vi`: the vendor `xm530_vi.ko` `ioremap()`s its buffers.
+
+```sh
+# XM550, kernel booted with mem=127M cma=48M: 1 MB zone at the top of DDR
+insmod open_mmz.ko allocator=cma mmz_start=0x87f00000 mmz_size=0x100000
+```
+
+- **Kernel blocks:** `mmz_alloc()` and its variants take CMA too, except names in `zone_names` (default `rgn`). Those still come from the zone, which therefore stays, but small. `xm530_rgn.ko` `ioremap()`s its 18 KB block, and ARM refuses to `ioremap()` RAM.
+- **Reset:** a reset forgets the CMA blocks, but frees them only `cma_hold_ms` (5000) later, because the previous pipeline's DMA may run into them until the next one sets the hardware up (VI keeps capturing after majestic exits). A name allocated again within that time, at the same or a smaller size, gets its block back at the same address. On a camera restart, that is every block.
+- **Running out:** an allocation that finds CMA (or `cma_size`, if set) full while blocks are held waits for the hold to end and tries once more. A restart that asks for bigger buffers than the last run can take up to `cma_hold_ms` longer.
+- **`mmap`:** a mapping must stay inside one CMA block and keeps that block until it is unmapped. Uncached blocks are mapped with the attributes the kernel's own mapping of them has. Other RAM is refused; register space is mapped as before.
+- **`/proc/umap/mmz`:** lists the CMA blocks among the zone's (stale ones left out). It adds one line at the end, `CMA: <bytes>`, with what CMA holds, stale blocks included.
+
+Measured on an XM550 + IMX335 with majestic (1080p H.264 main stream, sub stream, JPEG), booted `mem=127M cma=48M`:
+- all blocks but `rgn` came from CMA, 22 MB in 13 blocks, with 73 MB of memory free;
+- restarts reused the same 13 blocks at the same addresses;
+- after a reset, a 20 MB allocation that didn't fit beside the held blocks succeeded after 5.05 s;
+- a mapped block outlived a reset until it was unmapped.
+
 ## Kernel interface
 
 | Function | Does |
@@ -48,7 +69,7 @@ Every call takes a record `{ char name[32]; u32 size; u32 phys; u32 vaddr; }` (4
 
 The record goes back to the caller whether or not the call succeeded. A failed allocation or lookup returns −1 with `phys` 0. As in the vendor module, a command it does not know (a record of another size included) logs `ioctl cmd error` and returns 0, so callers test `phys`.
 
-`mmap` with the physical address as the offset maps it write-back for a cached block and uncached otherwise. Like the vendor module, it maps any physical address. It logs the first mapping outside the zone, so anything that relies on that can be found before it is refused.
+`mmap` with the physical address as the offset maps it write-back for a cached block and uncached otherwise. Like the vendor module, it maps any physical address (in CMA mode, see above). It logs the first mapping outside the zone, so anything that relies on that can be found before it is refused.
 
 ## `/proc/umap/mmz`
 

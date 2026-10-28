@@ -17,7 +17,7 @@ VI writes the ISP's picture into memory on up to six *ways*:
 - **Ways 0–3** have a store engine and an interrupt. Way 3 is luma only.
 - **Ways 4 and 5** are motion-detection channels that the vendor driver produced in software. Here their setup succeeds, but they never deliver a frame.
 
-Each way's buffers come from one MMZ block named `vi_way[N]`, sized buffers × w × h × 1.5 (NV12 layout: Y, then interleaved chroma). The block survives VI init and module reloads, and the driver reuses it if it is large enough.
+Each way's buffers come from one MMZ block named `vi_way[N]`, sized buffers × w × h × 1.5 (NV12 layout: Y, then interleaved chroma). The block survives VI init and module reloads, and the driver reuses it if it is large enough. With `open_mmz allocator=cma` the block is RAM from the CMA area, and the driver fills it through the kernel's own (uncached) mapping rather than `ioremap()`.
 
 ## ioctls on `/dev/vi` (type `'V'`)
 
