@@ -21,6 +21,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/miscdevice.h>
+#include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/poll.h>
@@ -234,11 +235,23 @@ static int vi_store_enable(u32 way, u32 on)
 	return 0;
 }
 
-/* Fill the way's buffers with grey, as the vendor driver does */
+/* Fill the way's buffers with grey, as the vendor driver does. A block
+ * open_mmz took from CMA is RAM, which ARM does not ioremap; the kernel's own
+ * mapping of it is uncached already. */
 static int vi_clear_buffers(u32 phys, u32 size)
 {
-	void __iomem *p = ioremap(phys, size);
+	void __iomem *p;
 
+	if (pfn_valid(__phys_to_pfn(phys))) {
+		if (PageHighMem(pfn_to_page(__phys_to_pfn(phys + size - 1)))) {
+			pr_err("VI: buffer in high memory\n");
+			return -ENOMEM;
+		}
+		memset(phys_to_virt(phys), 0x80, size);
+		wmb();
+		return 0;
+	}
+	p = ioremap(phys, size);
 	if (!p) {
 		pr_err("VI: ioremap video in base failed!\n");
 		return -ENOMEM;
