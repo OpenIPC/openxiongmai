@@ -61,6 +61,9 @@ struct board {
     uint32_t groups; /* mask */
   } stream[XMV200_MAX_STREAMS];
   uint32_t fps;
+  /* a program board's sensors, for AE */
+  int n_ae;
+  struct xmv200_ae_sensor ae[3];
 };
 
 static const struct board boards[] = {
@@ -114,6 +117,8 @@ static const struct board prog_boards[] = {
         .n_streams = 2,
         .stream = {{2304, 2592, 0, 1}, {640, 720, 0, 1}},
         .fps = 12,
+        .n_ae = 2,
+        .ae = {{0, 0x30, 0, 0, 0, 2}, {0, 0x32, 1, 0, 1, 2}},
     },
     {
         /* XM535W1 X2W-WNG: one SC1346, its 720p encoded at 1080p, and
@@ -124,6 +129,8 @@ static const struct board prog_boards[] = {
         .n_streams = 2,
         .stream = {{1920, 1080, 0, 1}, {800, 448, 0, 1}},
         .fps = 12,
+        .n_ae = 1,
+        .ae = {{0, 0x30, 0, 0, 0, 1}},
     },
     {
         /* XM535D2 X9-WE2Q: three SC2336, each 1080p and 360p (VENC
@@ -139,6 +146,10 @@ static const struct board prog_boards[] = {
                    {1920, 1080, 0, 4},
                    {640, 360, 0, 4}},
         .fps = 12,
+        /* camera 0 is ISP channel 2 */
+        .n_ae = 3,
+        .ae = {{0, 0x30, 2, 0, 0, 1}, {2, 0x32, 1, 2, 0, 1},
+               {2, 0x30, 0, 4, 0, 1}},
     },
     {
         /* XM533 X3-WQ-B: one SC2337P, 2304x1296 and 800x448 */
@@ -148,6 +159,8 @@ static const struct board prog_boards[] = {
         .n_streams = 2,
         .stream = {{2304, 1296, 0, 1}, {800, 448, 0, 1}},
         .fps = 12,
+        .n_ae = 1,
+        .ae = {{0, 0x30, 0, 0, 0, 1}},
     },
 };
 
@@ -338,6 +351,7 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
     xmv200_venc_set_engine(b->chip);
     if (xmv200_prog_run(b->prog) || xmv200_isp_frames_start())
       return -1;
+    xmv200_ae_init_prog(b->ae, b->n_ae, b->prog);
     if (info) {
       memset(info, 0, sizeof(*info));
       info->n_streams = b->n_streams;

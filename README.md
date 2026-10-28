@@ -274,7 +274,7 @@ The XM530V200 (and the XM533 and XM535D1/D2/W1 after it) has a different media p
   A board only describes its layout: the sensors, the crop each lens needs, the streams and the VPSS groups each one takes.
 - **ISP** (`isp.c`): `isp.ko`'s common setup and its shared parameter page. Then, per channel, the sensor mode's program: `isp.ko`'s parameter blocks in order, with the sensor, VI window, buffer and channel steps between them. The mode's data is in `sns_<sensor>_tuning.c`, which `tools/xmv200-capture` generates from a capture of the vendor stack.
 - **H.265** (`venc.c`): `xmv200_frame_get` takes the pictures VPSS queues for VENC. `xmv200_venc_encode` encodes them on `hevc.ko`'s engine, one job of 189 registers per picture. The parameter sets and slice headers are the library's; the engine writes only the slice data.
-- **AE/AWB** (`ae.c`): `xmv200_ae_frame` samples stream 0's frames, one band per sensor. It steers the sensor's exposure and analog gain, `isp.ko`'s digital gain, and gray-world white balance through `isp.ko`'s R/B gains.
+- **AE/AWB** (`ae.c`): `xmv200_ae_frame` samples the frames of the streams the sensors are in, one band per sensor (a program board lists its sensors with their bus, ISP channel and stream). It steers the sensor's exposure and analog gain, `isp.ko`'s digital gain, and gray-world white balance through `isp.ko`'s R/B gains.
 
 XM530V200 boards: `x6c-weq` (two SC2336 spliced into 2304x2592, plus 640x720), `x2-wq2` (one SC2336, 1920x1080 plus 640x360), and `auto`, which probes the sensors on I2C against the tunings.
 

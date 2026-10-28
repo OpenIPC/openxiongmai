@@ -32,5 +32,8 @@ struct xmv200_prog {
 };
 
 int xmv200_prog_run(const struct xmv200_prog *p);
+/* the last value the program writes to a sensor register, or -1 */
+int xmv200_prog_i2c_last(const struct xmv200_prog *p, int bus, uint8_t dev,
+                         uint32_t reg);
 
 #endif

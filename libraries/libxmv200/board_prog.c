@@ -106,3 +106,17 @@ int xmv200_prog_run(const struct xmv200_prog *p) {
   }
   return 0;
 }
+
+int xmv200_prog_i2c_last(const struct xmv200_prog *p, int bus, uint8_t dev,
+                         uint32_t reg) {
+  int v = -1;
+
+  for (int i = 0; i < p->n_steps; i++) {
+    const struct xmv200_prog_step *s = &p->steps[i];
+
+    if (s->type == XMV200_PROG_I2C && (int)s->c == bus && s->dev == dev &&
+        s->a == reg)
+      v = (int)s->b;
+  }
+  return v;
+}

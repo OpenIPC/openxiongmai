@@ -256,6 +256,14 @@ static int run_program(const struct xmv200_isp_chn *c,
 }
 
 static int frames_ae; /* answer each frame with its exposure (XM535) */
+/* the digital gain (0x100 = 1x) it answers with, per channel: the vendor's
+ * at capture time until AE sets its own */
+static volatile uint32_t dgain[3] = {0x109, 0x109, 0x109};
+
+void xmv200_isp_set_dgain(uint32_t chn, uint32_t gain) {
+  if (chn < 3)
+    dgain[chn] = gain;
+}
 
 /* isp.ko's frame wait: the return value has a bit per channel with a new
  * frame. The XM535's offline BPU takes a channel's frame only after the
@@ -272,7 +280,7 @@ static void *isp_frames(void *p) {
     }
     for (uint32_t c = 0; frames_ae && c < 3; c++)
       if (r & 1 << c) {
-        uint32_t e[2] = {c, 0x109}, g[4] = {c, 0x1db, 0x100, 0x247};
+        uint32_t e[2] = {c, dgain[c]}, g[4] = {c, 0x1db, 0x100, 0x247};
 
         ioctl(isp_fd, ISP_EXPOSURE, e);
         ioctl(isp_fd, ISP_GAIN, g);

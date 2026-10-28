@@ -88,8 +88,9 @@ struct xmv200_frame {
 int xmv200_frame_get(struct xmv200_frame *f); /* waits up to 2 s */
 void xmv200_frame_release(struct xmv200_frame *f);
 
-/* Auto exposure and white balance of the board's sensors: give it stream
- * 0's frames (it samples every third) before releasing them. */
+/* Auto exposure and white balance of the board's sensors: give it every
+ * frame before releasing it (it takes the streams its sensors are in, and
+ * samples every third of each). */
 void xmv200_ae_frame(const struct xmv200_frame *f);
 
 /* Encodes a frame into out (Annex B, parameter sets before each IDR).
