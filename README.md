@@ -38,6 +38,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 ├── drivers/                     Kernel modules (out-of-tree kbuild)
 │   ├── hx280enc/                Hantro 6280/7280/8270/8290 video encoder driver
 │   ├── xm510_vi/                XM510 video input driver (/dev/vi)
+│   ├── xm530_isp/               XM530/XM550 ISP device (/dev/isp)
 │   ├── xm_i2c/                  /dev/xm_i2c misc-device (stub)
 │   ├── xm_mmz/                  XM530/XM550/XM510 media memory zone (/dev/mmz)
 │   └── xm_vi/                   XM530/XM550 video input driver (/dev/vi)
@@ -81,6 +82,7 @@ make -C drivers/hx280enc KDIR=/path/to/linux
 make -C drivers/xm_i2c   KDIR=/path/to/linux
 make -C drivers/xm_vi    KDIR=/path/to/linux   # XM530 kernel only
 make -C drivers/xm510_vi KDIR=/path/to/linux   # XM510 kernel only
+make -C drivers/xm530_isp KDIR=/path/to/linux  # XM530 kernel only
 make -C drivers/xm_mmz   KDIR=/path/to/linux
 ```
 
@@ -132,6 +134,7 @@ To add a sensor:
 | `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder, built as `open_h264.ko` | Same `/dev/h264` ABI as the vendor `xm530_h264.ko`; ran majestic on an XM550 in place of it, and on an XM510 in place of `xm510_h264.ko` |
 | `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
 | `xm_mmz` | XM530/XM550 media memory zone: the named, physically contiguous DMA buffers the SDK and video drivers share (`/dev/mmz`) | Builds `open_mmz.ko`. Same parameters, ioctls, exports and `/proc/umap/mmz` as the vendor `mmz.ko`; ran majestic on an XM550 in place of it |
+| `xm530_isp` | XM530/XM550 ISP device: register access, interrupt waits, a shared block, AWB statistics and the MIPI delay sweep for the vendor ISP library (`/dev/isp`) | Builds `open_isp.ko`. Same ABI as the vendor `xm530_isp.ko`, without its unchecked event index, AWB parameters and mapping length; ran majestic on an XM550 in place of it |
 | `xm510_vi` | XM510 video input: capture window, crop, scaler and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm510_vi.ko`, plus release on close and `poll`; ran majestic on an XM510 in place of it |
 | `xm_vi` | XM530/XM550 video input: capture window, scalers and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm530_vi.ko`, without its vmalloc leak; ran majestic on an XM550 in place of it |
 
