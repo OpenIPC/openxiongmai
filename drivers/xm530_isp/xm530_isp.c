@@ -25,12 +25,18 @@
  *    both);
  *  - a read outside both blocks returns 0, not whatever was on the stack;
  *  - ioctl 6 stops a sweep still running before it starts another (the
- *    vendor module starts a thread every time and loses the earlier ones);
+ *    vendor module starts a thread every time and loses the earlier ones),
+ *    and the thread stays until then, so ioctl 7 can run the sweep again;
+ *  - the sweep sets each delay before it counts that delay's frames (the
+ *    vendor module judges each delay by the frames of the one before), and
+ *    takes the presets from each ioctl 6;
  *  - a mapping is 16 KiB at most (the vendor module maps any length, and
  *    with it the memory after the block);
  *  - the AWB statistics' base, count and divisor are checked (the vendor
  *    module writes to an unchecked address, overruns its arrays with a large
- *    count and divides by a zero divisor);
+ *    count and divides by a zero divisor), and zones past the count read
+ *    as 0;
+ *  - the rates come from the monotonic clock;
  *  - the block is freed at the order it was allocated (the vendor module
  *    frees one page of the four).
  */
@@ -41,6 +47,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/kthread.h>
+#include <linux/ktime.h>
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
 #include <linux/module.h>
@@ -50,7 +57,6 @@
 #include <linux/sched.h>
 #include <linux/seq_file.h>
 #include <linux/spinlock.h>
-#include <linux/time.h>
 #include <linux/uaccess.h>
 #include <linux/wait.h>
 
@@ -110,7 +116,7 @@ struct isp_event {
 		  * vendor module */
 	u32 way_id;
 	bool flag; /* happened since the last wait */
-	struct timeval last;
+	ktime_t last;
 	u32 rate; /* audio: the last interval in us */
 	u32 cnt;
 	wait_queue_head_t wq;
@@ -132,6 +138,8 @@ static struct {
 } awb;
 static u16 awb_stat[3][AWB_ZONES];
 
+static struct proc_dir_entry *isp_proc;
+
 /* The MIPI sweep, as the vendor module keeps it */
 static DEFINE_MUTEX(mipi_lock); /* the thread's start and stop */
 static struct task_struct *mipi_thread;
@@ -143,15 +151,13 @@ static struct {
 	u32 cnt; /* frames since the delay was set */
 	u32 frames; /* to wait before judging a delay */
 	bool err; /* the status changed */
-	bool running, restart, done;
+	bool restart, done;
 	u8 delay, end, start;
 	u16 mid;
 	u16 rst_cnt, settle;
 } mipi = {
 	.prev0 = ~0u,
 	.prev1 = ~0u,
-	.rst_cnt = 10,
-	.settle = 1000,
 };
 
 static inline void isp_write(u32 off, u32 val)
@@ -179,16 +185,17 @@ static void __iomem *isp_reg(u32 addr)
 /* An interrupt's rate and count; the lock held */
 static void event_stamp(struct isp_event *e, bool raw_interval)
 {
-	struct timeval now;
-	long us;
+	ktime_t now = ktime_get();
+	s64 us = ktime_us_delta(now, e->last); /* the first: since boot */
 
-	do_gettimeofday(&now);
-	us = (now.tv_sec - e->last.tv_sec) * 1000000 + now.tv_usec -
-	     e->last.tv_usec;
 	if (raw_interval)
-		e->rate = us <= 0 ? 1 : min_t(long, us, 0x0fffffff);
+		e->rate = us <= 0 ? 1 : min_t(s64, us, 0x0fffffff);
+	else if (us <= 0)
+		e->rate = 1000000;
+	else if (us > 10000000)
+		e->rate = 0; /* under 0.1 per second rounds to 0 */
 	else
-		e->rate = us == 0 ? 1000000 : (10000000 / us + 5) / 10;
+		e->rate = (10000000 / (u32)us + 5) / 10;
 	e->cnt = e->cnt < 0xffff ? e->cnt + 1 : 1;
 	e->last = now;
 	e->way = e->way_id;
@@ -268,7 +275,7 @@ static void mipi_report(u8 start, u8 end)
 		start, end, delt, mipi.mid, mipi.mid);
 }
 
-/* One delay, for all four lanes */
+/* One delay, for all four lanes; Bayer-H is left off */
 static void mipi_set_delay(u8 d)
 {
 	u32 v = d | d << 8 | d << 16 | d << 24;
@@ -280,47 +287,62 @@ static void mipi_set_delay(u8 d)
 	mdelay(1);
 	isp_write(REG_MIPI_RESET, 4);
 	mdelay(100);
+}
+
+/* Counts the frames of the delay just set from 0, then turns Bayer-H on */
+static void mipi_arm(void)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&isp_lock, flags);
+	mipi.prev0 = mipi.prev1 = ~0u;
+	mipi.err = false;
+	mipi.cnt = 0;
 	isp_write(REG_BAYER_H_EN, 1);
+	spin_unlock_irqrestore(&isp_lock, flags);
 }
 
 /*
- * The sweep, step by step as the vendor module's: each delay is set, given
- * mipi.frames frames, and judged by whether the Bayer-H interrupt saw the
- * MIPI status change. A run of good delays is reported with its middle.
+ * The sweep, as the vendor module's: each delay is set, given mipi.frames
+ * frames, and judged by whether the Bayer-H interrupt saw the MIPI status
+ * change. A run of good delays is reported with its middle. Unlike the
+ * vendor's, a delay is set before its frames are counted, and the thread
+ * stays, idle, until it is stopped, so ioctl 7 can run the sweep again.
  */
 static int mipi_check_th(void *unused)
 {
 	unsigned long flags;
-	bool apply;
-	u8 d;
+	bool start, apply, err = false;
+	u8 d = 0;
 
-	mipi.running = true;
-	while (!kthread_should_stop() && mipi.running) {
-		apply = false;
+	while (!kthread_should_stop()) {
+		start = apply = false;
 		spin_lock_irqsave(&isp_lock, flags);
 		if (mipi.restart) {
 			if (++mipi.rst_cnt > 4) {
 				mipi.rst_cnt = 0;
-				isp_write(REG_BAYER_H_EN, 1);
 				mipi.restart = false;
 				mipi.settle = 1;
-				mipi.err = false;
-				mipi.cnt = 0;
+				start = true;
 			}
 		} else if (mipi.settle <= 1) {
+			/* the first frames after the start are not counted */
 			mipi.settle++;
 			mipi.err = false;
 			mipi.cnt = 0;
 		} else if (!mipi.done && mipi.cnt >= mipi.frames) {
 			apply = true;
+			d = mipi.delay;
+			err = mipi.err;
 		}
 		spin_unlock_irqrestore(&isp_lock, flags);
 
-		if (apply) {
-			d = mipi.delay;
+		if (start) {
+			mipi_set_delay(0);
+			mipi_arm();
+		} else if (apply) {
 			pr_info("add:%2x\t%2x\n", d, d);
-			if (mipi.err) {
-				mipi.err = false;
+			if (err) {
 				if (mipi.end > mipi.start)
 					mipi_report(mipi.start, mipi.end);
 				mipi.start = d == 0xff ? 0xff : d + 1;
@@ -329,15 +351,18 @@ static int mipi_check_th(void *unused)
 				if (d == 0xff && d > mipi.start)
 					mipi_report(mipi.start, d);
 			}
-			mipi_set_delay(d);
-			mipi.cnt = 0;
 			if (d == 0xff) {
+				spin_lock_irqsave(&isp_lock, flags);
 				mipi.done = true;
-				mipi.running = false;
 				isp_write(REG_BAYER_H_EN, 0);
+				spin_unlock_irqrestore(&isp_lock, flags);
 				pr_info("finish\n");
 			} else {
+				mipi_set_delay(d + 1);
+				spin_lock_irqsave(&isp_lock, flags);
 				mipi.delay = d + 1;
+				spin_unlock_irqrestore(&isp_lock, flags);
+				mipi_arm();
 			}
 		}
 		schedule_timeout_interruptible(msecs_to_jiffies(MIPI_STEP_MS));
@@ -350,13 +375,24 @@ static void mipi_stop(void)
 	if (mipi_thread) {
 		kthread_stop(mipi_thread);
 		mipi_thread = NULL;
+		isp_write(REG_BAYER_H_EN, 0);
 	}
+}
+
+/* A sweep from delay 0, at the thread's next step; the lock held */
+static void mipi_restart(void)
+{
+	mipi.rst_cnt = 4;
+	mipi.delay = mipi.end = mipi.start = 0;
+	mipi.done = false;
+	mipi.restart = true;
 }
 
 static int mipi_init(const struct isp_mipi *m)
 {
 	struct task_struct *t;
 	unsigned long flags;
+	int ret = 0;
 
 	if (m->go != 1)
 		return 0;
@@ -364,31 +400,31 @@ static int mipi_init(const struct isp_mipi *m)
 	mipi_stop();
 	spin_lock_irqsave(&isp_lock, flags);
 	mipi.frames = min_t(u32, m->frames, MIPI_CAP);
-	if (m->preset0 && m->preset1) {
-		mipi.preset = true;
-		mipi.preset0 = m->preset0;
-		mipi.preset1 = m->preset1;
-	}
+	mipi.preset = m->preset0 && m->preset1;
+	mipi.preset0 = m->preset0;
+	mipi.preset1 = m->preset1;
+	mipi_restart();
 	spin_unlock_irqrestore(&isp_lock, flags);
 	isp_write(REG_MIPI_DELAY, min_t(u32, m->delay, MIPI_CAP));
 	t = kthread_run(mipi_check_th, NULL, "xm530MipiDelay");
-	if (IS_ERR(t))
+	if (IS_ERR(t)) {
 		pr_err("create mipi check thread failed!!\n");
-	else
+		ret = PTR_ERR(t);
+	} else {
 		mipi_thread = t;
+	}
 	mutex_unlock(&mipi_lock);
-	return 0;
+	return ret;
 }
 
+/* Runs the sweep again from delay 0, after a 4-step pause as the vendor's */
 static void mipi_run(void)
 {
 	unsigned long flags;
 
 	spin_lock_irqsave(&isp_lock, flags);
+	mipi_restart();
 	mipi.rst_cnt = 0;
-	mipi.delay = mipi.end = mipi.start = 0;
-	mipi.done = false;
-	mipi.restart = true;
 	spin_unlock_irqrestore(&isp_lock, flags);
 	pr_info("Go!\n");
 }
@@ -506,6 +542,7 @@ static ssize_t isp_awb_read(struct file *file, char __user *buf, size_t len,
 		mutex_unlock(&awb_lock);
 		return -EINVAL;
 	}
+	memset(awb_stat, 0, sizeof(awb_stat));
 	isp_write(off, 1);
 	for (i = 0; i < awb.count; i++) {
 		r0 = isp_read(off + 8);
@@ -684,7 +721,10 @@ static int __init xm530_isp_init(void)
 		pr_err("IspKo:Err: misc_register failed!\n");
 		goto free_irqs;
 	}
-	proc_create("umap/isp", 0444, NULL, &isp_proc_fops);
+	/* /proc/umap is the MMZ module's */
+	isp_proc = proc_create("umap/isp", 0444, NULL, &isp_proc_fops);
+	if (!isp_proc)
+		pr_warn("IspKo: no /proc/umap/isp, MMZ not loaded?\n");
 	pr_info("IspKo: openxiongmai xm530_isp init ok\n");
 	return 0;
 
@@ -706,7 +746,8 @@ static void __exit xm530_isp_exit(void)
 	mutex_lock(&mipi_lock);
 	mipi_stop();
 	mutex_unlock(&mipi_lock);
-	remove_proc_entry("umap/isp", NULL);
+	if (isp_proc)
+		remove_proc_entry("umap/isp", NULL);
 	misc_deregister(&isp_misc);
 	for (i = 0; i < ARRAY_SIZE(isp_irqs); i++)
 		free_irq(isp_irqs[i].irq, isp_irqs[i].dev);

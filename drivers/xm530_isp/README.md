@@ -20,7 +20,7 @@ insmod open_isp.ko   # after MMZ and VI, before the region and encoder modules
 | `ioctl(fd, _IO('I', 7))` | Starts the sweep's run from delay 0. |
 | `mmap` | Maps the shared block: 16 KiB, zeroed when it is first mapped and kept until the module is unloaded. |
 | `write(fd, {base, count, div}, 12)` | Sets the AWB statistics' block address, zone count (at most 512) and divisor. |
-| `read(fd, buf, len)` | Reads `count` zones from the statistics block into three u16 arrays of 512 (`r/div`, `(g/div)/2`, `b/div`); copies up to 3072 bytes. |
+| `read(fd, buf, len)` | Reads `count` zones from the statistics block into three u16 arrays of 512 (`r/div`, `(g/div)/2`, `b/div`), zones past `count` 0; copies up to 3072 bytes. |
 
 `addr` must lie in one of two blocks: ISP at `0x30000000` (2 MiB) or GPIO at `0x10020000` (1 MiB). An address outside them logs `The WriteReg Addr is outside` or `The ReadReg Addr is outside` and returns 0, as in the vendor module; a read then gives 0. An unknown command logs `IspKo:Err: command N error!` and returns 0.
 
@@ -39,9 +39,14 @@ Each run of good delays is logged with its middle. Only a diagnostic mode of the
 - **Event numbers:** ioctl 4's event number is checked. The vendor module uses it as an index into its own data, writes there, and waits on whatever it finds.
 - **Waits:** a timeout fails with `ETIMEDOUT`, and a signal interrupts the wait the usual way. The vendor module returns −512 to user space in both cases.
 - **Reads outside the blocks:** they return 0. The vendor module copies back an uninitialised value.
-- **The sweep:** ioctl 6 stops a sweep that's still running before it starts another. The vendor module starts a new thread every time and loses the earlier ones.
+- **The sweep:**
+  - ioctl 6 stops a sweep that's still running before it starts another. The vendor module starts a new thread every time and loses the earlier ones.
+  - The thread stays, idle, after a sweep, so ioctl 7 can run it again. The vendor module's thread exits at the end.
+  - Each delay is set before its frames are counted. The vendor module judges each delay by the frames seen at the one before.
+  - The presets come from each ioctl 6. The vendor module keeps earlier presets when a later request has none.
 - **Mappings:** 16 KiB at most, at offset 0. The vendor module maps whatever length it's asked for, and with it the memory after the block.
-- **AWB statistics:** the base must lie in the ISP block, the count must be at most 512, and the divisor must be non-zero, or `read()` fails with `EINVAL`. The vendor module writes to an unchecked address (an unset one included), overruns its arrays with a large count, and divides by zero.
+- **AWB statistics:** the base must lie in the ISP block, the count must be at most 512, and the divisor must be non-zero, or `read()` fails with `EINVAL`. The vendor module writes to an unchecked address (an unset one included), overruns its arrays with a large count, and divides by zero. Zones past the count read as 0, not as an earlier read left them.
+- **Rates:** `/proc/umap/isp` rates come from the monotonic clock, so setting the time doesn't disturb them.
 - **Unload:** the block is freed at the order it was allocated. The vendor module frees one page of the four.
 
 ## Tested
