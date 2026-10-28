@@ -29,6 +29,7 @@ The frame-start signal comes from IRQ 16, the VI frame-start interrupt. It's sha
 - **Bad addresses:** an address outside both blocks, or not word-aligned, releases the lock. The vendor module returns with its mutex still held, so every later ioctl, the daemon's included, waits forever in uninterruptible sleep. The process then can't be killed or made to exit.
 - **User memory:** the record is copied from and to user space; the vendor module dereferences the user pointer directly. A bad pointer gives `EFAULT`.
 - **Mappings:** one page at most, at offset 0. The vendor module maps whatever length it's asked for, and with it the memory after the page.
+- **Frame rate:** `/proc/isp`'s rate comes from the monotonic clock, so setting the time doesn't disturb it.
 
 ## Tested
 

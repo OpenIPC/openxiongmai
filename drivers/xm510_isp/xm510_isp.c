@@ -24,13 +24,15 @@
  *    it is asked for, and with it the memory after the page);
  *  - the page is freed as a page on unload (the vendor module passes it to
  *    free_pages() as an address, frees part of mem_map instead and logs
- *    "Bad page state").
+ *    "Bad page state");
+ *  - the frame rate comes from the monotonic clock.
  */
 
 #include <linux/fs.h>
 #include <linux/gfp.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/ktime.h>
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
 #include <linux/module.h>
@@ -40,7 +42,6 @@
 #include <linux/sched.h>
 #include <linux/seq_file.h>
 #include <linux/spinlock.h>
-#include <linux/time.h>
 #include <linux/uaccess.h>
 
 #define ISP_REG_BASE 0x40000000
@@ -64,8 +65,9 @@ static struct page *shared_page;
 static struct fasync_struct *isp_async;
 
 static DEFINE_SPINLOCK(stat_lock);
-static struct timeval last_frame;
+static ktime_t last_frame;
 static int frame_rate;
+static struct proc_dir_entry *isp_proc;
 static u32 frame_cnt;
 
 /* the shared interrupt needs a dev_id of its own */
@@ -182,16 +184,17 @@ static int isp_release(struct inode *inode, struct file *file)
  */
 static irqreturn_t isp_irq(int irq, void *dev_id)
 {
-	struct timeval now;
-	long us;
+	ktime_t now;
+	s64 us;
 
 	kill_fasync(&isp_async, SIGIO, POLL_IN);
-	do_gettimeofday(&now);
+	now = ktime_get();
 	spin_lock(&stat_lock);
-	us = (now.tv_sec - last_frame.tv_sec) * 1000000 + now.tv_usec -
-	     last_frame.tv_usec;
-	if (us > 0)
-		frame_rate = (10000000 / us + 5) / 10;
+	us = ktime_us_delta(now, last_frame); /* the first: since boot */
+	if (us > 10000000)
+		frame_rate = 0; /* under 0.1 per second rounds to 0 */
+	else if (us > 0)
+		frame_rate = (10000000 / (u32)us + 5) / 10;
 	frame_cnt = frame_cnt < 0xffff ? frame_cnt + 1 : 1;
 	last_frame = now;
 	spin_unlock(&stat_lock);
@@ -267,7 +270,9 @@ static int __init xm510_isp_init(void)
 		pr_err("IspKo:Err: misc_register failed!\n");
 		goto free_irq;
 	}
-	proc_create("isp", 0444, NULL, &isp_proc_fops);
+	isp_proc = proc_create("isp", 0444, NULL, &isp_proc_fops);
+	if (!isp_proc)
+		pr_warn("IspKo: no /proc/isp\n");
 	pr_info("IspKo: openxiongmai xm510_isp init ok\n");
 	return 0;
 
@@ -282,7 +287,8 @@ unmap_isp:
 
 static void __exit xm510_isp_exit(void)
 {
-	remove_proc_entry("isp", NULL);
+	if (isp_proc)
+		remove_proc_entry("isp", NULL);
 	misc_deregister(&isp_misc);
 	free_irq(ISP_IRQ, &isp_irq_dev);
 	iounmap(gpio_regs);
