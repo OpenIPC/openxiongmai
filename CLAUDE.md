@@ -96,6 +96,19 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 - **Leak workaround (`-S`):** channel setup unmaps the old mappings before it checks the size. So a refused 64×64 setup on disabled channels, before MMZ reset and VI init, leaves only 8–12 KB mappings to leak (72 kB a run). Channel setup looks its buffers up in MMZ by name (`vi_way[N]`), so after an MMZ reset it fails with EPERM until VI init.
 - **One core:** a log line written right before a freezing call never leaves the board, so the tool pauses before the init.
 
+### `libxmv200` (XM530V200)
+
+`libraries/libxmv200` (MIT, static) runs the XM530V200 pipeline on the vendor kernel modules, which load with `load_xiongmai`. It replaces the vendor userspace, `Sofia` and the `isp` daemon. Don't run them alongside it, and don't ship the vendor `isp` binary.
+- **`board.c`:** board layouts and `xmv200_board_start`.
+  - The start-up order matters. MMZ reset comes first, and nothing allocates before it ("mmz: not init"). Then VB, VPSS groups, VPSS channels, bind, `venc.ko` channels, clocks and sensors, and the ISP last.
+  - `sys.ko`'s bind takes the whole 0x600-byte table each time.
+- **`isp.c`:** `isp.ko` ('I' commands with no size in the number, each copying a fixed struct), its 8 shared pages (mmap after `0x400c490c`), and each channel's tuning program (`sns_tuning.h`).
+  - `isp.ko`'s `iw_ioctl` checks the channel field only as `< 3` signed. A garbage channel oopses the kernel.
+- **`venc.c`:** frames from `venc.ko`'s FIFO (`0xc0284902` get, `0x40284903` release). `hevc.ko` jobs: `0x4803`/`0x4804` lock, `0x40384805` submits a job whose +0x34 points to 189 `{value, write}` pairs, `0xc0344802` waits, with the length at +44.
+  - The reference and reconstruction share a ring of one picture plus three CTB rows. Each reconstruction starts three rows below the previous one.
+- **`ae.c`:** AE/AWB from frame samples. `isp.ko` `0x4964` takes the digital gain and `0x4967` the WB gains.
+- **`sns_*_tuning.c`:** generated. Don't edit them; regenerate with `tools/xmv200-capture/gen_tuning.py`, whose README describes the capture.
+
 ### Kernel drivers
 
 - `drivers/xm_i2c`: a misc-device stub. Its read, write and ioctl handlers are placeholders that only print "not supported".

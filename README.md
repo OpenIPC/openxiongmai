@@ -9,6 +9,7 @@ The goal is to replace the proprietary SDK that Xiongmai ships with its camera b
 | SoC | Status | What's here |
 |-----|--------|-------------|
 | XM530 | Primary target | Sensor libraries, ISP application library, MPI reimplementation |
+| XM530V200 | Streams on the vendor kernel modules | `libxmv200`: sensors, ISP bring-up, VPSS, H.265, AE/AWB |
 | XM510 | Kernel modules | `hx280enc` and `xm_i2c` build against the XM510 vendor kernel tree |
 | XM322 / XM350 / XM520 / XM540 / XM550 | Headers only | Register maps in `libraries/isp/include/xm/` |
 
@@ -48,6 +49,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
     │   ├── mpi/                 SYS / VI / VO / AIO interfaces
     │   └── xm/                  Camera.h (SENSOR_CHIP_* enum), per-SoC register maps
     ├── libmpi/                  libopenmpi.a: MPI reimplementation
+    ├── libxmv200/               libxmv200.a: the XM530V200 pipeline on the vendor modules (MIT)
     ├── libxmvenc/               libxmvenc.a: open H.264/JPEG (Hantro) and H.265 (Mali-V550) encoding (MIT)
     ├── libispapp_XM530/         libispapp_XM530.so: ISP application layer
     ├── libsns_X123_XM530/       libsns_X123_XM530.so: "X123" sensor family
@@ -55,6 +57,8 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 
 tools/
 ├── xm-vi-hang/                  Reproduces the VI driver hang without a camera application (MIT)
+├── xmv200-capture/              Makes libxmv200's sensor tunings from a capture of the vendor stack (MIT)
+├── xmv200-test/                 Brings a V200 board's pipeline up and encodes its streams (MIT)
 ├── xmhevc-test/                 Raw /dev/mv500 H.265 session, the interface reference (MIT)
 └── xmvenc-test/                 Encodes H.264, H.265 or JPEG with libxmvenc (MIT)
 ```
@@ -256,6 +260,29 @@ So the condition is VI capturing at the time of the init. Disabling the channels
 
   That's about 12,700 runs to exhaustion instead of about 110. 200 runs of `-N -S` were clean.
 
+## The V200 series: `libxmv200`
+
+The XM530V200 has a different media pipeline from the XM530's. VI, the ISP (BPU) and 3D noise reduction live in `isp.ko`. VPSS scales and splices. The VENC side is a frame queue (`venc.ko`) in front of an H.265 engine (`hevc.ko`). The vendor ships it as kernel modules and two statically linked programs: `Sofia`, and an `isp` daemon that runs the sensors and the ISP. `libxmv200` replaces both programs and runs on the vendor modules:
+
+- **Board start** (`board.c`): `xmv200_board_start("<board>")` brings the whole pipeline up in the vendor's order:
+  - MMZ, the VB pools;
+  - VPSS groups bound to the ISP, their channels spliced and bound to VENC;
+  - the `venc.ko` channels;
+  - the sensor and ISP clocks, the sensors, the MIPI receiver;
+  - the ISP.
+
+  A board only describes its layout: the sensors, the crop each lens needs, the streams and the VPSS groups each one takes.
+- **ISP** (`isp.c`): `isp.ko`'s common setup and its shared parameter page. Then, per channel, the sensor mode's program: `isp.ko`'s parameter blocks in order, with the sensor, VI window, buffer and channel steps between them. The mode's data is in `sns_<sensor>_tuning.c`, which `tools/xmv200-capture` generates from a capture of the vendor stack.
+- **H.265** (`venc.c`): `xmv200_frame_get` takes the pictures VPSS queues for VENC. `xmv200_venc_encode` encodes them on `hevc.ko`'s engine, one job of 189 registers per picture. The parameter sets and slice headers are the library's; the engine writes only the slice data.
+- **AE/AWB** (`ae.c`): `xmv200_ae_frame` samples stream 0's frames, one band per sensor. It steers the sensor's exposure and analog gain, `isp.ko`'s digital gain, and gray-world white balance through `isp.ko`'s R/B gains.
+
+Boards: `x6c-weq` (two SC2336 spliced into 2304x2592, plus 640x720) and `x2-wq2` (one SC2336, 1920x1080 plus 640x360).
+
+```sh
+make -C tools/xmv200-test CROSS_COMPILE=arm-openipc-linux-musleabi-
+xmv200-test run x6c-weq 100     # on the camera, vendor modules loaded: /tmp/stream0.h265, /tmp/stream1.h265
+```
+
 ## CI
 
 Every push and pull request to `main` runs these jobs, each using the OpenIPC musl toolchain for its SoC (`toolchain.xiongmai-xm5x0`).
@@ -270,5 +297,5 @@ All external inputs are pinned: the kernel commits, the firmware commit, and the
 ## License
 
 GPL v3. See [LICENSE](LICENSE). The exceptions:
-- `libraries/libxmvenc`, `tools/xmvenc-test`, `tools/xmhevc-test` and `tools/xm-vi-hang` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
+- `libraries/libxmvenc`, `libraries/libxmv200`, `tools/xmvenc-test`, `tools/xmhevc-test`, `tools/xmv200-test`, `tools/xmv200-capture` and `tools/xm-vi-hang` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
 - `libraries/libxmvenc/cabac_tbl.c` and `cabac_tbl.h` are under the Apache License 2.0, from Rockchip MPP.

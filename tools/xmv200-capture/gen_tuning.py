@@ -18,6 +18,16 @@ import struct
 import sys
 
 
+def isp_process(f):
+    # the vendor isp process: the only user of /dev/isp, and of the isp_*
+    # MMZ blocks
+    if f[2] == 'isp':
+        return True
+    if f[2] == 'mmz' and len(f) > 5 and not f[5].startswith('<'):
+        return bytes.fromhex(f[5])[:4] == b'isp_'
+    return False
+
+
 def mipi_done(m):
     # the receiver setup ends with its sync timeouts (0x430c, 0x4310)
     return any(a == 0x30004310 for a, v in m)
@@ -94,8 +104,7 @@ mode_w = {}
 sysw, mipi, pll = [], [], []
 for f in lines:
     if f and f[0] == 'IOCTL':
-        arg = int(f[4], 16)
-        if not ((arg >> 20) == 0xbef or (arg >> 24) == 0xb6) or f[2] != 'isp':
+        if f[2] != 'isp':
             continue
         cmd = int(f[3], 16)
         d = bytes.fromhex(f[5]) if len(f) > 5 and not f[5].startswith('<') else b''
@@ -136,9 +145,8 @@ for f in lines:
     if not f:
         continue
     if f[0] == 'IOCTL':
-        arg = int(f[4], 16)
-        if not ((arg >> 20) == 0xbef or (arg >> 24) == 0xb6):
-            continue        # not the vendor isp process
+        if not isp_process(f):
+            continue
         dev, cmd = f[2], int(f[3], 16)
         d = bytes.fromhex(f[5]) if len(f) > 5 and not f[5].startswith('<') else b''
         if dev == 'isp' and cmd == 0x4913 and d[:1] == b'\0':

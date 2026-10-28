@@ -75,6 +75,14 @@ jobs:
             echo "xm-vi-hang is not static" >&2; exit 1
           fi
           echo "::endgroup::"
+          # tools/xmv200-test builds libraries/libxmv200 first
+          echo "::group::libxmv200 + tools/xmv200-test"
+          make -C tools/xmv200-test CROSS_COMPILE="$CROSS_COMPILE"
+          ${CROSS_COMPILE}readelf -h tools/xmv200-test/xmv200-test | grep -q 'Machine:.*ARM'
+          if ${CROSS_COMPILE}readelf -d tools/xmv200-test/xmv200-test | grep -q NEEDED; then
+            echo "xmv200-test is not static" >&2; exit 1
+          fi
+          echo "::endgroup::"
           echo "::group::tools/xmhevc-test"
           make -C tools/xmhevc-test CROSS_COMPILE="$CROSS_COMPILE"
           ${CROSS_COMPILE}readelf -h tools/xmhevc-test/xmhevc-test | grep -q 'Machine:.*ARM'
@@ -90,7 +98,8 @@ jobs:
               libraries/libsns_X123_XM530/libsns_X123_XM530.so \
               libraries/libispapp_XM530/libispapp_XM530.so \
               libraries/libmpi/libopenmpi.a \
-              libraries/libxmvenc/libxmvenc.a; do
+              libraries/libxmvenc/libxmvenc.a \
+              libraries/libxmv200/libxmv200.a; do
             [ -f "$f" ] || { echo "MISSING: $f" >&2; exit 1; }
             echo "ok: $f ($(stat -c%s "$f") bytes)"
           done
@@ -132,6 +141,11 @@ jobs:
                 xmvenc_pipe_create xmvenc_pipe_destroy xmvenc_pipe_start \
                 xmvenc_pipe_stop xmvenc_pipe_chn xmvenc_pipe_get \
                 xmvenc_pipe_release xmvenc_pipe_stats
+          check libraries/libxmv200/libxmv200.a \
+                xmv200_board_start xmv200_frame_get xmv200_frame_release \
+                xmv200_venc_create xmv200_venc_encode xmv200_venc_destroy \
+                xmv200_venc_request_idr xmv200_ae_frame xmv200_i2c_read \
+                xmv200_i2c_write xmv200_mmz_alloc
           exit $fail
 
       - name: Assert no vendor libs in NEEDED
