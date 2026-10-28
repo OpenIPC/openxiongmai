@@ -51,12 +51,14 @@ int xmv200_vb_init(const struct xmv200_vb_pool *pools, int n);
  * A board's whole pipeline: sensors, ISP, VPSS, the VENC channels. After it
  * the streams' pictures queue for xmv200_frame_get.
  */
+#define XMV200_MAX_STREAMS 6
+
 struct xmv200_board_info {
   int n_streams;
   uint32_t fps;
   struct {
     uint32_t width, height; /* what VENC channel n gets */
-  } stream[2];
+  } stream[XMV200_MAX_STREAMS];
 };
 int xmv200_board_start(const char *board, struct xmv200_board_info *info);
 

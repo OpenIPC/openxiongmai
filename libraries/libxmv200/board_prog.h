@@ -11,7 +11,7 @@
 
 enum {
   XMV200_PROG_REG,  /* a: address, b: value (/dev/mem) */
-  XMV200_PROG_I2C,  /* dev: 7-bit address, a: register, b: value (bus 0) */
+  XMV200_PROG_I2C,  /* dev: 7-bit address, a: register, b: value, c: bus */
   XMV200_PROG_IOC,  /* dev: device, a: command, b/c: payload in the blob */
   XMV200_PROG_MMZ,  /* a: command, b/c: the 44-byte request, d: where the
                      * vendor got it (for relocating later payloads) */

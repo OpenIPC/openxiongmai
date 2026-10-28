@@ -59,3 +59,13 @@ captures (one subdirectory per chip ID, as `capture.sh` leaves them). It
 takes each sensor's name from the vendor ISP's console log, and writes
 `sns_registry.c`, the chip ID to tuning table that `xmv200_board_start("auto")`
 probes against.
+
+## Board programs (XM535)
+
+The XM535 chips' boards start from the whole vendor start-up as data:
+
+```sh
+./gen_board.py merged.trace page.bin x9-we2q > ../../libraries/libxmv200/board_x9_we2q.c
+```
+
+It takes everything both vendor processes do before the first encoder job after the last channel starts capturing (`isp.ko` `0x495e`): sensor I2C writes, with the bus from the trace (`bus << 24 | address << 16 | register`), register writes, device ioctls, MMZ blocks and the shared page. It leaves out what libxmv200 does itself: the encoder, the frame queue and the ISP's per-frame updates. The capture needs `CAP_NCH` set to the board's sensor count, and `CAP_H`, `CAP_ISZ` and `CAP_PAGEPTR` for the chip's modules and `isp` binary (see `capture.sh`).

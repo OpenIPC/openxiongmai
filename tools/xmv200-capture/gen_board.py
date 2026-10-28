@@ -7,7 +7,7 @@ capture of its vendor stack (README.md) running until it encodes. The
 program is everything both vendor processes (Sofia and isp) set up before
 the first frame:
 
-- sensor I2C writes (bus 0) and register writes through /dev/mem;
+- sensor I2C writes and register writes through /dev/mem;
 - device ioctls;
 - MMZ blocks, reallocated by name and size, with the addresses later
   payloads hold of them relocated;
@@ -32,16 +32,23 @@ OWN_MMZ = (b'venc', b'stream', b'IA_', b'firm_mem', b'mempool', b'dst_mem')
 BASE = {'sysctl': 0x20000000, 'isp2.vi': 0x30000000, 'isp2.vpss': 0x34000000,
         'isp2.bpu': 0x32000000}
 
+lines = open(trace).read().split('\n')
+# start-up is over at the first encoder job after the last channel started
+# capturing (isp.ko 0x495e); Sofia may start encoding before that
+last_run = max(i for i, ln in enumerate(lines)
+               if ln.startswith('IOCTL') and ln.split()[2:4] == ['isp', '0000495e'])
+
 steps, blob, pend = [], bytearray(), None
-started_capture = 0
-for ln in open(trace):
+for i, ln in enumerate(lines):
     f = ln.split()
     if not f:
         continue
     if f[0] == 'IOCTL':
         dev, cmd = f[2], int(f[3], 16)
-        if dev == 'hevc' and cmd not in (0x40044806,):
-            break                       # the first encoder job: start-up is over
+        if dev == 'hevc' and cmd != 0x40044806:
+            if i > last_run:
+                break
+            continue
         if dev not in DEV or (dev, cmd) in SKIP:
             continue
         data = bytes.fromhex(f[5]) if len(f) > 5 and not f[5].startswith('<') else b''
@@ -52,8 +59,6 @@ for ln in open(trace):
             blob += data
             pend = steps[-1]
             continue
-        if dev == 'isp' and cmd == 0x495e:
-            started_capture += 1
         steps.append(['IOC', DEV[dev], cmd, len(blob), len(data)])
         blob += data
         if dev == 'isp' and cmd == 0x400c490c:
@@ -66,8 +71,8 @@ for ln in open(trace):
     elif len(f) == 5 and f[1] == 'U' and f[2] in BASE:
         steps.append(['REG', BASE[f[2]] + int(f[3], 16), int(f[4], 16)])
     elif len(f) == 5 and f[2] == 'sensor':
-        a = int(f[3], 16)
-        steps.append(['I2C', a >> 16, a & 0xffff, int(f[4], 16)])
+        a = int(f[3], 16)               # bus << 24 | address << 16 | register
+        steps.append(['I2C', a >> 16 & 0xff, a & 0xffff, int(f[4], 16), a >> 24])
 
 page = open(page_bin, 'rb').read()
 o = ['/* SPDX-License-Identifier: MIT */',
@@ -84,7 +89,7 @@ for s in steps:
     elif s[0] == 'REG':
         o.append('    {XMV200_PROG_REG, 0, 0x%08x, 0x%08x, 0, 0},' % (s[1], s[2]))
     elif s[0] == 'I2C':
-        o.append('    {XMV200_PROG_I2C, %d, 0x%04x, 0x%02x, 0, 0},' % (s[1], s[2], s[3]))
+        o.append('    {XMV200_PROG_I2C, %d, 0x%04x, 0x%02x, %d, 0},' % (s[1], s[2], s[3], s[4]))
     else:
         o.append('    {XMV200_PROG_PAGE, 0, 0, 0, 0, 0},')
 o.append('};\n')

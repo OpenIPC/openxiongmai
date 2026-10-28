@@ -59,7 +59,7 @@ int xmv200_prog_run(const struct xmv200_prog *p) {
       r = xmv200_reg_write(s->a, s->b);
       break;
     case XMV200_PROG_I2C:
-      xmv200_i2c_write(0, s->dev, s->a, 2, s->b, 1);
+      xmv200_i2c_write(s->c, s->dev, s->a, 2, s->b, 1);
       break;
     case XMV200_PROG_MMZ: {
       struct xmv200_buf b;

@@ -9,7 +9,7 @@ The goal is to replace the proprietary SDK that Xiongmai ships with its camera b
 | SoC | Status | What's here |
 |-----|--------|-------------|
 | XM530 | Primary target | Sensor libraries, ISP application library, MPI reimplementation |
-| XM530V200 | Streams on the vendor kernel modules | `libxmv200`: sensors, ISP bring-up, VPSS, H.265, AE/AWB |
+| XM530V200, XM535D1/D2/W1 | Streams on the vendor kernel modules | `libxmv200`: sensors, ISP bring-up, VPSS, H.265, AE/AWB |
 | XM510 | Kernel modules | `hx280enc` and `xm_i2c` build against the XM510 vendor kernel tree |
 | XM322 / XM350 / XM520 / XM540 / XM550 | Headers only | Register maps in `libraries/isp/include/xm/` |
 
@@ -262,7 +262,7 @@ So the condition is VI capturing at the time of the init. Disabling the channels
 
 ## The V200 series: `libxmv200`
 
-The XM530V200 has a different media pipeline from the XM530's. VI, the ISP (BPU) and 3D noise reduction live in `isp.ko`. VPSS scales and splices. The VENC side is a frame queue (`venc.ko`) in front of an H.265 engine (`hevc.ko`). The vendor ships it as kernel modules and two statically linked programs: `Sofia`, and an `isp` daemon that runs the sensors and the ISP. `libxmv200` replaces both programs and runs on the vendor modules:
+The XM530V200 (and the XM535D1/D2/W1 after it) has a different media pipeline from the XM530's. VI, the ISP (BPU) and 3D noise reduction live in `isp.ko`. VPSS scales and splices. The VENC side is a frame queue (`venc.ko`) in front of an H.265 engine (`hevc.ko`). The vendor ships it as kernel modules and two statically linked programs: `Sofia`, and an `isp` daemon that runs the sensors and the ISP. `libxmv200` replaces both programs and runs on the vendor modules:
 
 - **Board start** (`board.c`): `xmv200_board_start("<board>")` brings the whole pipeline up in the vendor's order:
   - MMZ, the VB pools;
@@ -276,11 +276,21 @@ The XM530V200 has a different media pipeline from the XM530's. VI, the ISP (BPU)
 - **H.265** (`venc.c`): `xmv200_frame_get` takes the pictures VPSS queues for VENC. `xmv200_venc_encode` encodes them on `hevc.ko`'s engine, one job of 189 registers per picture. The parameter sets and slice headers are the library's; the engine writes only the slice data.
 - **AE/AWB** (`ae.c`): `xmv200_ae_frame` samples stream 0's frames, one band per sensor. It steers the sensor's exposure and analog gain, `isp.ko`'s digital gain, and gray-world white balance through `isp.ko`'s R/B gains.
 
-Boards: `x6c-weq` (two SC2336 spliced into 2304x2592, plus 640x720) and `x2-wq2` (one SC2336, 1920x1080 plus 640x360).
+XM530V200 boards: `x6c-weq` (two SC2336 spliced into 2304x2592, plus 640x720), `x2-wq2` (one SC2336, 1920x1080 plus 640x360), and `auto`, which probes the sensors on I2C against the tunings.
+
+The XM535 chips (D1, D2, W1) start from a **board program** (`board_prog.c`) instead: the board's whole vendor start-up as data, made by `tools/xmv200-capture/gen_board.py` from a capture. It holds the sensor I2C writes (with their bus), the register writes and device ioctls, and the shared ISP page. MMZ blocks are allocated again by name, and the addresses later payloads hold are relocated. The encoder engine is the XM535's own (`venc.c` profile v1).
+
+| Board | Chip | Sensors | Streams (VENC channel order) |
+|-------|------|---------|------------------------------|
+| `x6e-weq` | XM535D1 | two SC2336, spliced | 2304x2592, 640x720 |
+| `x2w-wng` | XM535W1 | one SC1346 | 1920x1080, 800x448 |
+| `x9-we2q` | XM535D2 | three SC2336 (bus 0, and bus 2 at 0x30/0x32) | per camera n: 1920x1080 and 640x360 as streams 2n and 2n + 1 |
+
+The XM535 boards need the vendor's memory split: `mem=` as in the vendor firmware (29M on a 64 MB XM535D1, 70M on a 128 MB XM535D2), the rest MMZ.
 
 ```sh
 make -C tools/xmv200-test CROSS_COMPILE=arm-openipc-linux-musleabi-
-xmv200-test run x6c-weq 100     # on the camera, vendor modules loaded: /tmp/stream0.h265, /tmp/stream1.h265
+xmv200-test run x6c-weq 100     # on the camera, vendor modules loaded: /tmp/stream<n>.h265, one per stream
 ```
 
 ## CI

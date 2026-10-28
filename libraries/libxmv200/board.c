@@ -22,6 +22,7 @@
 
 extern const struct xmv200_prog xmv200_prog_x6e_weq;
 extern const struct xmv200_prog xmv200_prog_x2w_wng;
+extern const struct xmv200_prog xmv200_prog_x9_we2q;
 
 #define SYS 0x20000000
 #define VI 0x30000000
@@ -57,7 +58,7 @@ struct board {
     uint32_t width, height; /* per group */
     uint32_t stream_buf;
     uint32_t groups; /* mask */
-  } stream[2];
+  } stream[XMV200_MAX_STREAMS];
   uint32_t fps;
 };
 
@@ -121,6 +122,21 @@ static const struct board prog_boards[] = {
         .prog = &xmv200_prog_x2w_wng,
         .n_streams = 2,
         .stream = {{1920, 1080, 0, 1}, {800, 448, 0, 1}},
+        .fps = 12,
+    },
+    {
+        /* XM535D2 X9-WE2Q: three SC2336, each 1080p and 360p (VENC
+         * channels 2n and 2n + 1 for camera n) */
+        .name = "x9-we2q",
+        .chip = "xm535d2",
+        .prog = &xmv200_prog_x9_we2q,
+        .n_streams = 6,
+        .stream = {{1920, 1080, 0, 1},
+                   {640, 360, 0, 1},
+                   {1920, 1080, 0, 2},
+                   {640, 360, 0, 2},
+                   {1920, 1080, 0, 4},
+                   {640, 360, 0, 4}},
         .fps = 12,
     },
 };
