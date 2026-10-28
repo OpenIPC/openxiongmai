@@ -230,6 +230,14 @@ jobs:
           make -C drivers/xm_vi KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
+      # The XM510 VI driver reimplements xm510_vi.ko, a different block from
+      # the XM530's.
+      - name: Build xm510_vi
+        if: matrix.soc == 'xm510'
+        run: |
+          make -C drivers/xm510_vi KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
       # The MMZ driver reimplements mmz.ko: the XM530/XM550 one, and the
       # XM510's older one on CONFIG_ARCH_XM510.
       - name: Build xm_mmz
@@ -241,6 +249,7 @@ jobs:
         run: |
           modules="drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/open_h264.ko drivers/xm_mmz/open_mmz.ko"
           [ "${{ matrix.soc }}" = xm530 ] && modules="$modules drivers/xm_vi/open_vi.ko"
+          [ "${{ matrix.soc }}" = xm510 ] && modules="$modules drivers/xm510_vi/open_vi.ko"
           for ko in $modules; do
             [ -f "$ko" ] || { echo "MISSING: $ko" >&2; exit 1; }
             ${CROSS_COMPILE}readelf -h "$ko" | grep -q 'Machine:.*ARM' \
@@ -251,4 +260,11 @@ jobs:
               "vermagic=${{ matrix.kernel_version }}"[+\ ]*) ;;
               *) echo "unexpected vermagic for $ko, want ${{ matrix.kernel_version }}" >&2; exit 1 ;;
             esac
+          done
+          # the open VI drivers export the frame API kernel callers use
+          vi=drivers/xm_vi/open_vi.ko
+          [ "${{ matrix.soc }}" = xm510 ] && vi=drivers/xm510_vi/open_vi.ko
+          for sym in vi_get_frame vi_release_frame; do
+            ${CROSS_COMPILE}nm "$vi" | grep -q " __ksymtab_$sym\$" \
+              || { echo "$vi does not export $sym" >&2; exit 1; }
           done
