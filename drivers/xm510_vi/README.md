@@ -2,7 +2,7 @@
 
 `xm510_vi` is the video input (VI) driver for the XM510, built as `open_vi.ko` (module `open_vi`, the name OpenIPC firmware gives the open modules that replace vendor ones). It replaces the vendor's `xm510_vi.ko` without changes to the applications that use it. The XM530/XM550 VI is a different block, with its own driver in `drivers/xm_vi`.
 
-Load it after `mmz.ko` (or `open_mmz`), in place of the vendor module:
+Load it after `mmz.ko` (or `open_mmz`), in place of the vendor module. It finds `mmz_alloc` (and `mmz_get_addr`, where there is one) when it needs them, not by linking, so it has no module dependency for depmod to resolve: the vendor `mmz.ko` and `open_mmz` export the same symbols, and `modprobe open_vi` would otherwise load one under the other.
 
 ```sh
 insmod open_vi.ko buffer=3   # buffers per channel, 2-4 (anything else: 4)

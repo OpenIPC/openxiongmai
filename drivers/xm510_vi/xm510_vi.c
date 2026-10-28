@@ -41,8 +41,12 @@
 #include <linux/uaccess.h>
 #include <linux/wait.h>
 
-/* mmz.ko: mmz_alloc in every version; mmz_get_addr in open_mmz only, so it
- * is looked up when needed rather than linked against */
+/*
+ * mmz.ko: mmz_alloc in every version, mmz_get_addr in open_mmz only. Both
+ * are looked up when needed rather than linked against, so the module has
+ * no dependency for depmod to resolve: the vendor mmz.ko and open_mmz export
+ * the same symbols, and modprobe would otherwise load one under the other.
+ */
 extern int mmz_alloc(const char *name, u32 size, u32 *phys);
 extern int mmz_get_addr(const char *name, u32 *size, u32 *phys);
 
@@ -267,17 +271,26 @@ static bool vi_block_valid(u32 chn)
 static int vi_get_block(u32 chn, u32 size)
 {
 	struct vi_chn *c = &chns[chn];
+	int (*alloc)(const char *name, u32 size, u32 *phys);
 	int (*get_addr)(const char *name, u32 *size, u32 *phys);
 	char name[16];
 	u32 phys, have;
-	int ret = -1;
+	int ret;
 
 	vi_block_name(name, sizeof(name), chn);
-	if (!mmz_alloc(name, size, &phys)) {
+	alloc = symbol_get(mmz_alloc);
+	if (!alloc) {
+		pr_err("VI: no MMZ module loaded\n");
+		return -1;
+	}
+	ret = alloc(name, size, &phys);
+	symbol_put(mmz_alloc);
+	if (!ret) {
 		c->phys = phys;
 		c->mmz_size = size;
 		return 0;
 	}
+	ret = -1;
 	get_addr = symbol_get(mmz_get_addr);
 	if (get_addr) {
 		if (!get_addr(name, &have, &phys) && phys && have >= size) {
