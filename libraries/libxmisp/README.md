@@ -170,6 +170,22 @@ with the noise subtracted from the detail.
 | 16× | 1 | 1.5 (was 12.6) | 2.3 |
 
 At 3× the high set would over-smooth (detail 26 to 15), which is why the
-strength stays 0 there. Chroma noise at 16× is still 4.8: the colour matrix
-and the saturation should ease with gain too.
+strength stays 0 there.
+
+Chroma noise comes from the colour matrix and the Cb/Cr gain, which amplify
+it. The XM510 has no separate chroma filter; turning `SHARPEN_CBCR_ENABLE`
+off made chroma noise worse (5.1 to 7.7). So the same strength also eases
+the matrix up to a quarter of the way towards identity and lowers Cb/Cr to
+0.8. At 15× gain, with AWB converged under dimmed bulbs:
+
+| At 15× | Chroma noise | Mean dE |
+|---|---|---|
+| matrix as calibrated, Cb/Cr 1 | 5.4 | 20.6 |
+| Cb/Cr 0.7 alone | 3.1 | 23.2 |
+| **matrix eased ¼, Cb/Cr 0.8** | **2.8** | **23.3** |
+| matrix eased ½, Cb/Cr 0.8 | 2.1 | 25.3 |
+| identity, Cb/Cr 1 | 1.7 | 27.7 |
+
+In the running daemon at 15× the result is chroma noise 2.9 (was 5.1) and dE
+23.5. At 3× the matrix and Cb/Cr are untouched.
 
