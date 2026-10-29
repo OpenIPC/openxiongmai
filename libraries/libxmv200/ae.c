@@ -12,10 +12,10 @@
  * 1x). AWB is gray world: the R and B gains (0x4967, 0x100 = 1x) move
  * until the mean chroma is neutral.
  *
- * A V200 board's sensors are its ISP configuration's, in stream 0. A
- * program board's are listed with the board (struct xmv200_ae_sensor); its
- * frame thread sends the digital gain with every frame, so AE hands it the
- * value instead of sending it.
+ * A layout board's sensors are its ISP configuration's, in stream 0. A
+ * program board's are listed with the board (struct xmv200_ae_sensor). Where
+ * the frame thread sends the digital gain with every frame (XM535), AE hands
+ * it the value instead of sending it.
  */
 #include <fcntl.h>
 #include <stdlib.h>
@@ -58,7 +58,8 @@ static void open_devs(void) {
     mem_fd = open("/dev/mem", O_RDWR | O_SYNC);
 }
 
-void xmv200_ae_init(const struct xmv200_isp_cfg *c) {
+void xmv200_ae_init(const struct xmv200_isp_cfg *c,
+                    const struct xmv200_ae_sensor *where, int handoff) {
   const struct xmv200_sns_tuning *t = c->tuning;
   uint32_t lines = 0;
 
@@ -67,17 +68,15 @@ void xmv200_ae_init(const struct xmv200_isp_cfg *c) {
     if (t->exposure_regs[i].reg >= 0x3e00 && t->exposure_regs[i].reg <= 0x3e02)
       lines |= (uint32_t)t->exposure_regs[i].val
                << (8 * (0x3e02 - t->exposure_regs[i].reg));
-  n_sns = c->n_chn;
-  prog_board = 0;
+  n_sns = c->n_chn < MAX_SNS ? c->n_chn : MAX_SNS;
+  prog_board = handoff;
   for (int i = 0; i < n_sns; i++)
-    st[i] = (struct ae_state){
-        .where = {c->sensor[i].bus, c->sensor[i].addr, c->chn[i].chn, 0, i,
-                  n_sns},
-        .max_lines = t->chn_attr[2] - 4, /* VTS */
-        .lines = lines >> 4,
-        .dgain = 0x100,
-        .r = 0x100,
-        .b = 0x100};
+    st[i] = (struct ae_state){.where = where[i],
+                              .max_lines = t->chn_attr[2] - 4, /* VTS */
+                              .lines = lines >> 4,
+                              .dgain = 0x100,
+                              .r = 0x100,
+                              .b = 0x100};
   open_devs();
 }
 

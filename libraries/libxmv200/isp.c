@@ -36,7 +36,8 @@
 #define ISP_EXPOSURE 0x4964   /* {chn, lines} */
 #define ISP_GAIN 0x4965       /* {chn, again, dgain, ispgain} */
 #define ISP_CHN_INIT 0x490e   /* 52 bytes: vicu_chn_init + bpu_chn_init */
-#define ISP_CHN_SIZE 0x4980   /* {chn, x0 | y0 << 16, w | h << 16} */
+#define ISP_CHN_SIZE 0x4980   /* the channel's window */
+#define ISP_CHN_ENABLE2 0x4914 /* {chn, on}: vicu_chn_enable (XM535) */
 #define ISP_LDC 0x49e9        /* 48 bytes */
 #define ISP_COMM 0x4912       /* 28 bytes */
 #define ISP_VICU_RUN 0x495e   /* {chn} */
@@ -95,12 +96,33 @@ static void vi_window(const struct xmv200_isp_chn *c,
   xmv200_reg_write(b + 0x08, 0xffff0000);
 }
 
+/* the channel's window: {chn, x0 | y0 << 16, w | h << 16}, or on the
+ * XM535 the longer form with the VI device, the window at words 4..7 and
+ * the channel's input */
 static void chn_size(const struct xmv200_isp_chn *c,
                      const struct xmv200_sns_tuning *t) {
-  uint32_t a[3] = {c->chn, c->x0 | c->y0 << 16, t->width | t->height << 16};
+  uint32_t a[12];
 
+  if (t->n_chn_size < 12) {
+    a[0] = c->chn;
+    a[1] = c->x0 | c->y0 << 16;
+    a[2] = t->width | t->height << 16;
+  } else {
+    memcpy(a, t->chn_size, sizeof(a));
+    a[0] = c->chn;
+    a[1] = c->vi_dev;
+    a[2] = (a[2] & ~0x10000u) | (c->vi_dev ? 0x10000u : 0);
+    a[4] = c->x0;
+    a[5] = c->y0;
+    a[6] = t->width;
+    a[7] = t->height;
+    a[10] = !c->vi_dev;
+    a[11] = c->chn + 1;
+  }
   isp_cmd(ISP_CHN_SIZE, a);
 }
+
+#define MAX_BUFS 16
 
 static int block(const struct xmv200_isp_block *b, uint32_t chn,
                  const struct xmv200_buf *bufs) {
@@ -110,28 +132,13 @@ static int block(const struct xmv200_isp_block *b, uint32_t chn,
     return -1;
   memcpy(p, b->data, b->size);
   memcpy(p, &chn, 4);
-  for (int i = 0; i < 9 && b->patch[i].buf; i++) {
-    uint32_t w = (bufs[b->patch[i].buf].phys + b->patch[i].rel - 0x80000000u) >> 4;
+  for (int i = 0; i < 16 && b->patch[i].buf; i++) {
+    uint32_t a = bufs[b->patch[i].buf - 1].phys + b->patch[i].rel;
+    uint32_t w = b->patch[i].shift ? (a - 0x80000000u) >> b->patch[i].shift : a;
 
     memcpy(p + b->patch[i].off, &w, 4);
   }
   return isp_cmd(b->cmd, p);
-}
-
-/* the 3D-NR buffers, the sizes the mode needs */
-static int nr_alloc(uint32_t chn, const struct xmv200_sns_tuning *t,
-                    struct xmv200_buf *bufs) {
-  static const char *const names[] = {NULL, "isp_nr_alpha_ch%u",
-                                      "isp_nr_idx_ch%u", "isp_nr_idx_max_ch%u",
-                                      "isp_nr_fetch_ch%u"};
-  char name[32];
-
-  for (int i = XMV200_BUF_NR_ALPHA; i <= XMV200_BUF_NR_FETCH; i++) {
-    snprintf(name, sizeof(name), names[i], chn);
-    if (xmv200_mmz_alloc(&bufs[i], name, t->buf_size[i], 0))
-      return -1;
-  }
-  return 0;
 }
 
 static int ldc(const struct xmv200_isp_chn *c,
@@ -153,11 +160,19 @@ static int ldc(const struct xmv200_isp_chn *c,
   return isp_cmd(ISP_LDC, a);
 }
 
+/* where a channel is: its own steps differ for the first channel on a
+ * receiver, and with how many share it */
+struct chn_place {
+  int first_on_phy, n_on_phy;
+};
+
 static int run_program(const struct xmv200_isp_chn *c,
                        const struct xmv200_isp_sensor *s,
-                       const struct xmv200_sns_tuning *t) {
-  struct xmv200_buf bufs[XMV200_BUF_COUNT];
-  char name[32];
+                       const struct xmv200_sns_tuning *t,
+                       const struct xmv200_chip *chip, struct chn_place pl) {
+  struct xmv200_buf bufs[MAX_BUFS];
+  uint32_t rx = VI + c->phy * 0x1000; /* the channel's receiver */
+  char name[40];
 
   memset(bufs, 0, sizeof(bufs));
   for (int i = 0; i < t->n_program; i++) {
@@ -166,6 +181,15 @@ static int run_program(const struct xmv200_isp_chn *c,
 
     if (op & 0x8000) {
       if (block(&t->blocks[op & 0x7fff], c->chn, bufs))
+        return -1;
+      continue;
+    }
+    if (op & 0x4000) {
+      const struct xmv200_isp_buf *b = &t->bufs[op & 0xff];
+
+      snprintf(name, sizeof(name), b->name, c->chn);
+      if ((op & 0xff) >= MAX_BUFS ||
+          xmv200_mmz_alloc(&bufs[op & 0xff], name, b->size, 0))
         return -1;
       continue;
     }
@@ -184,25 +208,18 @@ static int run_program(const struct xmv200_isp_chn *c,
       sns_write(s, 0x3221, s->flip);
       break;
     case XMV200_OP_MIPI_CTRL:
-      if (c->chn == 0)
-        xmv200_reg_write(VI + 0x4000, t->mipi_ctrl);
+      if (pl.first_on_phy)
+        xmv200_reg_write(rx + 0x4000, t->mipi_ctrl);
       break;
     case XMV200_OP_VI_SYNC:
-      if (c->chn == 0) {
-        xmv200_reg_write(VI + 0x430c, t->vi_sync);
-        xmv200_reg_write(VI + 0x4310, t->vi_sync);
+      if (pl.first_on_phy) {
+        xmv200_reg_write(rx + 0x430c, t->vi_sync);
+        if (chip->vi_sync2)
+          xmv200_reg_write(rx + 0x4310, t->vi_sync);
       }
       break;
     case XMV200_OP_VI_WINDOW:
       vi_window(c, t);
-      break;
-    case XMV200_OP_NR_ALLOC:
-      r = nr_alloc(c->chn, t, bufs);
-      break;
-    case XMV200_OP_DEFOG_ALLOC:
-      snprintf(name, sizeof(name), "isp_defog_ch%u", c->chn);
-      r = xmv200_mmz_alloc(&bufs[XMV200_BUF_DEFOG], name,
-                           t->buf_size[XMV200_BUF_DEFOG], 0);
       break;
     case XMV200_OP_LDC:
       r = ldc(c, t);
@@ -211,7 +228,7 @@ static int run_program(const struct xmv200_isp_chn *c,
       uint32_t a[7];
 
       memcpy(a, t->chn_attr, sizeof(a));
-      a[0] = c->chn;
+      a[0] = c->chn | (chip->chn_attr_idx ? c->vi_idx << 4 : 0);
       r = isp_cmd(ISP_CHN_ATTR, a);
       break;
     }
@@ -224,14 +241,21 @@ static int run_program(const struct xmv200_isp_chn *c,
       break;
     }
     case XMV200_OP_CHN_INIT: {
-      /* the VICU/BPU channel: its input (second byte), the capture and BPU
-       * windows, the sensor's line timing, the active picture, and the size
-       * VPSS makes of it (the board's) */
-      uint32_t a[13];
+      /* the VICU/BPU channel: the channel and its input mask (and on the
+       * XM535 how many channels share its receiver, and the receiver), the
+       * capture and BPU windows, the sensor's line timing, the active
+       * picture, and the size VPSS makes of it (the board's) */
+      uint32_t a[20];
+      int out = t->n_chn_init > 13 ? 11 : 10;
 
       memcpy(a, t->chn_init, sizeof(a));
-      a[0] = c->chn | (c->chn + 1) << 8;
-      a[10] = a[11] = c->out_width | c->out_height << 16;
+      a[0] = c->chn | (1u << c->chn) << 8;
+      if (t->n_chn_init > 13) {
+        if (pl.n_on_phy > 1)
+          a[0] |= (uint32_t)pl.n_on_phy << 16;
+        a[2] = (a[2] & ~0xffu) | c->phy;
+      }
+      a[out] = a[out + 1] = c->out_width | c->out_height << 16;
       r = isp_cmd(ISP_CHN_INIT, a);
       break;
     }
@@ -246,6 +270,13 @@ static int run_program(const struct xmv200_isp_chn *c,
       uint32_t a = c->chn;
 
       r = isp_cmd(ISP_VICU_RUN, &a);
+      break;
+    }
+    case XMV200_OP_CHN_ENABLE0:
+    case XMV200_OP_CHN_ENABLE1: {
+      uint32_t a[2] = {c->chn, op == XMV200_OP_CHN_ENABLE1};
+
+      r = isp_cmd(ISP_CHN_ENABLE2, a);
       break;
     }
     }
@@ -291,14 +322,15 @@ static void *isp_frames(void *p) {
 
 int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   const struct xmv200_sns_tuning *t = cfg->tuning;
+  const struct xmv200_chip *chip = xmv200_chip_of(t);
   int n = cfg->n_chn;
 
   isp_fd = open("/dev/isp", O_RDWR);
   if (isp_fd < 0)
     return -1;
 
-  /* windows first: the channels' VI and isp.ko's view of them */
-  for (int c = 0; c < n; c++) {
+  /* XM530V200: windows first, the channels' VI and isp.ko's view of them */
+  for (int c = 0; chip->vi_window && c < n; c++) {
     struct xmv200_isp_chn w = cfg->chn[c];
 
     w.x0 = 1; /* the crop each lens gets comes with CHN_SIZE later */
@@ -307,8 +339,8 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
     chn_size(&w, t);
   }
 
-  /* the shared parameter page */
-  uint32_t zero = 0, pages[3] = {0, 8, 0};
+  /* the shared parameter pages, as many as the tuning's image */
+  uint32_t zero = 0, pages[3] = {0, (t->page_size + 0xfff) >> 12, 0};
   if (isp_cmd(ISP_RESET_PAGES, &zero) || isp_cmd(ISP_PAGES, pages))
     return -1;
   isp_page = mmap(NULL, pages[1] << 12, PROT_READ | PROT_WRITE, MAP_SHARED,
@@ -316,8 +348,7 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   if (isp_page == MAP_FAILED)
     return -1;
   memset(isp_page, 0, pages[1] << 12);
-  memcpy(isp_page, t->page,
-         t->page_size < pages[1] << 12 ? t->page_size : pages[1] << 12);
+  memcpy(isp_page, t->page, t->page_size);
 
   /* the common setup: picture size, the offline BPU (MemorySaverV2) with
    * its raw buffers, the channels */
@@ -330,6 +361,8 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   comm[10] = mask; /* their channels */
   comm[12] = n;
   comm[13] = mask;
+  if (t->comm[9] < (uint32_t)n) /* the BPU's raw buffers, one per channel */
+    memcpy(comm + 36, &n, 4);
   if (isp_cmd(ISP_COMM_INIT, comm) || isp_cmd(ISP_COMM_INIT_VPSS, comm))
     return -1;
   for (int c = 0; c < n; c++) {
@@ -340,15 +373,26 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   }
 
   for (int c = 0; c < n; c++) {
-    if (c == 1) {
-      uint32_t a[7] = {0, 1, 1};
+    const struct xmv200_isp_chn *ch = &cfg->chn[c];
+    struct chn_place pl = {1, 0};
+
+    for (int k = 0; k < n; k++)
+      if (cfg->chn[k].phy == ch->phy) {
+        pl.n_on_phy++;
+        if (k < c)
+          pl.first_on_phy = 0;
+      }
+    if (c > 0) {
+      /* a further channel: its VI device and its index there */
+      uint32_t a[7] = {ch->vi_dev, ch->vi_idx, 1};
 
       isp_cmd(ISP_COMM, a);
     }
-    if (run_program(&cfg->chn[c], &cfg->sensor[c], t))
+    if (run_program(ch, &cfg->sensor[c], t, chip, pl))
       return -1;
   }
 
+  frames_ae = chip->frame_answer;
   isp_running = 1;
   pthread_create(&isp_thread, NULL, isp_frames, NULL);
   return 0;

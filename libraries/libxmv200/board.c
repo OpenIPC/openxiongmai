@@ -20,17 +20,33 @@
 #include "xmv200.h"
 #include "xmv200_priv.h"
 
-extern const struct xmv200_prog xmv200_prog_x6e_weq;
 extern const struct xmv200_prog xmv200_prog_x2w_wng;
-extern const struct xmv200_prog xmv200_prog_x9_we2q;
 extern const struct xmv200_prog xmv200_prog_x3_wq_b;
 
 #define SYS 0x20000000
 #define VI 0x30000000
 
-/* the ISP's PLL: unlock, VCO and dividers, reset and enable, lock; waits
- * between. p: the mode's 0x14, 0x44, 0x48, 0x50, 0x54. */
-static void isp_pll(const uint32_t *p) {
+/* the ISP's PLL. XM530V200 (/dev/mem): unlock, VCO and dividers, reset and
+ * enable, lock, with waits between; p: the mode's 0x14, 0x44, 0x48, 0x50,
+ * 0x54. XM535: the same through sys.ko (0x40085301 {register, value}, 0x10
+ * first), then reading 0x10 back (0x40085302). */
+static void isp_pll(const struct xmv200_chip *chip, int fd_sys,
+                    const uint32_t *p) {
+  static const uint32_t regs[] = {0x10, 0x44, 0x48, 0x50, 0x54};
+
+  if (chip->sys_clocks) {
+    uint32_t a[2];
+
+    for (int i = 0; i < 5; i++) {
+      a[0] = regs[i];
+      a[1] = p[i];
+      ioctl(fd_sys, 0x40085301, a);
+    }
+    a[0] = 0x10;
+    a[1] = 0;
+    ioctl(fd_sys, 0x40085302, a);
+    return;
+  }
   xmv200_reg_write(SYS, 1);
   xmv200_reg_write(SYS + 0x10, 0x010a8000);
   xmv200_reg_write(SYS + 0x14, p[0]);
@@ -80,7 +96,7 @@ static const struct board boards[] = {
                         {.chn = 0, .x0 = 1, .y0 = 0, .out_width = 2304,
                          .out_height = 1296, .ldc = 1},
                         {.chn = 1, .mipi = 1, .x0 = 3, .y0 = 3, .out_width = 2304,
-                         .out_height = 1296},
+                         .out_height = 1296, .vi_idx = 1},
                     },
                 .sensor = {{.bus = 0, .addr = 0x30, .flip = 0x00},
                            {.bus = 0, .addr = 0x32, .flip = 0x66}},
@@ -105,21 +121,64 @@ static const struct board boards[] = {
         .stream = {{1920, 1080, 0x13c680, 1}, {640, 360, 0xbb800, 1}},
         .fps = 12,
     },
+    {
+        /* XM535D1 X6E-WEQ: two SC2336 on their own receivers, spliced top
+         * to bottom into 1920x2160, plus 640x720 */
+        .name = "x6e-weq",
+        .isp =
+            {
+                .tuning = &xmv200_tuning_sc2336_xm535,
+                .n_chn = 2,
+                .chn =
+                    {
+                        {.chn = 0, .x0 = 1, .y0 = 0, .out_width = 1920,
+                         .out_height = 1080},
+                        {.chn = 1, .x0 = 1, .y0 = 0, .out_width = 1920,
+                         .out_height = 1080, .phy = 1, .vi_idx = 1},
+                    },
+                .sensor = {{.bus = 0, .addr = 0x30, .flip = 0x00},
+                           {.bus = 0, .addr = 0x32, .flip = 0x00}},
+            },
+        .n_streams = 2,
+        .stream = {{1920, 1080, 0x16c800, 3}, {640, 360, 0x38400, 3}},
+        .fps = 12,
+    },
+    {
+        /* XM535D2 X9-WE2Q: three SC2336, each its own picture, 1080p and
+         * 360p. Two share receiver 0 and VI device 0 (on bus 2); the third,
+         * camera 0, is on receiver 1 and VI device 1 (bus 0) */
+        .name = "x9-we2q",
+        .isp =
+            {
+                .tuning = &xmv200_tuning_sc2336_xm535,
+                .n_chn = 3,
+                .chn =
+                    {
+                        {.chn = 0, .x0 = 1, .y0 = 0, .out_width = 1920,
+                         .out_height = 1080},
+                        {.chn = 1, .x0 = 1, .y0 = 0, .out_width = 1920,
+                         .out_height = 1080, .vi_idx = 1},
+                        {.chn = 2, .x0 = 1, .y0 = 0, .out_width = 1920,
+                         .out_height = 1080, .phy = 1, .vi_dev = 1},
+                    },
+                .sensor = {{.bus = 2, .addr = 0x30},
+                           {.bus = 2, .addr = 0x32},
+                           {.bus = 0, .addr = 0x30}},
+            },
+        /* VENC 2n and 2n + 1 are camera n's */
+        .n_streams = 6,
+        .stream = {{1920, 1080, 0x7e900, 4},
+                   {640, 360, 0x38400, 4},
+                   {1920, 1080, 0x7e900, 2},
+                   {640, 360, 0x38400, 2},
+                   {1920, 1080, 0x7e900, 1},
+                   {640, 360, 0x38400, 1}},
+        .fps = 12,
+    },
 };
 
 /* program boards: the chip, the program and what VENC gets */
 static const struct board prog_boards[] = {
-    {
-        /* XM535D1 X6E-WEQ: two SC2336 spliced, encoded at 2304x2592 */
-        .name = "x6e-weq",
-        .chip = "xm535d1",
-        .prog = &xmv200_prog_x6e_weq,
-        .n_streams = 2,
-        .stream = {{2304, 2592, 0, 1}, {640, 720, 0, 1}},
-        .fps = 12,
-        .n_ae = 2,
-        .ae = {{0, 0x30, 0, 0, 0, 2}, {0, 0x32, 1, 0, 1, 2}},
-    },
     {
         /* XM535W1 X2W-WNG: one SC1346, its 720p encoded at 1080p, and
          * 800x448 */
@@ -131,25 +190,6 @@ static const struct board prog_boards[] = {
         .fps = 12,
         .n_ae = 1,
         .ae = {{0, 0x30, 0, 0, 0, 1}},
-    },
-    {
-        /* XM535D2 X9-WE2Q: three SC2336, each 1080p and 360p (VENC
-         * channels 2n and 2n + 1 for camera n) */
-        .name = "x9-we2q",
-        .chip = "xm535d2",
-        .prog = &xmv200_prog_x9_we2q,
-        .n_streams = 6,
-        .stream = {{1920, 1080, 0, 1},
-                   {640, 360, 0, 1},
-                   {1920, 1080, 0, 2},
-                   {640, 360, 0, 2},
-                   {1920, 1080, 0, 4},
-                   {640, 360, 0, 4}},
-        .fps = 12,
-        /* camera 0 is ISP channel 2 */
-        .n_ae = 3,
-        .ae = {{0, 0x30, 2, 0, 0, 1}, {2, 0x32, 1, 2, 0, 1},
-               {2, 0x30, 0, 4, 0, 1}},
     },
     {
         /* XM533 X3-WQ-B: one SC2337P, 2304x1296 and 800x448 */
@@ -310,7 +350,7 @@ static int auto_board(struct board *b) {
   for (int c = 0; c < n; c++)
     b->isp.chn[c] = (struct xmv200_isp_chn){
         .chn = c, .mipi = c, .x0 = 1, .y0 = 0, .out_width = w,
-        .out_height = h, .ldc = 0};
+        .out_height = h, .ldc = 0, .vi_idx = c};
   if (n == 2)
     b->isp.sensor[1].flip = 0x66; /* the second lens is mounted turned */
   b->n_streams = 2;
@@ -330,8 +370,9 @@ static int auto_board(struct board *b) {
 int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
   static struct board detected;
   const struct board *b = NULL;
-  int fd_vpss, fd_sys, fd_venc, fd_rgn, fd_hevc, n;
-  uint32_t reset = 0x10002;
+  int fd_vpss, fd_sys, fd_venc, fd_rgn, fd_hevc, fd_vb, n;
+  const struct xmv200_chip *chip;
+  uint32_t reset;
 
   if (!strcmp(name, "auto")) {
     if (auto_board(&detected))
@@ -364,12 +405,16 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
     return 0;
   }
   n = b->isp.n_chn;
+  chip = xmv200_chip_of(b->isp.tuning);
+  xmv200_venc_set_engine(chip->engine);
+  reset = chip->hevc_reset;
 
   fd_vpss = open_dev("/dev/vpss");
   fd_sys = open_dev("/dev/sys");
   fd_venc = open_dev("/dev/venc_info");
   fd_rgn = open_dev("/dev/rgn");
   fd_hevc = open_dev("/dev/h265");
+  fd_vb = open_dev("/dev/vb");
   if (fd_vpss < 0 || fd_sys < 0 || fd_venc < 0 || fd_hevc < 0)
     return -1;
 
@@ -380,20 +425,24 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
     ioctl(fd_rgn, 0x5200, 0);
   ioctl(fd_hevc, 0x40044806, &reset);
 
-  /* VB: what VPSS writes (each stream, all groups in one block) and the
-   * ISP's output to VPSS */
-  struct xmv200_vb_pool pools[3];
+  /* VB: what VPSS writes (each stream, all groups in one block) and, on
+   * the XM530V200, the ISP's output to VPSS */
+  struct xmv200_vb_pool pools[XMV200_MAX_STREAMS + 1];
   int np = 0;
+  uint32_t one = 1;
 
+  if (chip->vb_mode && fd_vb >= 0)
+    ioctl(fd_vb, 0x40044205, &one);
   for (int s = 0; s < b->n_streams; s++)
     pools[np++] = (struct xmv200_vb_pool){
         b->stream[s].width * b->stream[s].height *
             popcount(b->stream[s].groups) * 3 / 2,
+        chip->vb_count};
+  if (chip->isp_pool)
+    pools[np++] = (struct xmv200_vb_pool){
+        (b->isp.tuning->width & ~0xfu) *
+            ((b->isp.tuning->height + 15) & ~15u) * 3 / 2,
         3};
-  pools[np++] = (struct xmv200_vb_pool){
-      (b->isp.tuning->width & ~0xfu) * ((b->isp.tuning->height + 15) & ~15u) *
-          3 / 2,
-      3};
   if (xmv200_vb_init(pools, np))
     return -1;
 
@@ -407,7 +456,8 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
       return -1;
   }
   for (int g = 0; g < n; g++)
-    for (int s = 0; s < b->n_streams; s++) {
+    for (int s = 0, vc = 0; s < b->n_streams; s++) {
+      /* stream s is the group's VPSS channel vc, and VENC channel s */
       uint32_t attr[5] = {2, b->stream[s].width, b->stream[s].height,
                           b->fps, b->fps};
       uint32_t splice[2] = {g + 1, s};
@@ -415,60 +465,97 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
 
       if (!(b->stream[s].groups & 1u << g))
         continue;
-      if (vpss(fd_vpss, VPSS_SET_CHN_ATTR, g, s, attr, 5) ||
+      if (vpss(fd_vpss, VPSS_SET_CHN_ATTR, g, vc, attr, 5) ||
           (popcount(b->stream[s].groups) > 1 &&
-           vpss(fd_vpss, VPSS_SET_SPLICE, g, s, splice, 2)) ||
-          vpss(fd_vpss, VPSS_ENABLE_CHN, g, s, NULL, 0) ||
-          vpss(fd_vpss, VPSS_BIND, g, s, bind, 3) ||
-          sys_bind(fd_sys, MOD_VPSS, g, s, MOD_VENC, 0, s) < 0)
+           vpss(fd_vpss, VPSS_SET_SPLICE, g, vc, splice, 2)) ||
+          vpss(fd_vpss, VPSS_ENABLE_CHN, g, vc, NULL, 0) ||
+          vpss(fd_vpss, VPSS_BIND, g, vc, bind, 3) ||
+          sys_bind(fd_sys, MOD_VPSS, g, vc, MOD_VENC, 0, s) < 0)
         return -1;
+      vc++;
     }
 
-  /* venc.ko: its channels and their stream buffers; +0x58 starts them */
+  /* venc.ko: its channels and their stream buffers */
   ioctl(fd_venc, 0x4900, 0);
   for (int s = 0; s < b->n_streams; s++) {
-    uint32_t cfg[65];
+    uint32_t cfg[65], h = b->stream[s].height * popcount(b->stream[s].groups);
 
     memset(cfg, 0, sizeof(cfg));
     cfg[0] = s;
     cfg[1] = 1;
     cfg[2] = cfg[5] = 0x109; /* H.265 */
     cfg[3] = b->stream[s].width;
-    cfg[4] = b->stream[s].height * popcount(b->stream[s].groups);
+    cfg[4] = h;
     cfg[8] = b->stream[s].stream_buf;
-    cfg[10] = 0xf;
-    cfg[22] = 1;
+    if (chip->venc_v2) {
+      cfg[10] = 1;
+      cfg[41] = b->stream[s].width; /* the encoded size */
+      cfg[42] = h;
+    } else {
+      cfg[10] = 0xf;
+      cfg[22] = 1; /* +0x58 starts it */
+    }
     if (ioctl(fd_venc, 0x41044901, cfg) < 0)
       return -1;
   }
 
-  /* clocks: the sensors', the ISP out of reset, the ISP's PLL */
-  xmv200_reg_write(SYS, 1);
-  xmv200_reg_write(SYS + 0x74, b->isp.tuning->sns_clk[0]);
-  xmv200_reg_write(SYS + 0x78, b->isp.tuning->sns_clk[1]);
-  xmv200_reg_write(SYS, 0);
+  /* clocks: the sensors' (XM530V200; the XM535's module loader sets them),
+   * the ISP out of reset, the ISP's PLL */
+  if (!chip->sys_clocks) {
+    xmv200_reg_write(SYS, 1);
+    xmv200_reg_write(SYS + 0x74, b->isp.tuning->sns_clk[0]);
+    xmv200_reg_write(SYS + 0x78, b->isp.tuning->sns_clk[1]);
+    xmv200_reg_write(SYS, 0);
+  }
   xmv200_reg_write(SYS + 0x11c, 1);
-  isp_pll(b->isp.tuning->pll[0]);
+  isp_pll(chip, fd_sys, b->isp.tuning->pll[0]);
 
-  /* the sensors out of reset, the receiver */
+  /* the sensors out of reset, each receiver's setup, each channel's VI */
   for (int c = 0; c < n; c++) {
     const struct xmv200_isp_sensor *s = &b->isp.sensor[c];
 
     xmv200_i2c_write(s->bus, s->addr, 0x0103, 2, 1, 1);
     xmv200_i2c_write(s->bus, s->addr, 0x0103, 2, 1, 1);
     xmv200_i2c_write(s->bus, s->addr, 0x0100, 2, 1, 1);
-    if (c == 0)
-      for (int i = 0; i < b->isp.tuning->n_mipi; i++)
-        xmv200_reg_write(b->isp.tuning->mipi[i].addr,
-                         b->isp.tuning->mipi[i].val);
-    xmv200_reg_write(VI, 2);
-    xmv200_reg_write(VI + 0x18, c);
   }
-  isp_pll(b->isp.tuning->pll[1]);
+  for (int c = 0; c < n; c++) {
+    const struct xmv200_isp_chn *ch = &b->isp.chn[c];
+    int first = 1;
+
+    for (int k = 0; k < c; k++)
+      if (b->isp.chn[k].phy == ch->phy)
+        first = 0;
+    for (int i = 0; first && i < b->isp.tuning->n_mipi; i++)
+      xmv200_reg_write(b->isp.tuning->mipi[i].addr + ch->phy * 0x1000,
+                       b->isp.tuning->mipi[i].val);
+    /* XM535: the channel's VI device and its place there */
+    xmv200_reg_write(VI, !chip->vi_mode ? 2
+                         : ch->vi_dev   ? 6
+                         : ch->vi_idx   ? 0xa
+                                        : 2);
+    xmv200_reg_write(VI + 0x18, chip->vi_mode ? c > 0 : c);
+  }
+  isp_pll(chip, fd_sys, b->isp.tuning->pll[1]);
 
   if (xmv200_isp_start(&b->isp))
     return -1;
-  xmv200_ae_init(&b->isp);
+
+  /* AE: each sensor in the first stream with its group, as its band */
+  struct xmv200_ae_sensor where[3];
+
+  for (int c = 0; c < n && c < 3; c++) {
+    where[c] = (struct xmv200_ae_sensor){
+        b->isp.sensor[c].bus, b->isp.sensor[c].addr, b->isp.chn[c].chn, 0, 0,
+        1};
+    for (int s = 0; s < b->n_streams; s++)
+      if (b->stream[s].groups & 1u << c) {
+        where[c].stream = s;
+        where[c].band = popcount(b->stream[s].groups & ((1u << c) - 1));
+        where[c].n_bands = popcount(b->stream[s].groups);
+        break;
+      }
+  }
+  xmv200_ae_init(&b->isp, where, chip->frame_answer);
 
   if (info) {
     memset(info, 0, sizeof(*info));

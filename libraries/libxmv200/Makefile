@@ -7,7 +7,7 @@ override CFLAGS += -Werror -Wall -std=gnu99 -O2
 # the sensor tunings and their registry (tools/xmv200-capture/gen_all.sh)
 SENSORS = $(patsubst %.c,%.o,$(wildcard sns_*_tuning.c)) sns_registry.o
 BOARDS = $(patsubst %.c,%.o,$(wildcard board_*.c))
-OBJECTS = sys.o venc.o isp.o ae.o board.o $(BOARDS) $(SENSORS)
+OBJECTS = sys.o venc.o isp.o ae.o chip.o board.o $(BOARDS) $(SENSORS)
 
 libxmv200.a: $(OBJECTS)
 	$(AR) rcs $@ $^
