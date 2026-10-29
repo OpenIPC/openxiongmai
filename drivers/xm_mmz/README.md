@@ -1,6 +1,6 @@
 # xm_mmz
 
-`xm_mmz` is the media memory zone of the XM530/XM550 and the XM510, built as `open_mmz.ko`. It replaces the vendor `mmz.ko` without changes to the drivers or applications that use it.
+`xm_mmz` is the media memory zone of the XM530/XM550, the XM510 and the V200 series (XM530V200, XM533, XM535D1/D2/W1), built as `open_mmz.ko`. It replaces the vendor `mmz.ko` without changes to the drivers or applications that use it.
 
 The SDK and the video drivers take their DMA buffers from one physically contiguous region that Linux does not use. `mem=` on the kernel command line keeps it out, and the module gets it as `mmz_start` and `mmz_size`. `load_xiongmai` passes what lies between `mem=` and the end of DDR:
 
@@ -9,6 +9,17 @@ insmod open_mmz.ko mmz_start=0x85000000 mmz_size=0x3000000   # XM550: mem=80M of
 ```
 
 Load it before the drivers that use it (`open_vi`/`xm530_vi`, `xm530_rgn`).
+
+## V200 series
+
+The V200 series' `mmz.ko` keeps the same blocks and marker but frees: `mmz_free(phys, &size)` and ioctl 2 release a block, and the next block takes the first space it fits in from `mmz_start` (the vendor keeps the free spans in its list). Names may repeat, and a lookup finds the first block with the name. `allocator=list` does that, and a build with `MMZ_ALLOCATOR=list` makes it the default, since those chips' loaders pass only `mmz_start` and `mmz_size`:
+
+```sh
+make -C drivers/xm_mmz KDIR=... ARCH=arm CROSS_COMPILE=... MMZ_ALLOCATOR=list
+insmod open_mmz.ko mmz_start=0x82800000 mmz_size=0x5800000   # XM535D1: mem=40M of 128 MB
+```
+
+A cache flush (ioctl 5) leaves the block's cached flag as it is, as theirs does.
 
 ## XM510
 
