@@ -16,7 +16,8 @@ hardware, so an open ISP can be written from observed behaviour:
 - the frame-start SIGIO, so each record carries the frame it belongs to.
 
 `decode.py` turns the binary log into text, naming registers from a
-register map header.
+register map header. `extract.py` turns a log into a `libxmisp` sensor
+script: the start-up in order, and one converged 3A state.
 
 ## Build
 
