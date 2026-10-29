@@ -44,6 +44,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 │   ├── xm_v200_i2c/             V200-series I2C masters (/dev/i2c0..2)
 │   ├── xm_v200_sys/             V200-series system module: bind table, clocks (/dev/sys)
 │   ├── xm_v200_vb/              V200-series video buffer pools (/dev/vb)
+│   ├── xm_v200_venc/            V200-series VENC frame queue (/dev/venc_info)
 │   └── xm_vi/                   XM530/XM550 video input driver (/dev/vi)
 │
 └── libraries/                   Userspace libraries
@@ -92,6 +93,7 @@ make -C drivers/xm_hevc  KDIR=/path/to/linux HEVC_LAYOUT=v3   # V200 series: v3 
 make -C drivers/xm_v200_i2c KDIR=/path/to/linux I2C_CHIP=xm530v200   # or xm533, xm535
 make -C drivers/xm_v200_sys KDIR=/path/to/linux
 make -C drivers/xm_v200_vb  KDIR=/path/to/linux VB_LAYOUT=v200   # or xm535
+make -C drivers/xm_v200_venc KDIR=/path/to/linux VENC_LAYOUT=v200 # or xm535
 ```
 
 The Makefiles set different default toolchains (`arm-xm-linux-`, `arm-linux-` or `arm-openipc-linux-musleabi-`), so pass `CROSS_COMPILE` explicitly. `libmpi` and the kernel module Makefiles also hard-code `PATH` to a vendor toolchain directory. Override it from the command line, for example `make PATH="$PATH" ...`, or give an absolute `CROSS_COMPILE` prefix. Most components build with `-Werror`.
@@ -146,6 +148,7 @@ To add a sensor:
 | `xm_v200_i2c` | V200-series I2C masters, the sensor buses (`/dev/i2c0..2`, `/dev/xm_i2c*` on XM533) | Builds `open_i2c.ko`. Same devices, record and ioctls as the vendor `i2c.ko`, per-chip timing, pins and resets; ran libxmv200 (sensor writes and chip-ID probes) on all five V200-series chips in qemu-bench in place of it |
 | `xm_v200_sys` | V200-series system module: the bind table and the XM535's clock calls (`/dev/sys`, `sys_set_clk`/`sys_get_clk`) | Builds `open_sys.ko`. Same ioctls, exports and `/proc/umap/sys` as the vendor `sys.ko`; ran libxmv200 on all five V200-series chips in qemu-bench in place of it, the XM535's `isp.ko` on its clock calls |
 | `xm_v200_vb` | V200-series video buffer pools: the frame buffers `isp`, `vpss`/`vi` and `venc` share (`/dev/vb`, `vb_get_buf`/`vb_put_buf`, ...) | Builds `open_vb.ko`. Same descriptors, lists, exports, ioctls and `/proc/umap/vb` as the vendor `vb.ko`; ran libxmv200 on all five V200-series chips in qemu-bench in place of it |
+| `xm_v200_venc` | V200-series VENC frame queue: the pictures bound to VENC, with their OSD, for the encoder (`/dev/venc_info`) | Builds `open_venc.ko`. Same ioctls and records as the vendor `venc.ko` (not yet the XM535's `/dev/venc_mem`); ran libxmv200 on all five V200-series chips in qemu-bench in place of it |
 | `xm_vi` | XM530/XM550 video input: capture window, scalers and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm530_vi.ko`, without its vmalloc leak; ran majestic on an XM550 in place of it |
 
 ## Open encoder
