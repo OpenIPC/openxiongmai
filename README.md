@@ -49,6 +49,12 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 │   ├── xm535_vpss/              XM535D1/D2 VPSS: scaling, splicing, store (/dev/vpss)
 │   ├── xm535w1_vi/              XM535W1 video input on the VPSS block (/dev/vi)
 │   ├── xm530v200_vpss/          XM530V200 VPSS: the memory-to-memory scaler (/dev/vpss)
+│   ├── xm_v200_acodec/          V200-series audio codec (/dev/acodec)
+│   ├── xm_v200_i2s/             V200-series audio in/out (/dev/ai, /dev/ao)
+│   ├── xm_v200_adc/             V200-series ADC (/dev/adc)
+│   ├── xm_v200_ddr/             V200-series DDR bandwidth monitor (/proc/umap/ddr)
+│   ├── xm_v200_log/             V200-series media log (/dev/log)
+│   ├── xm533_mipi_io/           XM533 MIPI lanes as GPIOs (/dev/mipi_io)
 │   ├── xm_v200_venc/            V200-series VENC frame queue (/dev/venc_info)
 │   └── xm_vi/                   XM530/XM550 video input driver (/dev/vi)
 │
@@ -158,6 +164,12 @@ To add a sensor:
 | `xm_v200_i2c` | V200-series I2C masters, the sensor buses (`/dev/i2c0..2`, `/dev/xm_i2c*` on XM533) | Builds `open_i2c.ko`. Same devices, record and ioctls as the vendor `i2c.ko`, per-chip timing, pins and resets; ran libxmv200 (sensor writes and chip-ID probes) on all five V200-series chips in qemu-bench in place of it |
 | `xm_v200_sys` | V200-series system module: the bind table and the XM535's clock calls (`/dev/sys`, `sys_set_clk`/`sys_get_clk`) | Builds `open_sys.ko`. Same ioctls, exports and `/proc/umap/sys` as the vendor `sys.ko`; ran libxmv200 on all five V200-series chips in qemu-bench in place of it, the XM535's `isp.ko` on its clock calls |
 | `xm_v200_vb` | V200-series video buffer pools: the frame buffers `isp`, `vpss`/`vi` and `venc` share (`/dev/vb`, `vb_get_buf`/`vb_put_buf`, ...) | Builds `open_vb.ko`. Same descriptors, lists, exports, ioctls and `/proc/umap/vb` as the vendor `vb.ko`; ran libxmv200 on all five V200-series chips in qemu-bench in place of it |
+| `xm_v200_acodec` | V200-series audio codec: power-up, volume, mute, input gain (`/dev/acodec`) | Builds `open_acodec.ko`; same ioctls as the vendor `acodec.ko`, per-chip power-up sequences from its disassembly |
+| `xm_v200_i2s` | V200-series audio input and output through the I2S blocks' FIFOs (`/dev/ai`, `/dev/ao`, `/proc/umap/audio`) | Builds `open_i2s.ko`; same devices, ioctls and clock setup as the vendor `i2s.ko` |
+| `xm_v200_adc` | V200-series ADC (`/dev/adc`) | Builds `open_adc.ko` |
+| `xm_v200_ddr` | V200-series DDR bandwidth monitor (`/proc/umap/ddr`) | Builds `open_ddr.ko` |
+| `xm_v200_log` | V200-series media log FIFO and log levels (`/dev/log`, `/proc/umap/logmpp`) | Builds `open_log.ko` |
+| `xm533_mipi_io` | XM533 MIPI lanes 6..9 as GPIOs (`/dev/mipi_io`) | Builds `open_mipi_io.ko` |
 | `xm530v200_vpss` | XM530V200 VPSS: the memory-to-memory engine that scales each sensor's picture into three channels, from its own thread, with splicing and covers (`/dev/vpss`) | Builds `open_vpss.ko`. Same ioctls and `isp.ko`/`vo.ko` hooks as the vendor `vpss.ko`; the XM530V200 boards stream with it in qemu-bench, pictures as with the vendor module |
 | `xm535w1_vi` | XM535W1 video input: the three channels' scaling and store on the XM535's VPSS block from their frame interrupts, covers, lines, OSD background luminance (`/dev/vi`) | Builds `open_vi.ko`. Same ioctls and hooks as the W1's vendor `vi.ko`; in qemu-bench the W1 streams with it, pictures as with the vendor module |
 | `xm535_vpss` | XM535D1/D2 VPSS: per-frame scaling of each sensor's picture into three channels, splicing of up to three sensors, store into VB buffers, covers and lines (`/dev/vpss`) | Builds `open_vpss.ko`. Same ioctls and `isp.ko` hooks as the vendor `vpss.ko`; all D1/D2 streams in qemu-bench, pictures as with the vendor module |

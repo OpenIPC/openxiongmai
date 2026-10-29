@@ -128,6 +128,7 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 
 ### Kernel drivers
 
+- `drivers/xm_v200_acodec`, `xm_v200_i2s`, `xm_v200_adc`, `xm_v200_ddr`, `xm_v200_log`, `xm533_mipi_io`: drop-ins for the V200 series' small vendor modules (acodec, i2s, adc, ddr, log, mipi_io), built as `open_<name>.ko`, chip variants by `*_CHIP` make variables. Register sequences come from the vendor modules' disassembly (Ghidra merges their volatile read-modify-writes).
 - `drivers/xm530v200_vpss`: the XM530V200's VPSS (`/dev/vpss`), built as `open_vpss.ko`, a drop-in for its vendor `vpss.ko`: a kthread takes isp.ko's pictures from vb list 1 (bound mod 8, dev = group), programs the two-stage memory-to-memory scaler at 0x34000000, starts it (+0x10020) and waits for IRQ 72 (+0x10044); calls isp.ko's `vpss_isp_set_val`/`_post_deal` and vo.ko's `vo_get_buf`/`vo_put_buf`.
 - `drivers/xm535w1_vi`: the XM535W1's video input (`/dev/vi`), built as `open_vi.ko`, a drop-in for the W1's vendor `vi.ko`: the XM533 VI's scheme on the XM535 VPSS register block, per-channel frame IRQs 57/58/67/68 (status +0x8705C/+0x8704C). Empty `vpss_*` hooks for the W1's isp.ko and rgn.ko.
 - `drivers/xm535_vpss`: the XM535D1/D2's VPSS (`/dev/vpss`), built as `open_vpss.ko`, a drop-in for the vendor `vpss.ko`. No IRQ: isp.ko calls `vpss_thread_set_val`/`_post_deal`/`_middle_deal` per group and frame. Splice modes 1..7 share a buffer across groups. Registers at 0x34000000. (The XM530V200's vpss.ko is a different design: its own thread calling isp.ko's `vpss_isp_*`.)
