@@ -4,6 +4,7 @@ CC = $(CROSS_COMPILE)gcc
 LIBXMISP = ../../libraries/libxmisp
 override CFLAGS += -Werror -Wall -std=c99 -O2 -I$(LIBXMISP)
 LDFLAGS += -static
+LDLIBS += -lm
 
 xmispd: xmispd.c $(LIBXMISP)/libxmisp.a
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ xmispd.c $(LIBXMISP)/libxmisp.a $(LDLIBS)

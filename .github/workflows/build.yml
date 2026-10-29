@@ -100,6 +100,8 @@ jobs:
             echo "xmispd is not static" >&2; exit 1
           fi
           python3 -m py_compile tools/xm-isp-trace/extract.py
+          # the SoC-independent 3A layers, on the host
+          make -C libraries/libxmisp test HOSTCC=gcc
           echo "::endgroup::"
           echo "::group::tools/xmhevc-test"
           make -C tools/xmhevc-test CROSS_COMPILE="$CROSS_COMPILE"
@@ -161,7 +163,9 @@ jobs:
                 xmvenc_pipe_release xmvenc_pipe_stats
           check libraries/libxmisp/libxmisp.a \
                 xmisp_open xmisp_start xmisp_script xmisp_fd xmisp_stop \
-                xmisp_close xmisp_error xmisp_scripts xmisp_h62_720p
+                xmisp_close xmisp_error xmisp_scripts xmisp_h62_720p \
+                xmisp_frame xmisp_exposure xmisp_ae_enabled xmisp_sensor_h62 \
+                xmisp_ae_init xmisp_ae_update xmisp_ae_applied
           exit $fail
 
       - name: Assert no vendor libs in NEEDED

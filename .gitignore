@@ -13,3 +13,4 @@ tools/xmhevc-test/xmhevc-test
 tools/xm-vi-hang/xm-vi-hang
 tools/xm-rgn-test/xm-rgn-test
 tools/xmispd/xmispd
+libraries/libxmisp/test/ae_test
