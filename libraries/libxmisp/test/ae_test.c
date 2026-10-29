@@ -140,6 +140,41 @@ int main(void) {
           "not re-planned when turned on", cfg.target / 300.0);
   }
 
+  /* A sensor minimum between period boundaries: the exposure is still
+   * whole periods, the first one above the minimum. */
+  {
+    struct xmisp_ae_cfg mc = cfg;
+    mc.flicker_lines = 187.5f;
+    mc.lines_min = 200;
+    struct xmisp_ae ae;
+    uint32_t lines = 300;
+    float gain = 1.0f;
+    double mean;
+    xmisp_ae_init(&ae, &mc, lines, gain);
+    runc(&ae, &mc, mc.target / 250.0, 300, &lines, &gain, &mean);
+    printf("anti-flicker with a 200-line minimum: %u lines, gain %.2f\n",
+           (unsigned)lines, gain);
+    check(lines == 375, "minimum between periods broke alignment",
+          mc.target / 250.0);
+  }
+
+  /* A write that fails while re-planning: AE goes on from what the sensor
+   * has, and the re-plan stays pending until it has whole periods. */
+  {
+    struct xmisp_ae_cfg fc3 = cfg;
+    struct xmisp_ae ae;
+    xmisp_ae_init(&ae, &fc3, 300, 1.0f);
+    xmisp_ae_flicker(&ae, 187.5f);
+    uint32_t l;
+    float g;
+    int asked = xmisp_ae_update(&ae, cfg.target, &l, &g);
+    xmisp_ae_applied(&ae, 300, 1.0f); /* the write failed: read back */
+    check(asked && ae.replan, "re-plan lost on a failed write", 0);
+    for (int f = 0; f < 4 && !xmisp_ae_update(&ae, cfg.target, &l, &g); f++)
+      ;
+    check(l == 188, "not retried after a failed write", 0);
+  }
+
   printf(failures ? "%d failed\n" : "ok\n", failures);
   return failures != 0;
 }

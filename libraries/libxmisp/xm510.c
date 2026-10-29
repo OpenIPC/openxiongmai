@@ -531,7 +531,7 @@ int xmisp_ae_enabled(const struct xmisp *s) { return s->ae_on; }
 int xmisp_set_antiflicker(struct xmisp *s, unsigned hz) {
   if (hz && hz != 50 && hz != 60)
     return fail(s, "anti-flicker at %u Hz: 50 or 60, or 0 for off", hz);
-  if (!s->ae_on)
+  if (!s->ae_on || !s->script)
     return hz ? fail(s, "anti-flicker without auto-exposure") : 0;
   const uint32_t line_ns = s->script->sensor->line_ns;
   if (hz && !line_ns)
@@ -602,8 +602,10 @@ int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
       r = color_start(s);
     if (r == 0)
       return 0;
-    /* A start that failed part way may have 3D-NR on already. */
+    /* A start that failed part way may have 3D-NR on already, and the 3A
+     * of the script it was running must not run on. */
     nr3d_off(s);
+    s->ae_on = s->awb_on = 0;
     s->script = NULL;
     return -1;
   }
