@@ -96,6 +96,16 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 - **Exit (SIGTERM):** it drops its SIGIO handler, turns 3D-NR off (`0x40040000` = 0) and closes its devices.
 - **Cost:** untraced the daemon takes about 5% CPU, traced about 50%.
 
+### `libraries/libxmisp` and `tools/xmispd` (open XM510 ISP, M1)
+
+`libxmisp` (static `libxmisp.a`, MIT) is the open ISP and `tools/xmispd` (MIT, static) the daemon on it, a drop-in for the vendor `/usr/bin/isp`. Keep both clean-room as above, and keep GPL code and the vendor-derived headers in `libraries/isp/include` out: register names appear as comments only.
+- **Sensor scripts (`script.h`):** the start-up for one sensor and mode as steps: MMZ/VI/region resets, system controller writes, sensor writes, the chip ID to expect, VI ioctls, the "Isp" MMZ block, and ISP writes. A script also carries a fixed 3A state applied once after it. `xmisp_start()` tries each script in `xmisp_scripts` until a chip ID matches. Registers holding addresses in the "Isp" block are written relative to its allocation, in 8-byte units from DDR (`0x80000000`).
+- **Generated:** `tools/xm-isp-trace/extract.py` writes a script from a trace (gaps over 3 ms become delays; the colour matrix's two banks both get the fixed values). `h62_720p.c` is the JX-H62 at 1280x720, 25 fps. Regenerate scripts rather than editing them by hand. Add a new one to `xmisp_scripts` and to the Makefile.
+- **XM510 interfaces:**
+  - MMZ alloc is `0xC0284D01`. musl's `_IOWR()` takes a type, so `_IOWR('M', 1, 40)` encodes `sizeof(int)`, and `mmz.ko` answers "ioctl cmd error". Use encoded numbers for size-only commands.
+  - The vendor sleeps 100 ms after the sensor reset and 3 × 1 s around the 3D-NR enable, so start-up takes about 3.4 s.
+- **Daemon:** it prints the vendor daemon's last start-up line, `ispMsgReceive start!`, in the vendor's format (`\033[0;32;32mDEBUG: ...\n\033[m`); majestic starts video after it. It takes signals with `sigwaitinfo()` (SIGIO from `/dev/isp` with `O_ASYNC`) and on SIGTERM turns 3D-NR off. No AE or AWB yet (M2, M3): exposure and white balance stay at the script's fixed state, so the picture matches the vendor's only in the light of the capture.
+
 ### `tools/xm-vi-hang`
 
 `tools/xm-vi-hang` (MIT, static) reproduces the XM530/XM550 VI driver hang with raw ioctls only. A VI init (`_IO('V', 6)`) issued while the previous process left VI capturing freezes the board now and then, CPU and IRQs included; it's the "camera hangs at majestic start" problem.

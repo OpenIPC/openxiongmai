@@ -92,6 +92,15 @@ jobs:
           done
           python3 -m py_compile tools/xm-isp-trace/decode.py
           echo "::endgroup::"
+          # tools/xmispd builds libraries/libxmisp first
+          echo "::group::libxmisp + tools/xmispd"
+          make -C tools/xmispd CROSS_COMPILE="$CROSS_COMPILE"
+          ${CROSS_COMPILE}readelf -h tools/xmispd/xmispd | grep -q 'Machine:.*ARM'
+          if ${CROSS_COMPILE}readelf -d tools/xmispd/xmispd | grep -q NEEDED; then
+            echo "xmispd is not static" >&2; exit 1
+          fi
+          python3 -m py_compile tools/xm-isp-trace/extract.py
+          echo "::endgroup::"
           echo "::group::tools/xmhevc-test"
           make -C tools/xmhevc-test CROSS_COMPILE="$CROSS_COMPILE"
           ${CROSS_COMPILE}readelf -h tools/xmhevc-test/xmhevc-test | grep -q 'Machine:.*ARM'
@@ -107,7 +116,8 @@ jobs:
               libraries/libsns_X123_XM530/libsns_X123_XM530.so \
               libraries/libispapp_XM530/libispapp_XM530.so \
               libraries/libmpi/libopenmpi.a \
-              libraries/libxmvenc/libxmvenc.a; do
+              libraries/libxmvenc/libxmvenc.a \
+              libraries/libxmisp/libxmisp.a; do
             [ -f "$f" ] || { echo "MISSING: $f" >&2; exit 1; }
             echo "ok: $f ($(stat -c%s "$f") bytes)"
           done
@@ -149,6 +159,9 @@ jobs:
                 xmvenc_pipe_create xmvenc_pipe_destroy xmvenc_pipe_start \
                 xmvenc_pipe_stop xmvenc_pipe_chn xmvenc_pipe_get \
                 xmvenc_pipe_release xmvenc_pipe_stats
+          check libraries/libxmisp/libxmisp.a \
+                xmisp_open xmisp_start xmisp_script xmisp_fd xmisp_stop \
+                xmisp_close xmisp_error xmisp_scripts xmisp_h62_720p
           exit $fail
 
       - name: Assert no vendor libs in NEEDED
