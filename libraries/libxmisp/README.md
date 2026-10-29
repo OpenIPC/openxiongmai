@@ -9,7 +9,9 @@ XM510 only so far:
 - `xmisp_start()` brings VI, the sensor and the ISP up from a sensor script
   and applies that script's fixed 3A state;
 - `xmisp_frame()`, once a frame, runs auto-exposure (M2) and auto white
-  balance (M3).
+  balance (M3);
+- the colour matrix is the sensor's own calibration, with Cb/Cr gain 1
+  (M4).
 
 ## Layers
 
@@ -30,8 +32,8 @@ XM510 only so far:
   pixels count. With too few grey pixels the gains hold. `make test` also
   runs it on the host.
 - **`sensor_*.c`: what a sensor's 3A needs.** That's the exposure range,
-  the gain ceiling, the white balance gain range, and reading and setting
-  exposure and gain in its register encoding.
+  the gain ceiling, the white balance gain range, its colour matrix, and
+  reading and setting exposure and gain in its register encoding.
 - **`xm510.c`: the SoC.** Device access, the script interpreter, and the
   AE statistics:
   - a 32-bin luma histogram at `0x40033080`, whose total is the pixels
@@ -118,3 +120,11 @@ These were measured on the lab XM510 with `xmispd` holding the rest fixed:
 - **White balance:** in daylight the chart's grey needs R 1.56 and B 2.19
   relative to G. AWB keeps to the range the vendor daemon's AWB searches,
   R 0.75–2.8 and B 1.1–3.6.
+- **Colour matrix:** calibrated against the colour checker in daylight with
+  `tools/xm-isp-tune/colorchecker.py`, scoring mean dE 10.4. The vendor's
+  matrix with its 2.3× Cb/Cr gain scores 18.0 and clips three patches. The
+  matrix is written to both CSM banks (`0x40061040`, `0x40061080`, switched
+  at `0x40061000`), and Cb/Cr gain (`0x40076004`/`08`) is set to 1,
+  `0x100`. It's one illuminant's: a warm-light calibration to interpolate
+  by colour temperature, and easing it at high gain, where it amplifies
+  noise, are still to do.

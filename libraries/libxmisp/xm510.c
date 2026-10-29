@@ -28,6 +28,14 @@
  * grey pixels' count and mean Cb and Cr (BT.601, 9-bit signed coefficients
  * at 0x4001300c..). The picture's gains are AWB_FRONTGAIN R, G, B at
  * 0x40015000.
+ *
+ * Colour: the correction matrix (CSM) is double-buffered, banks at
+ * 0x40061040 and 0x40061080 (per row an offset, then three coefficients,
+ * 0x100 = 1, signed 32-bit), switched by a write to 0x40061000. After the
+ * RGB gamma and RGB to YCbCr, Cb and Cr are scaled by 0x40076004/08,
+ * 0x100 = 1: a blue gain change through an identity matrix moved only B at
+ * 0x100, and leaked into R and G at 0x200. The vendor's 0x250 is a 2.3x
+ * saturation boost on top of its matrix.
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>
@@ -84,6 +92,12 @@ static const struct xmisp_ae_cfg ae_xm510 = {
 #define AWB_YTHD 0x40014054u  /* luma limits: max << 8 | min */
 #define AWB_FRONT 0x40015000u /* R, G, B */
 #define AWB_GAIN_ONE 0x100
+#define CSM_BANK0 0x40061040u
+#define CSM_BANK1 0x40061080u
+#define CSM_SWITCH 0x40061000u
+#define CB_GAIN 0x40076004u
+#define CR_GAIN 0x40076008u
+#define CBCR_ONE 0x100
 #define AWB_GAIN_MAX 0xfff
 
 /* The grey window, Cb ± Cr within ±38 (the vendor's) while far off, ±8
@@ -520,6 +534,31 @@ void xmisp_exposure(const struct xmisp *s, float *mean, uint32_t *lines,
   *gain = s->gain;
 }
 
+/* The sensor's colour matrix in both banks, and Cb/Cr at 1. */
+static int color_start(struct xmisp *s) {
+  const struct xmisp_sensor *sn = s->script->sensor;
+  if (!sn || !sn->ccm)
+    return 0;
+  for (unsigned row = 0; row < 3; row++)
+    if (sn->ccm[row * 3] + sn->ccm[row * 3 + 1] + sn->ccm[row * 3 + 2] != 256)
+      return fail(s, "colour matrix row %u does not sum to 256", row);
+  const uint32_t banks[] = {CSM_BANK0, CSM_BANK1};
+  for (unsigned b = 0; b < 2; b++)
+    for (unsigned row = 0; row < 3; row++) {
+      const uint32_t a = banks[b] + row * 0x10;
+      if (isp_w(s, a, 0) < 0)
+        return fail(s, "colour matrix: %s", strerror(errno));
+      for (unsigned col = 0; col < 3; col++)
+        if (isp_w(s, a + 4 + col * 4,
+                  (uint32_t)(int32_t)sn->ccm[row * 3 + col]) < 0)
+          return fail(s, "colour matrix: %s", strerror(errno));
+    }
+  if (isp_w(s, CSM_SWITCH, 0xffffffff) < 0 || isp_w(s, CB_GAIN, CBCR_ONE) < 0 ||
+      isp_w(s, CR_GAIN, CBCR_ONE) < 0)
+    return fail(s, "colour matrix: %s", strerror(errno));
+  return 0;
+}
+
 /* 3D noise reduction off, then two frames' time for its DMA to stop. */
 static void nr3d_off(struct xmisp *s) {
   isp_w(s, NR_3D_CTRL, 0);
@@ -544,6 +583,8 @@ int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
       r = ae_start(s);
     if (r == 0)
       r = awb_start(s);
+    if (r == 0)
+      r = color_start(s);
     if (r == 0)
       return 0;
     /* A start that failed part way may have 3D-NR on already. */

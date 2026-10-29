@@ -58,6 +58,18 @@ static int set_exposure(struct xmisp *isp, uint32_t lines, float *gain) {
   return 0;
 }
 
+/* Calibrated on the lab XM510 against a 24-patch colour checker in
+ * daylight (tools/xm-isp-tune/colorchecker.py): native camera RGB through
+ * an identity matrix, Cb/Cr gain 1, fitted for the least CIELAB error of
+ * the picture as an sRGB display shows it. Mean dE 10.4 on the chart, where
+ * the vendor daemon's matrix with its 2.3x Cb/Cr gain gives 18.0 and clips
+ * three patches. */
+static const int16_t ccm_h62[9] = {
+    375, -118, -1,  /* R */
+    -77, 393,  -60, /* G */
+    -12, -309, 577, /* B */
+};
+
 const struct xmisp_sensor xmisp_sensor_h62 = {
     .lines_min = 1,
     .lines_max = 746,  /* a few lines short of the 750-line frame */
@@ -69,6 +81,7 @@ const struct xmisp_sensor xmisp_sensor_h62 = {
     .awb_r_max = 2.8f,
     .awb_b_min = 1.1f,
     .awb_b_max = 3.6f,
+    .ccm = ccm_h62,
     .get_exposure = get_exposure,
     .set_exposure = set_exposure,
 };

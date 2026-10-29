@@ -96,7 +96,7 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 - **Exit (SIGTERM):** it drops its SIGIO handler, turns 3D-NR off (`0x40040000` = 0) and closes its devices.
 - **Cost:** untraced the daemon takes about 5% CPU, traced about 50%.
 
-### `libraries/libxmisp` and `tools/xmispd` (open XM510 ISP, M1-M3)
+### `libraries/libxmisp` and `tools/xmispd` (open XM510 ISP, M1-M4)
 
 `libxmisp` (static `libxmisp.a`, MIT) is the open ISP and `tools/xmispd` (MIT, static) the daemon on it, a drop-in for the vendor `/usr/bin/isp`. Keep both clean-room as above, and keep GPL code and the vendor-derived headers in `libraries/isp/include` out: register names appear as comments only.
 - **Sensor scripts (`script.h`):** the start-up for one sensor and mode as steps: MMZ/VI/region resets, system controller writes, sensor writes, the chip ID to expect, VI ioctls, the "Isp" MMZ block, and ISP writes. A script also carries a fixed 3A state applied once after it. `xmisp_start()` tries each script in `xmisp_scripts` until a chip ID matches. Registers holding addresses in the "Isp" block are written relative to its allocation, in 8-byte units from DDR (`0x80000000`).
@@ -113,6 +113,7 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
   - The sensor driver gives the gain range: for the H62, the range the vendor's AWB searches.
   - `xm510.c`: the AWB statistics are of the raw picture times four candidate R/B gain pairs (`0x40010000`/`10`). Neither those nor the picture's `AWB_FRONTGAIN` (`0x40015000`) reaches the other. Each channel has four regions of {count, Cb sum, Cr sum} from `0x400140c0`, covering the pixels inside the grey window (`0x40014048`/`4c`, Cb ± Cr) and luma range (`0x40014054`).
   - **Luma floor:** only luma ≥ 0x80 counts. In the lab room (wood, beige, an orange chair) dim near-grey pixels pull grey-world, and the vendor's AWB, to a cyan picture. Tested against a colour checker's grey row. With too few bright grey pixels AWB holds, and widens first if it was narrow. Don't add a fallback to 0x40: it caught the first, still-dark frames and settled in the trap.
+- **Colour (M4):** the sensor driver's `ccm` (rows sum 256) goes into both CSM banks (`0x40061040`/`80`, switch `0x40061000`), with Cb/Cr gain (`0x40076004`/`08`) at `0x100`. `0x100` is unity: tested by a blue-gain change through an identity matrix, which moved only B. The vendor's `0x250` is a 2.3× saturation boost. Calibrate with `tools/xm-isp-tune/colorchecker.py` against a colour checker. It decodes the stream full-range (the XM510 RGB→YCbCr has no offset; the stream doesn't say so), undoes `GAMMA60`, and fits for CIELAB error as an sRGB display shows it. H62 daylight: dE 10.4, the vendor's 18.0. Matrix registers read back as 13-bit two's complement.
 - **Daemon:** it prints the vendor daemon's last start-up line, `ispMsgReceive start!`, in the vendor's format (`\033[0;32;32mDEBUG: ...\n\033[m`); majestic starts video after it. It takes signals with `sigwaitinfo()` (SIGIO from `/dev/isp` with `O_ASYNC`) and on SIGTERM turns 3D-NR off. It runs `xmisp_frame()` on every SIGIO.
 
 ### `tools/xm-vi-hang`
