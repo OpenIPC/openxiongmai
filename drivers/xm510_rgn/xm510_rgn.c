@@ -51,6 +51,7 @@
 #include <linux/ratelimit.h>
 #include <linux/sched.h>
 #include <linux/seq_file.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/swab.h>
 #include <linux/uaccess.h>
@@ -188,14 +189,15 @@ static u32 osd_end(u32 chn)
  * the hardware in channel 0 pixels, as the vendor module converts it */
 static u32 osd_x(u32 chn, u32 x)
 {
-	u32 r, p;
+	u64 p;
 
 	if (chn != 1)
 		return x;
-	r = readl(cover_regs + REG_VI_SCALE1);
-	p = r * x;
+	p = (u64)readl(cover_regs + REG_VI_SCALE1) * x;
+	if (p >> 10 > RGN_X_MAX)
+		return RGN_X_MAX;
 	if (!(p & 0x3ff))
-		return p >> 10 ? (p >> 10) - 1 : 0;
+		return p >> 10 ? (u32)(p >> 10) - 1 : 0;
 	return p >> 10;
 }
 
@@ -226,7 +228,8 @@ static void osd_write(u32 chn, u32 h)
 /*
  * Loads the channel's shadow into its SRAM, each word byte-swapped, once the
  * hardware has taken the previous load (bit 1 equal to bit 0), then asks it
- * to take this one.
+ * to take this one. The overlays' offsets are written after it, so they
+ * change only with the SRAM they point into.
  */
 static int osd_push(u32 chn)
 {
@@ -249,10 +252,14 @@ static int osd_push(u32 chn)
 	for (i = 0; i < n; i++)
 		writel(swab32(shadow[chn][i]), sram[chn] + 4 * i);
 	osd_wr(chn, REG_OSD_SYNC, (sync & 1) ^ 1);
+	for (i = 0; i < RGN_OVERLAYS; i++)
+		if (osds[chn][i].used)
+			osd_write_offset(chn, i);
 	return 0;
 }
 
-/* After a destroy: the bitmaps moved down to close the gap, in order */
+/* After a destroy: the bitmaps moved down in the shadow to close the gap, in
+ * order; the next load gives the hardware their new offsets */
 static void osd_compact(u32 chn)
 {
 	u8 *base = (u8 *)shadow[chn];
@@ -272,7 +279,6 @@ static void osd_compact(u32 chn)
 			memmove(base + at, base + next->off,
 				osd_slot(next->w, next->h));
 			next->off = at;
-			osd_write_offset(chn, next - osds[chn]);
 		}
 		at += osd_slot(next->w, next->h);
 	}
@@ -294,6 +300,7 @@ static int osd_create(const struct rgn_osd_create *r)
 {
 	struct rgn_osd *o;
 	u32 slot, end;
+	int ret;
 
 	if (r->chn >= RGN_CHNS || r->handle >= RGN_OVERLAYS || !r->w ||
 	    !r->h || r->w > RGN_X_MAX || r->h > RGN_Y_MAX)
@@ -314,8 +321,12 @@ static int osd_create(const struct rgn_osd_create *r)
 	o->w = r->w;
 	o->h = r->h;
 	o->off = end;
+	/* the SRAM there may hold an earlier overlay's pixels */
 	memset((u8 *)shadow[r->chn] + o->off, 0, slot);
-	return 0;
+	ret = osd_push(r->chn);
+	if (ret)
+		o->used = false;
+	return ret;
 }
 
 static int osd_destroy(u32 chn, u32 h)
@@ -362,6 +373,7 @@ static int osd_attr(const struct rgn_osd_attr *r)
 static int osd_bitmap(const struct rgn_bitmap *r)
 {
 	struct rgn_osd *o;
+	void *buf;
 	u32 n;
 
 	if (r->chn >= RGN_CHNS || r->handle >= RGN_OVERLAYS)
@@ -371,12 +383,16 @@ static int osd_bitmap(const struct rgn_bitmap *r)
 		pr_err("RGN: block not create\n");
 		return -ENOENT;
 	}
+	/* more than the overlay takes is cut, as the vendor module does */
 	n = min(r->size, DIV_ROUND_UP(o->w * o->h, 8));
-	if (copy_from_user((u8 *)shadow[r->chn] + o->off,
-			   (const void __user *)(unsigned long)r->data, n)) {
+	/* the shadow changes only with the whole bitmap */
+	buf = memdup_user((const void __user *)(unsigned long)r->data, n);
+	if (IS_ERR(buf)) {
 		pr_err("RGN: copy_from_user error.\n");
-		return -EFAULT;
+		return PTR_ERR(buf);
 	}
+	memcpy((u8 *)shadow[r->chn] + o->off, buf, n);
+	kfree(buf);
 	return osd_push(r->chn);
 }
 
@@ -396,8 +412,9 @@ static int osd_show(const struct rgn_show *r)
 
 static bool cover_valid(const struct rgn_cover *r)
 {
-	return r->handle < RGN_COVERS && r->w && r->h && r->w <= RGN_X_MAX &&
-	       r->h <= RGN_X_MAX && r->x <= RGN_X_MAX && r->y <= RGN_X_MAX;
+	return r->handle < RGN_COVERS && r->w && r->h && r->x <= RGN_X_MAX &&
+	       r->w <= RGN_X_MAX - r->x && r->y <= RGN_X_MAX &&
+	       r->h <= RGN_X_MAX - r->y;
 }
 
 static int cover_create(const struct rgn_cover *r)
@@ -422,11 +439,14 @@ static int cover_create(const struct rgn_cover *r)
 
 static int cover_destroy(u32 h)
 {
+	bool was;
+
 	if (h >= RGN_COVERS)
 		return -EINVAL;
+	was = covers[h].used;
 	covers[h].used = false;
 	cover_update(BIT(h), 0);
-	return 0;
+	return was ? 0 : -ENOENT;
 }
 
 static int cover_attr(const struct rgn_cover *r)

@@ -22,14 +22,14 @@ All calls are `ioctl`s of type `'R'`, with records of 32-bit words copied in; no
 | 2 | `{chn, handle, w, h}` | Creates overlay `handle` (0-15) of channel `chn` (0-1): `w` (1-2047) × `h` (1-1023) pixels. |
 | 3 | `{chn, handle, -, -}` | Destroys it. |
 | 4 | `{chn, handle, x, y, fg, bg, effect}` | Places it at `x` (0-2047), `y` (0-1023) with colours `fg` (bitmap 1) and `bg` (bitmap 0). |
-| 5 | `{chn, handle, data, size}` | Loads its bitmap: `size` bytes at `data`, at most `w` × `h` / 8. |
+| 5 | `{chn, handle, data, size}` | Loads its bitmap: `size` bytes at `data`. Bytes past `w` × `h` / 8 are ignored, as the vendor module ignores them. |
 | 6 | `{chn, handle, on}` | Shows it (`on` 1) or hides it. |
 | 7 | `{handle, w, h, x, y, color}` | Creates cover `handle` (0-7). |
 | 8 | `{handle, ...}` (6 words) | Destroys it. |
 | 9 | as 7 | Places it, and sets the colour of all covers to `color` (0x00YYUUVV): there is one colour register. |
 | 10 | `{-, handle, on}` | Shows cover `handle` (`on` 1) or hides it. |
 
-A wrong channel, handle or size fails with `EINVAL`. A region that exists already gives `EEXIST`, and one that doesn't `ENOENT`. An overlay that doesn't fit in what is left of the channel's OSD memory gives `ENOSPC`. The vendor library creates an overlay with ioctls 2 and 4, and a cover with 7 and 9.
+A wrong channel, handle or size fails with `EINVAL`. A region that exists already gives `EEXIST`, and one that doesn't `ENOENT`. An overlay that doesn't fit in what is left of the channel's OSD memory gives `ENOSPC`. A new overlay's bitmap is cleared in the OSD memory before it can be shown, so create, like a bitmap load, waits for the hardware and can fail with `ETIMEDOUT` or `EINTR`. When a destroy's load fails, the remaining overlays keep their old place until the next load succeeds. A cover must end within 2047 in both directions. The vendor library creates an overlay with ioctls 2 and 4, and a cover with 7 and 9.
 
 ### Bitmaps and colours
 
@@ -74,7 +74,7 @@ The bitmap memory of the channels is at `0x40090000` and `0x40094000`. The drive
 - **Memory:** the bitmap copy is the module's own memory. The vendor module allocates an MMZ block named `rgn` on every ioctl 1, maps it, and leaks the earlier mapping.
 - **Reset and unload:** both hide every region. The vendor module leaves them on the picture with nothing left to remove them.
 - **Missing regions:** showing one fails. The vendor module shows whatever the registers hold.
-- **Channel 1 positions:** a position that converts to below 0 is 0. The vendor module writes -1, the far right of the picture, when VI channel 1 isn't set up.
+- **Channel 1 positions:** a position that converts to below 0 is 0, and one past 2047 is 2047. The vendor module writes -1, the far right of the picture, when VI channel 1 isn't set up, and lets a large ratio wrap.
 - **`/proc/umap/rgn`:** a seq_file that frees what it allocates. Each read of the vendor's leaks some memory.
 
 ## Tested
