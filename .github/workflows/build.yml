@@ -165,7 +165,9 @@ jobs:
                 xmisp_open xmisp_start xmisp_script xmisp_fd xmisp_stop \
                 xmisp_close xmisp_error xmisp_scripts xmisp_h62_720p \
                 xmisp_frame xmisp_exposure xmisp_ae_enabled xmisp_sensor_h62 \
-                xmisp_ae_init xmisp_ae_update xmisp_ae_applied
+                xmisp_ae_init xmisp_ae_update xmisp_ae_applied \
+                xmisp_awb_enabled xmisp_white_balance \
+                xmisp_awb_init xmisp_awb_update xmisp_awb_applied
           exit $fail
 
       - name: Assert no vendor libs in NEEDED

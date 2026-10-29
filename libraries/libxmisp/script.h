@@ -38,6 +38,10 @@ struct xmisp_sensor {
   uint32_t lines_min; /* exposure range in lines, within the frame */
   uint32_t lines_max;
   float gain_max; /* the most gain AE may use; 1.0 = none */
+  /* White balance gains relative to G that the sensor's grey can need,
+   * from warm light (high blue) to shade (high red). */
+  float awb_r_min, awb_r_max;
+  float awb_b_min, awb_b_max;
   /* The exposure the sensor has now. 0 or -1. */
   int (*get_exposure)(struct xmisp *isp, uint32_t *lines, float *gain);
   /* Sets it; *gain comes back as the step the sensor took. 0 or -1. */

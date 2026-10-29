@@ -5,9 +5,9 @@
  * ISP up through libxmisp, prints the vendor daemon's ready line, and waits;
  * on SIGTERM or SIGINT it takes the vendor daemon's way out.
  *
- * Each frame start runs auto-exposure; white balance stays at the script's
- * fixed state. With XMISPD_VERBOSE set in its environment it prints every
- * exposure change (majestic logs each line, so not by default).
+ * Each frame start runs auto-exposure and auto white balance. With
+ * XMISPD_VERBOSE set in its environment it prints every change (majestic
+ * logs each line, so not by default).
  *
  * Output follows the vendor daemon's format, which the streamer forwards to
  * its log: "\033[0;32;32mDEBUG: ..." or "\033[0;32;31mERR: ...", each line
@@ -69,9 +69,12 @@ int main(void) {
     xmisp_close(isp);
     return 1;
   }
-  debug("%s up: open ISP, %s, fixed white balance", xmisp_script(isp)->name,
+  debug("%s up: open ISP, %s, %s", xmisp_script(isp)->name,
         xmisp_ae_enabled(isp) ? "auto-exposure"
-                              : "fixed exposure (no driver for the sensor)");
+                              : "fixed exposure (no driver for the sensor)",
+        xmisp_awb_enabled(isp)
+            ? "auto white balance"
+            : "fixed white balance (no range for the sensor)");
   const int verbose = getenv("XMISPD_VERBOSE") != NULL;
 
   const int fd = xmisp_fd(isp);
@@ -92,17 +95,21 @@ int main(void) {
       frames++;
       const int r = xmisp_frame(isp);
       if (r < 0 && !failing)
-        error("auto-exposure: %s; logged again when it recovers",
-              xmisp_error(isp));
+        error("3A: %s; logged again when it recovers", xmisp_error(isp));
       else if (r >= 0 && failing)
-        debug("auto-exposure recovered after frame %lu", frames - 1);
+        debug("3A recovered after frame %lu", frames - 1);
       failing = r < 0;
       if (r > 0 && verbose) {
         float mean, gain;
         uint32_t lines;
         xmisp_exposure(isp, &mean, &lines, &gain);
-        debug("frame %lu: mean %.1f -> %u lines, gain %.2f", frames, mean,
-              (unsigned)lines, gain);
+        uint32_t grey;
+        float cb, cr, wr, wb;
+        xmisp_white_balance(isp, &grey, &cb, &cr, &wr, &wb);
+        debug("frame %lu: mean %.1f -> %u lines, gain %.2f; %u grey, Cb %.1f "
+              "Cr %.1f -> R %.2f B %.2f",
+              frames, mean, (unsigned)lines, gain, (unsigned)grey, cb, cr, wr,
+              wb);
       }
     } else if (sig == SIGTERM || sig == SIGINT)
       break;

@@ -96,7 +96,7 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 - **Exit (SIGTERM):** it drops its SIGIO handler, turns 3D-NR off (`0x40040000` = 0) and closes its devices.
 - **Cost:** untraced the daemon takes about 5% CPU, traced about 50%.
 
-### `libraries/libxmisp` and `tools/xmispd` (open XM510 ISP, M1-M2)
+### `libraries/libxmisp` and `tools/xmispd` (open XM510 ISP, M1-M3)
 
 `libxmisp` (static `libxmisp.a`, MIT) is the open ISP and `tools/xmispd` (MIT, static) the daemon on it, a drop-in for the vendor `/usr/bin/isp`. Keep both clean-room as above, and keep GPL code and the vendor-derived headers in `libraries/isp/include` out: register names appear as comments only.
 - **Sensor scripts (`script.h`):** the start-up for one sensor and mode as steps: MMZ/VI/region resets, system controller writes, sensor writes, the chip ID to expect, VI ioctls, the "Isp" MMZ block, and ISP writes. A script also carries a fixed 3A state applied once after it. `xmisp_start()` tries each script in `xmisp_scripts` until a chip ID matches. Registers holding addresses in the "Isp" block are written relative to its allocation, in 8-byte units from DDR (`0x80000000`).
@@ -108,7 +108,12 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
   - `ae.c` knows neither SoC nor sensor: mean luma in, lines and gain out. It moves lines × gain by the square root of target/mean each step, lines before gain, then waits `interval` frames. Test it on the host with `make -C libraries/libxmisp test`; CI runs that.
   - `sensor_h62.c`: exposure in lines at `0x02`/`0x01`; gain at `0x00`, 2^[6:4] × (1 + [3:0]/16), with `0x7x` measuring the same as `0x6x`. Both were measured with the statistics, not taken from the vendor.
   - `xm510.c` reads the statistics: a 32-bin luma histogram at `0x40033080`, and 7×7 zone sums from `0x40033100` (rows in pairs `0x40` apart, the second `0x1c` in). Zone total over histogram total is the 8-bit linear mean. The vendor holds it at about 37.5, and so does `ae_xm510`.
-- **Daemon:** it prints the vendor daemon's last start-up line, `ispMsgReceive start!`, in the vendor's format (`\033[0;32;32mDEBUG: ...\n\033[m`); majestic starts video after it. It takes signals with `sigwaitinfo()` (SIGIO from `/dev/isp` with `O_ASYNC`) and on SIGTERM turns 3D-NR off. It runs `xmisp_frame()` on every SIGIO. White balance stays at the script's fixed state until AWB (M3), so in another light the colour is off while the brightness is right.
+- **AWB (M3):** in the same split as AE.
+  - `awb.c`: grey-world on the pixels grey under the gains set. R is scaled by exp(−Cr/step) and B by exp(−Cb/step). The grey window is wide while far off and narrow once near.
+  - The sensor driver gives the gain range: for the H62, the range the vendor's AWB searches.
+  - `xm510.c`: the AWB statistics are of the raw picture times four candidate R/B gain pairs (`0x40010000`/`10`). Neither those nor the picture's `AWB_FRONTGAIN` (`0x40015000`) reaches the other. Each channel has four regions of {count, Cb sum, Cr sum} from `0x400140c0`, covering the pixels inside the grey window (`0x40014048`/`4c`, Cb ± Cr) and luma range (`0x40014054`).
+  - **Luma floor:** only luma ≥ 0x80 counts. In the lab room (wood, beige, an orange chair) dim near-grey pixels pull grey-world, and the vendor's AWB, to a cyan picture. Tested against a colour checker's grey row. With too few bright grey pixels AWB holds, and widens first if it was narrow. Don't add a fallback to 0x40: it caught the first, still-dark frames and settled in the trap.
+- **Daemon:** it prints the vendor daemon's last start-up line, `ispMsgReceive start!`, in the vendor's format (`\033[0;32;32mDEBUG: ...\n\033[m`); majestic starts video after it. It takes signals with `sigwaitinfo()` (SIGIO from `/dev/isp` with `O_ASYNC`) and on SIGTERM turns 3D-NR off. It runs `xmisp_frame()` on every SIGIO.
 
 ### `tools/xm-vi-hang`
 

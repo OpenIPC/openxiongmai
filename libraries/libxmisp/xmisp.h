@@ -5,7 +5,7 @@
  *
  * XM510 only so far: xmisp_start() brings up VI, the sensor and the ISP
  * from a sensor script and applies its fixed 3A state; xmisp_frame() runs
- * auto-exposure each frame (M2). White balance stays fixed.
+ * auto-exposure (M2) and auto white balance (M3) each frame.
  */
 #ifndef XMISP_H
 #define XMISP_H
@@ -28,13 +28,23 @@ const struct xmisp_script *xmisp_script(const struct xmisp *isp);
 /* /dev/isp: with O_ASYNC (fcntl) it sends SIGIO at each frame start. */
 int xmisp_fd(const struct xmisp *isp);
 
-/* Once a frame, at its start (SIGIO): reads the AE statistics and moves the
- * exposure. 1 if it changed, 0 if not (or AE is off), -1 if the statistics
- * or the sensor failed, with xmisp_error() saying which. */
+/* Once a frame, at its start (SIGIO): reads the statistics and moves the
+ * exposure and the white balance. 1 if either changed, 0 if not (or both
+ * are off), -1 if the statistics, the sensor or a register write failed,
+ * with xmisp_error() naming which (both, if both did). A white balance
+ * write that failed part way is set right on the next frame. */
 int xmisp_frame(struct xmisp *isp);
 
 /* 1 if AE runs: the script's sensor has a driver. */
 int xmisp_ae_enabled(const struct xmisp *isp);
+
+/* 1 if AWB runs: the sensor driver gives its white balance range. */
+int xmisp_awb_enabled(const struct xmisp *isp);
+
+/* The last AWB measurement (grey pixels, their mean Cb and Cr) and the
+ * gains set, relative to G. */
+void xmisp_white_balance(const struct xmisp *isp, uint32_t *grey, float *cb,
+                         float *cr, float *r, float *b);
 
 /* The last frame's mean luma (8-bit, linear) and the exposure set. */
 void xmisp_exposure(const struct xmisp *isp, float *mean, uint32_t *lines,
