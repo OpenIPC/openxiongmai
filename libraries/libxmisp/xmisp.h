@@ -31,7 +31,8 @@ int xmisp_fd(const struct xmisp *isp);
 /* Once a frame, at its start (SIGIO): reads the statistics and moves the
  * exposure and the white balance. 1 if either changed, 0 if not (or both
  * are off), -1 if the statistics, the sensor or a register write failed,
- * with xmisp_error() saying which. */
+ * with xmisp_error() naming which (both, if both did). A white balance
+ * write that failed part way is set right on the next frame. */
 int xmisp_frame(struct xmisp *isp);
 
 /* 1 if AE runs: the script's sensor has a driver. */

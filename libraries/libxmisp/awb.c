@@ -4,8 +4,8 @@
  * step scales R by exp(-Cr / step) and B by exp(-Cb / step), within the
  * sensor's range. The window stays wide until both are near zero, so a
  * start far off still finds grey pixels, then narrows so that only grey
- * ones count; if the error grows again it widens. As with AE, only
- * xmisp_awb_applied() changes the gains, once they are set.
+ * ones count; if the error grows again, or the grey pixels go, it widens. As
+ * with AE, only xmisp_awb_applied() changes the gains, once they are set.
  */
 #include <math.h>
 
@@ -31,8 +31,15 @@ int xmisp_awb_update(struct xmisp_awb *awb, uint32_t points, float cb, float cr,
     awb->wait--;
     return 0;
   }
-  if (points < c->points_min)
-    return 0; /* nothing grey enough to go by: hold */
+  if (points < c->points_min) {
+    /* Nothing grey enough to go by. In the narrow window that may be a
+     * change of light: look wide before holding. */
+    if (awb->window == XMISP_AWB_NARROW) {
+      awb->window = XMISP_AWB_WIDE;
+      awb->wait = c->interval;
+    }
+    return 0;
+  }
   const int near = fabsf(cb) < c->near && fabsf(cr) < c->near;
   const enum xmisp_awb_window window = near ? XMISP_AWB_NARROW : XMISP_AWB_WIDE;
   if (window != awb->window) {

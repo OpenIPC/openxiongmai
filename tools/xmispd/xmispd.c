@@ -95,10 +95,9 @@ int main(void) {
       frames++;
       const int r = xmisp_frame(isp);
       if (r < 0 && !failing)
-        error("auto-exposure: %s; logged again when it recovers",
-              xmisp_error(isp));
+        error("3A: %s; logged again when it recovers", xmisp_error(isp));
       else if (r >= 0 && failing)
-        debug("auto-exposure recovered after frame %lu", frames - 1);
+        debug("3A recovered after frame %lu", frames - 1);
       failing = r < 0;
       if (r > 0 && verbose) {
         float mean, gain;

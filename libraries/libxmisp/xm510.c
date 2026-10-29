@@ -89,14 +89,13 @@ static const struct xmisp_ae_cfg ae_xm510 = {
 /* The grey window, Cb ± Cr within ±38 (the vendor's) while far off, ±8
  * once near. Luma at least 0x80: dimmer pixels in a room of wood and beige
  * pass as grey under far too blue gains (lab colour checker, daylight:
- * 0x80 lands within 5% of the chart's grey, 0x40 nowhere near). With too
- * few bright grey pixels the vendor's 0x40 is used, and 0x80 tried again
- * every AWB_DIM_RETRY frames. */
+ * 0x80 lands within 5% of the chart's grey, the vendor's 0x40 nowhere
+ * near). Too few bright grey pixels, as in the first frames before AE has
+ * the picture bright, or in a dark scene, and AWB holds its gains: falling
+ * back to 0x40 there settles in exactly that trap. */
 #define AWB_WINDOW_WIDE 0xda26
 #define AWB_WINDOW_NARROW 0xf808
-#define AWB_YTHD_BRIGHT 0xdc80
-#define AWB_YTHD_DIM 0xdc40
-#define AWB_DIM_RETRY 250
+#define AWB_LUMA 0xdc80
 
 static const struct xmisp_awb_cfg awb_xm510 = {
     .points_min = 300,
@@ -121,8 +120,8 @@ struct xmisp {
   struct xmisp_awb awb;
   int awb_on;
   uint32_t front_g; /* the script's G gain, which AWB keeps */
+  int awb_dirty;    /* a gain write failed part way */
   uint32_t window, ythd;
-  unsigned dim;  /* frames in the dim luma range */
   uint32_t grey; /* the last measurement */
   float cb, cr;
   char err[160];
@@ -408,11 +407,24 @@ static int awb_start(struct xmisp *s) {
   const struct xmisp_sensor *sn = s->script->sensor;
   uint32_t r = 0, g = 0, b = 0;
   s->awb_on = 0;
+  s->awb_dirty = 0;
   if (!sn || !sn->awb_r_max)
     return 0;
   if (isp_r(s, AWB_FRONT, &r) < 0 || isp_r(s, AWB_FRONT + 4, &g) < 0 ||
-      isp_r(s, AWB_FRONT + 8, &b) < 0 || !g)
-    return fail(s, "AWB gains read: %s", g ? strerror(errno) : "G is 0");
+      isp_r(s, AWB_FRONT + 8, &b) < 0)
+    return fail(s, "AWB gains read: %s", strerror(errno));
+  if (!g)
+    return fail(s, "AWB gains read: G is 0");
+  /* The range must fit the registers: candidate gains in 0x100 units, the
+   * picture's in units of its G. */
+  const float top =
+      (float)AWB_GAIN_MAX / (float)(g > AWB_GAIN_ONE ? g : AWB_GAIN_ONE);
+  if (!(sn->awb_r_min > 0 && sn->awb_r_min <= sn->awb_r_max &&
+        sn->awb_r_max <= top && sn->awb_b_min > 0 &&
+        sn->awb_b_min <= sn->awb_b_max && sn->awb_b_max <= top))
+    return fail(s, "sensor AWB range R %g-%g, B %g-%g: not within 0-%g",
+                sn->awb_r_min, sn->awb_r_max, sn->awb_b_min, sn->awb_b_max,
+                top);
   struct xmisp_awb_cfg cfg = awb_xm510;
   cfg.r_min = sn->awb_r_min;
   cfg.r_max = sn->awb_r_max;
@@ -421,9 +433,8 @@ static int awb_start(struct xmisp *s) {
   s->front_g = g;
   xmisp_awb_init(&s->awb, &cfg, (float)r / (float)g, (float)b / (float)g);
   s->window = s->ythd = 0;
-  s->dim = 0;
   if (awb_set(s, s->awb.r, s->awb.b) < 0 ||
-      awb_gate(s, AWB_WINDOW_WIDE, AWB_YTHD_BRIGHT) < 0)
+      awb_gate(s, AWB_WINDOW_WIDE, AWB_LUMA) < 0)
     return -1;
   s->awb_on = 1;
   return 0;
@@ -446,20 +457,15 @@ static int awb_measure(struct xmisp *s) {
 static int awb_frame(struct xmisp *s) {
   if (!s->awb_on)
     return 0;
+  /* A write that failed part way left the candidate and picture gains
+   * apart: set them all to the gains AWB holds before measuring again. */
+  if (s->awb_dirty) {
+    if (awb_set(s, s->awb.r, s->awb.b) < 0)
+      return -1;
+    s->awb_dirty = 0;
+  }
   if (awb_measure(s) < 0)
     return -1;
-  /* Too few bright grey pixels: the dim range, and the bright one again
-   * now and then. A change of range makes the next frame's numbers of
-   * other pixels, so it waits a frame. */
-  uint32_t ythd = s->ythd;
-  if (s->ythd == AWB_YTHD_BRIGHT && s->grey < s->awb.cfg.points_min)
-    ythd = AWB_YTHD_DIM;
-  else if (s->ythd == AWB_YTHD_DIM && ++s->dim >= AWB_DIM_RETRY)
-    ythd = AWB_YTHD_BRIGHT;
-  if (ythd != s->ythd) {
-    s->dim = 0;
-    return awb_gate(s, s->window, ythd) < 0 ? -1 : 0;
-  }
   float r, b;
   const int change = xmisp_awb_update(&s->awb, s->grey, s->cb, s->cr, &r, &b);
   if (awb_gate(s,
@@ -469,8 +475,10 @@ static int awb_frame(struct xmisp *s) {
     return -1;
   if (!change)
     return 0;
-  if (awb_set(s, r, b) < 0)
+  if (awb_set(s, r, b) < 0) {
+    s->awb_dirty = 1;
     return -1;
+  }
   xmisp_awb_applied(&s->awb, r, b);
   return 1;
 }
@@ -480,8 +488,13 @@ int xmisp_frame(struct xmisp *s) {
   char err[sizeof(s->err)];
   memcpy(err, s->err, sizeof(err));
   const int awb = awb_frame(s);
-  if (ae < 0 && awb >= 0)
+  if (ae < 0 && awb < 0) {
+    char awb_err[sizeof(s->err)];
+    memcpy(awb_err, s->err, sizeof(awb_err));
+    snprintf(s->err, sizeof(s->err), "%.78s; %.78s", err, awb_err);
+  } else if (ae < 0) {
     memcpy(s->err, err, sizeof(err)); /* AE's reason, not overwritten */
+  }
   if (ae < 0 || awb < 0)
     return -1;
   return ae > 0 || awb > 0;

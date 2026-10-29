@@ -39,8 +39,14 @@ static int run(struct xmisp_awb *awb, float r0, float b0, float k,
   for (int f = 0; f < frames; f++) {
     const float cb = k * logf(awb->b / b0), cr = k * logf(awb->r / r0);
     const float half = awb->window == XMISP_AWB_NARROW ? 8.0f : 38.0f;
-    const unsigned n =
-        fabsf(cb) + fabsf(cr) < half ? points : points / 50; /* edge: few */
+    /* Fewer grey pixels the farther the gains are from grey: none at twice
+     * the narrow window, a tenth at least in the wide one, as on the camera,
+     * where the wide window always finds some. */
+    const float off = (fabsf(cb) + fabsf(cr)) / (2.0f * half);
+    const float left = awb->window == XMISP_AWB_NARROW
+                           ? (off < 1.0f ? 1.0f - off : 0.0f)
+                           : (off < 0.9f ? 1.0f - off : 0.1f);
+    const unsigned n = (unsigned)((float)points * left);
     float r, b;
     if (xmisp_awb_update(awb, n, cb, cr, &r, &b)) {
       xmisp_awb_applied(awb, r, b);
@@ -74,6 +80,23 @@ int main(void) {
               "not at grey", r0, b0);
         check(awb.window == XMISP_AWB_NARROW, "window not narrowed", r0, b0);
       }
+
+  /* The light changes after settling: in the narrow window nothing is grey
+   * any more, so it widens and finds the new grey. */
+  {
+    struct xmisp_awb a;
+    xmisp_awb_init(&a, &cfg, 1.3f, 2.4f);
+    run(&a, 1.56f, 2.19f, 40.0f, 20000, 200);
+    check(a.window == XMISP_AWB_NARROW, "not narrow before the change", 1.56f,
+          2.19f);
+    const int s2 = run(&a, 1.0f, 3.2f, 40.0f, 20000, 400);
+    const float er = logf(a.r / 1.0f) * 40, eb = logf(a.b / 3.2f) * 40;
+    printf("light changed to R 1.00 B 3.20: settled at frame %d, R %.3f B "
+           "%.3f\n",
+           s2, a.r, a.b);
+    check(s2 >= 0 && fabsf(er) <= 0.8f && fabsf(eb) <= 0.8f,
+          "stuck after a change of light", 1.0f, 3.2f);
+  }
 
   /* Too few grey pixels: the gains hold. */
   struct xmisp_awb awb;

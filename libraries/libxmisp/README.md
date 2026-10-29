@@ -61,8 +61,10 @@ XM510 only so far:
   Over a whole room of wood, beige and an orange chair, the dim pixels that
   pass as grey pull grey-world to far too blue gains; the vendor daemon's
   AWB lands there too, and its picture is cyan. Counting only pixels of luma
-  0x80 and above lands within 5% of the chart's grey, so `xmisp` does that,
-  and falls back to the vendor's 0x40 when too few pixels are bright.
+  0x80 and above lands within 5% of the chart's grey, so `xmisp` does that.
+  When too few pixels are bright, it holds its gains: in the first frames,
+  before AE has the picture bright, and in a dark scene. Falling back to
+  0x40 there settled in the cyan trap on the camera.
 
 ## Sensor scripts
 

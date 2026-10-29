@@ -112,7 +112,7 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
   - `awb.c`: grey-world on the pixels grey under the gains set. R is scaled by exp(−Cr/step) and B by exp(−Cb/step). The grey window is wide while far off and narrow once near.
   - The sensor driver gives the gain range: for the H62, the range the vendor's AWB searches.
   - `xm510.c`: the AWB statistics are of the raw picture times four candidate R/B gain pairs (`0x40010000`/`10`). Neither those nor the picture's `AWB_FRONTGAIN` (`0x40015000`) reaches the other. Each channel has four regions of {count, Cb sum, Cr sum} from `0x400140c0`, covering the pixels inside the grey window (`0x40014048`/`4c`, Cb ± Cr) and luma range (`0x40014054`).
-  - **Luma floor:** only luma ≥ 0x80 counts. In the lab room (wood, beige, an orange chair) dim near-grey pixels pull grey-world, and the vendor's AWB, to a cyan picture. Tested against a colour checker's grey row.
+  - **Luma floor:** only luma ≥ 0x80 counts. In the lab room (wood, beige, an orange chair) dim near-grey pixels pull grey-world, and the vendor's AWB, to a cyan picture. Tested against a colour checker's grey row. With too few bright grey pixels AWB holds, and widens first if it was narrow. Don't add a fallback to 0x40: it caught the first, still-dark frames and settled in the trap.
 - **Daemon:** it prints the vendor daemon's last start-up line, `ispMsgReceive start!`, in the vendor's format (`\033[0;32;32mDEBUG: ...\n\033[m`); majestic starts video after it. It takes signals with `sigwaitinfo()` (SIGIO from `/dev/isp` with `O_ASYNC`) and on SIGTERM turns 3D-NR off. It runs `xmisp_frame()` on every SIGIO.
 
 ### `tools/xm-vi-hang`
