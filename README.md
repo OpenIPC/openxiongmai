@@ -38,8 +38,9 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 ```
 ├── drivers/                     Kernel modules (out-of-tree kbuild)
 │   ├── hx280enc/                Hantro 6280/7280/8270/8290 video encoder driver
+│   ├── xm_hevc/                 V200-series H.265 engine (/dev/h265)
 │   ├── xm_i2c/                  /dev/xm_i2c misc-device (stub)
-│   ├── xm_mmz/                  XM530/XM550 media memory zone (/dev/mmz)
+│   ├── xm_mmz/                  XM530/XM550 and V200-series media memory zone (/dev/mmz)
 │   └── xm_vi/                   XM530/XM550 video input driver (/dev/vi)
 │
 └── libraries/                   Userspace libraries
@@ -83,7 +84,8 @@ make -C libraries CHIPARCH=xm530 CC=arm-openipc-linux-musleabi-gcc STRIP=arm-ope
 make -C drivers/hx280enc KDIR=/path/to/linux
 make -C drivers/xm_i2c   KDIR=/path/to/linux
 make -C drivers/xm_vi    KDIR=/path/to/linux   # XM530 kernel only
-make -C drivers/xm_mmz   KDIR=/path/to/linux   # XM530 kernel only
+make -C drivers/xm_mmz   KDIR=/path/to/linux   # XM530 kernel only; MMZ_ALLOCATOR=list for the V200 series
+make -C drivers/xm_hevc  KDIR=/path/to/linux HEVC_LAYOUT=v3   # V200 series: v3 XM530V200/XM533, v1 XM535
 ```
 
 The Makefiles set different default toolchains (`arm-xm-linux-`, `arm-linux-` or `arm-openipc-linux-musleabi-`), so pass `CROSS_COMPILE` explicitly. `libmpi` and the kernel module Makefiles also hard-code `PATH` to a vendor toolchain directory. Override it from the command line, for example `make PATH="$PATH" ...`, or give an absolute `CROSS_COMPILE` prefix. Most components build with `-Werror`.
@@ -133,7 +135,8 @@ To add a sensor:
 |--------|----------|--------|
 | `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder, built as `open_h264.ko` | Same `/dev/h264` ABI as the vendor `xm530_h264.ko`; ran majestic on an XM550 in place of it, and on an XM510 in place of `xm510_h264.ko` |
 | `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
-| `xm_mmz` | XM530/XM550 media memory zone: the named, physically contiguous DMA buffers the SDK and video drivers share (`/dev/mmz`) | Builds `open_mmz.ko`. Same parameters, ioctls, exports and `/proc/umap/mmz` as the vendor `mmz.ko`; ran majestic on an XM550 in place of it |
+| `xm_hevc` | V200-series H.265 encoder engine: runs the register lists user space builds (`/dev/h265`) | Builds `open_hevc.ko`. Same ioctls and records as the vendor `hevc.ko`, both engines (v3: XM530V200/XM533, v1: XM535); ran libxmv200 on all five V200-series chips in qemu-bench in place of it |
+| `xm_mmz` | XM530/XM550 and V200-series media memory zone: the named, physically contiguous DMA buffers the SDK and video drivers share (`/dev/mmz`) | Builds `open_mmz.ko`. Same parameters, ioctls, exports and `/proc/umap/mmz` as the vendor `mmz.ko`; ran majestic on an XM550 in place of it, and libxmv200 on all five V200-series chips in qemu-bench (`allocator=list`) |
 | `xm_vi` | XM530/XM550 video input: capture window, scalers and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm530_vi.ko`, without its vmalloc leak; ran majestic on an XM550 in place of it |
 
 ## Open encoder
