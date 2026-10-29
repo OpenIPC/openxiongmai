@@ -22,7 +22,14 @@ XM510 only so far:
   lines gets 1 line at 1.5×. A proposal that rounds to the exposure already
   set isn't written. Its state changes only with what the sensor took,
   which after a failed write is what it reads back. After each change it
-  waits `interval` frames for the change to show in the statistics. `make test` runs it on the host against a simulated sensor:
+  waits `interval` frames for the change to show in the statistics.
+  With anti-flicker on (`xmisp_set_antiflicker()`, 50 or 60 Hz), the lines
+  are whole flicker periods (10 or 8.33 ms), at least one, and gain makes
+  up the rest. Light too bright for one period is overexposed, not banded.
+  Under a 200 W LED lamp, with the lines left free under one period,
+  88 lines (1.6 ms) gave rolling bands of 8.6% at 186.4 rows; at one period
+  the rows varied by 0.15%, at noise level, and the picture was 1.45× the
+  target brightness. `make test` runs it on the host against a simulated sensor:
   convergence from far off either way, steadiness, and the limits.
 - **`awb.c`: auto white balance, independent of the SoC.** It does
   grey-world over the pixels that look grey under the gains already set. The
@@ -115,8 +122,10 @@ These were measured on the lab XM510 with `xmispd` holding the rest fixed:
   26.1).
 - **Gain:** register `0x00` gives 2^[6:4] × (1 + [3:0]/16). Each step of
   bits 6:4 doubled the mean, and `0x7x` measured the same as `0x6x`.
-- **Frame:** the 720p25 script sets 750 lines (`0x23`/`0x22`). AE uses up to
-  746 lines, and gain up to 16 for now.
+- **Frame:** the 720p25 script sets 750 lines (`0x23`/`0x22`); VI counts 750
+  too (`VI_VH_ALL` `0x02ee0780`), at 25 fps, so a line is 53.33 µs. AE uses
+  up to 746 lines, and gain up to 16 for now. Under anti-flicker that's 3
+  periods of 10 ms (563 lines) or 4 of 8.33 ms (625).
 - **White balance:** in daylight the chart's grey needs R 1.56 and B 2.19
   relative to G. AWB keeps to the range the vendor daemon's AWB searches,
   R 0.75–2.8 and B 1.1–3.6.

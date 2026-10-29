@@ -6,7 +6,9 @@
  * - analogue gain in register 0x00: 2^[6:4] x (1 + [3:0]/16), each step of
  *   bits 6:4 doubling the statistics; 0x7x measured as 0x6x, so the top step
  *   is 6;
- * - the 720p25 script sets 750 lines a frame (registers 0x23/0x22).
+ * - the 720p25 script sets 750 lines a frame (registers 0x23/0x22), which VI
+ *   counts too (VI_VH_ALL 0x02ee0780: 750 lines of 1920 clocks), at 25 fps:
+ *   a line is 1 s / (25 x 750) = 53.33 us.
  */
 #include <math.h>
 
@@ -72,7 +74,8 @@ static const int16_t ccm_h62[9] = {
 
 const struct xmisp_sensor xmisp_sensor_h62 = {
     .lines_min = 1,
-    .lines_max = 746,  /* a few lines short of the 750-line frame */
+    .lines_max = 746, /* a few lines short of the 750-line frame */
+    .line_ns = 53333,
     .gain_max = 16.0f, /* 24 dB: noise over brightness, for now */
     /* The range the vendor daemon's AWB searches on this sensor (its
      * candidate gains, traced). Daylight grey on the lab chart is R 1.56,

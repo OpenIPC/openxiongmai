@@ -11,6 +11,13 @@ An open ISP daemon for the XM510 (MIT), a drop-in for the vendor
 - on SIGTERM or SIGINT, does what the vendor daemon does on its way out:
   3D noise reduction off, then exit.
 
+Anti-flicker follows majestic's `isp.antiFlicker` (`disabled`, `50` or `60`,
+as `/api/v1/config.schema.json` describes it). The daemon reads it from
+`/etc/majestic.yaml` at start and again on SIGHUP; `XMISPD_ANTIFLICKER`
+(0, 50, 60) overrides it. Changing it through majestic needs nothing more:
+majestic logs `isp.antiFlicker (changed)` and, on this platform, restarts
+itself, and with it the daemon.
+
 Its output uses the vendor daemon's format (`\033[0;32;32mDEBUG: ...`,
 `\033[0;32;31mERR: ...`), which majestic forwards to its log. It holds
 `/tmp/Isplock` like the vendor daemon, so two can't run.
@@ -41,6 +48,15 @@ Tested on the lab XM510 with a JX-H62 under majestic:
   it settles in about 22 frames at R 1.47, B 2.31. The chart's greys come
   out R/G 0.92, B/G 1.02; the vendor daemon's are R/G 0.35, B/G 1.30 (cyan).
   It then makes no change for a minute.
+- **Anti-flicker, under a 200 W LED lamp** (switched by the lab's
+  controllable plug): with `isp.antiFlicker` disabled, AE settled at 87
+  lines (1.6 ms), and the rows varied by 8.6% in rolling bands 186.4 rows
+  apart. That's the 10 ms period at 53.33 µs a line (185.9 rows after VI's
+  726 to 720 scaling), so it confirms the line time. With `50` AE holds one
+  period (188 lines), the bands are gone (rows vary by 0.15%), and the
+  picture is overexposed 1.45×.
+- **Anti-flicker, dim light:** at `50` AE settles at 563 lines (3 periods),
+  at `60` at 625 (4), and `disabled` returns it to 746.
 - **Colour:** the H62's calibrated matrix gives a mean dE of 10.4 on the
   colour checker, against the vendor daemon's 16.9 in the same light.
 - **Footprint:** about 200 KB of RAM (the vendor's: 430 KB) and almost no

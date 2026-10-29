@@ -57,6 +57,9 @@ static int run(struct xmisp_ae *ae, double scene, int frames, uint32_t *lines,
   return last < frames - 100 ? last : -1;
 }
 
+/* run() with another configuration of the same interval. */
+#define runc(ae, c, ...) ((void)(c), run(ae, __VA_ARGS__))
+
 int main(void) {
   /* 25 and 30 want 1.5 and 1.25 lines: between the steps there are. */
   const double scenes[] = {0.0005, 0.005, 0.05, 0.5, 5.0, 25.0, 30.0};
@@ -93,6 +96,88 @@ int main(void) {
       writes_same = 0;
     }
   }
+  /* Anti-flicker, 50 Hz at 53.33 us a line: 187.5 lines a period. */
+  {
+    struct xmisp_ae_cfg fc = cfg;
+    fc.flicker_lines = 187.5f;
+    const double fscenes[] = {0.0005, 0.005, 0.05, 0.1, 0.5, 5.0};
+    for (unsigned i = 0; i < sizeof(fscenes) / sizeof(fscenes[0]); i++) {
+      struct xmisp_ae ae;
+      uint32_t lines = 100;
+      float gain = 1.0f;
+      double mean;
+      xmisp_ae_init(&ae, &fc, lines, gain);
+      const int settled = runc(&ae, &fc, fscenes[i], 400, &lines, &gain, &mean);
+      const double periods = lines / 187.5;
+      const int whole = fabs(periods - round(periods)) * 187.5 <= 0.51;
+      printf("anti-flicker scene %-6g: settled at frame %3d, %3u lines (%.2f "
+             "periods), gain %5.2f, mean %6.2f\n",
+             fscenes[i], settled, (unsigned)lines, periods, gain, mean);
+      check(settled >= 0, "keeps changing (anti-flicker)", fscenes[i]);
+      check(whole && lines >= 187, "not whole flicker periods", fscenes[i]);
+      check(lines <= 563, "beyond the last whole period", fscenes[i]);
+      const double want = fc.target / fscenes[i];
+      if (want >= 187.5 && want <= 562.5 * fc.gain_max)
+        check(fabs(mean / fc.target - 1.0) <= fc.tolerance + 0.07,
+              "mean off target (anti-flicker)", fscenes[i]);
+      if (want < 187.5) /* too bright for a period: one period, gain 1 */
+        check(lines == 188 && gain == 1.0f, "not one period when too bright",
+              fscenes[i]);
+    }
+    /* Turned on while settled at 300 lines: it moves to whole periods in
+     * the same light. */
+    struct xmisp_ae ae;
+    uint32_t lines = 300;
+    float gain = 1.0f;
+    double mean;
+    xmisp_ae_init(&ae, &cfg, lines, gain);
+    runc(&ae, &cfg, cfg.target / 300.0, 50, &lines, &gain, &mean);
+    xmisp_ae_flicker(&ae, 187.5f);
+    struct xmisp_ae_cfg fc2 = cfg;
+    fc2.flicker_lines = 187.5f;
+    runc(&ae, &fc2, cfg.target / 300.0, 100, &lines, &gain, &mean);
+    printf("anti-flicker turned on at 300 lines: %u lines, gain %.2f, mean "
+           "%.2f\n",
+           (unsigned)lines, gain, mean);
+    check(lines == 188 && fabs(mean / cfg.target - 1.0) <= 0.15,
+          "not re-planned when turned on", cfg.target / 300.0);
+  }
+
+  /* A sensor minimum between period boundaries: the exposure is still
+   * whole periods, the first one above the minimum. */
+  {
+    struct xmisp_ae_cfg mc = cfg;
+    mc.flicker_lines = 187.5f;
+    mc.lines_min = 200;
+    struct xmisp_ae ae;
+    uint32_t lines = 300;
+    float gain = 1.0f;
+    double mean;
+    xmisp_ae_init(&ae, &mc, lines, gain);
+    runc(&ae, &mc, mc.target / 250.0, 300, &lines, &gain, &mean);
+    printf("anti-flicker with a 200-line minimum: %u lines, gain %.2f\n",
+           (unsigned)lines, gain);
+    check(lines == 375, "minimum between periods broke alignment",
+          mc.target / 250.0);
+  }
+
+  /* A write that fails while re-planning: AE goes on from what the sensor
+   * has, and the re-plan stays pending until it has whole periods. */
+  {
+    struct xmisp_ae_cfg fc3 = cfg;
+    struct xmisp_ae ae;
+    xmisp_ae_init(&ae, &fc3, 300, 1.0f);
+    xmisp_ae_flicker(&ae, 187.5f);
+    uint32_t l;
+    float g;
+    int asked = xmisp_ae_update(&ae, cfg.target, &l, &g);
+    xmisp_ae_applied(&ae, 300, 1.0f); /* the write failed: read back */
+    check(asked && ae.replan, "re-plan lost on a failed write", 0);
+    for (int f = 0; f < 4 && !xmisp_ae_update(&ae, cfg.target, &l, &g); f++)
+      ;
+    check(l == 188, "not retried after a failed write", 0);
+  }
+
   printf(failures ? "%d failed\n" : "ok\n", failures);
   return failures != 0;
 }

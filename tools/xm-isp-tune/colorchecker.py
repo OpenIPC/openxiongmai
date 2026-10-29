@@ -22,8 +22,9 @@ with /tmp/ispreg on it. The script:
 last (black, bottom right), in picture pixels.
 
 The camera's root password comes from SSHPASS in the environment, for
-sshpass -e; the host key is checked as ssh checks it. For a camera not yet
-in known_hosts, check its key's fingerprint on the console
+sshpass -e; the host key is checked as the user's ssh configuration says
+(by default, an unknown host is refused). For a camera not yet in
+known_hosts, check its key's fingerprint on the console
 (dropbearkey -y -f /etc/dropbear/dropbear_ed25519_host_key) and pass
 --accept-new-host-key once, which adds it.
 
@@ -95,8 +96,12 @@ class Camera:
     def __init__(self, host, accept_new):
         if "SSHPASS" not in os.environ:
             sys.exit("set SSHPASS to the camera's root password")
-        self.ssh = ["sshpass", "-e", "ssh", "-o", "LogLevel=ERROR",
-                    "-o", f"StrictHostKeyChecking={'accept-new' if accept_new else 'yes'}", f"root@{host}"]
+        # Host keys as the user's ssh configuration checks them (by default,
+        # an unknown host is refused without a terminal to ask on).
+        self.ssh = ["sshpass", "-e", "ssh", "-o", "LogLevel=ERROR"]
+        if accept_new:
+            self.ssh += ["-o", "StrictHostKeyChecking=accept-new"]
+        self.ssh.append(f"root@{host}")
 
     def run(self, cmd, **kw):
         return subprocess.run(self.ssh + [cmd], capture_output=True, **kw)
