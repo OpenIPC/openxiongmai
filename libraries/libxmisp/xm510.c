@@ -31,7 +31,8 @@
  *
  * Colour: the correction matrix (CSM) is double-buffered, banks at
  * 0x40061040 and 0x40061080 (per row an offset, then three coefficients,
- * 0x100 = 1, signed 32-bit), switched by a write to 0x40061000. After the
+ * 0x100 = 1, signed 32-bit), switched by a write to 0x40061000; the idle
+ * bank reads at 0x40061004. After the
  * RGB gamma and RGB to YCbCr, Cb and Cr are scaled by 0x40076004/08,
  * 0x100 = 1: a blue gain change through an identity matrix moved only B at
  * 0x100, and leaked into R and G at 0x200. The vendor daemon moves both with
@@ -98,6 +99,7 @@ static const struct xmisp_ae_cfg ae_xm510 = {
 #define CSM_BANK0 0x40061040u
 #define CSM_BANK1 0x40061080u
 #define CSM_SWITCH 0x40061000u
+#define CSM_SWITCH_STATE 0x40061004u /* the idle bank, 0 or 1 */
 #define CB_GAIN 0x40076004u
 #define CR_GAIN 0x40076008u
 #define CBCR_ONE 0x100
@@ -662,11 +664,19 @@ void xmisp_exposure(const struct xmisp *s, float *mean, uint32_t *lines,
 }
 
 /* The colour matrix eased towards identity by ease (0 = the sensor's, 1 =
- * identity), rows kept summing to 256, into both banks, then the switch;
- * and the Cb/Cr gain. */
+ * identity), rows kept summing to 256, and the Cb/Cr gain. The matrix goes
+ * into the idle bank only, which CSM_SWITCH_STATE names (0 or 1), and the
+ * switch then makes it the active one: bit 0 of the value written becomes
+ * the state, so the bank just written is no longer the idle one (state 0:
+ * write bank 0, then 0xffffffff; the state reads 1 after). A frame never
+ * sees a matrix half written. */
 static int color_set(struct xmisp *s, float ease, uint32_t cbcr) {
   const int16_t *ccm = s->script->sensor->ccm;
-  const uint32_t banks[] = {CSM_BANK0, CSM_BANK1};
+  uint32_t idle;
+  if (isp_r(s, CSM_SWITCH_STATE, &idle) < 0)
+    return fail(s, "colour matrix: %s", strerror(errno));
+  idle &= 1;
+  const uint32_t bank = idle ? CSM_BANK1 : CSM_BANK0;
   for (unsigned row = 0; row < 3; row++) {
     int32_t m[3], sum = 0;
     for (unsigned col = 0; col < 3; col++) {
@@ -676,17 +686,15 @@ static int color_set(struct xmisp *s, float ease, uint32_t cbcr) {
       sum += m[col];
     }
     m[row] += 256 - sum; /* grey stays grey */
-    for (unsigned b = 0; b < 2; b++) {
-      const uint32_t a = banks[b] + row * 0x10;
-      if (isp_w(s, a, 0) < 0)
+    const uint32_t a = bank + row * 0x10;
+    if (isp_w(s, a, 0) < 0)
+      return fail(s, "colour matrix: %s", strerror(errno));
+    for (unsigned col = 0; col < 3; col++)
+      if (isp_w(s, a + 4 + col * 4, (uint32_t)m[col]) < 0)
         return fail(s, "colour matrix: %s", strerror(errno));
-      for (unsigned col = 0; col < 3; col++)
-        if (isp_w(s, a + 4 + col * 4, (uint32_t)m[col]) < 0)
-          return fail(s, "colour matrix: %s", strerror(errno));
-    }
   }
-  if (isp_w(s, CSM_SWITCH, 0xffffffff) < 0 || isp_w(s, CB_GAIN, cbcr) < 0 ||
-      isp_w(s, CR_GAIN, cbcr) < 0)
+  if (isp_w(s, CSM_SWITCH, 0xfffffffe | (idle ^ 1)) < 0 ||
+      isp_w(s, CB_GAIN, cbcr) < 0 || isp_w(s, CR_GAIN, cbcr) < 0)
     return fail(s, "colour matrix: %s", strerror(errno));
   return 0;
 }
