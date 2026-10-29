@@ -128,6 +128,7 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 
 ### Kernel drivers
 
+- `drivers/xm533_ive`: the XM533's FFT engine (`/dev/ive`, 0x21300000, IRQ 95), `open_ive.ko`, nn.ko's queue design; ioctls return 0 whatever happened, as ive.ko's.
 - `drivers/xm_v200_h264`, `xm530v200_jpeg`, `xm533_venc_mem`, `xm_v200_nn`: drop-ins for the vendor h264.ko (XM533/XM535; the XM530's is `drivers/hx280enc`), jpeg.ko (XM530V200), venc_mem.ko (XM533) and nn.ko (`NN_CHIP=v200|xm533|xm535`: three designs; the query/reset ioctls are 0xc0046301/2, the submit 0x80186300 with 6 words on the XM530V200, 0x80246300 with 9 elsewhere).
 - `drivers/xm_v200_acodec`, `xm_v200_i2s`, `xm_v200_adc`, `xm_v200_ddr`, `xm_v200_log`, `xm533_mipi_io`: drop-ins for the V200 series' small vendor modules (acodec, i2s, adc, ddr, log, mipi_io), built as `open_<name>.ko`, chip variants by `*_CHIP` make variables. Register sequences come from the vendor modules' disassembly (Ghidra merges their volatile read-modify-writes).
 - `drivers/xm530v200_vpss`: the XM530V200's VPSS (`/dev/vpss`), built as `open_vpss.ko`, a drop-in for its vendor `vpss.ko`: a kthread takes isp.ko's pictures from vb list 1 (bound mod 8, dev = group), programs the two-stage memory-to-memory scaler at 0x34000000, starts it (+0x10020) and waits for IRQ 72 (+0x10044); calls isp.ko's `vpss_isp_set_val`/`_post_deal` and vo.ko's `vo_get_buf`/`vo_put_buf`.
