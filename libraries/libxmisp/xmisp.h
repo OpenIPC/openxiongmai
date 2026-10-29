@@ -44,6 +44,11 @@ int xmisp_ae_enabled(const struct xmisp *isp);
  * 0, or -1 with xmisp_error(). */
 int xmisp_set_antiflicker(struct xmisp *isp, unsigned hz);
 
+/* Noise reduction and sharpening follow the gain AE sets: the script's
+ * values up to 4x, a measured high-gain set from 16x, log-linear between.
+ * The strength now, 0 to 1. */
+float xmisp_nr_strength(const struct xmisp *isp);
+
 /* 1 if AWB runs: the sensor driver gives its white balance range. */
 int xmisp_awb_enabled(const struct xmisp *isp);
 

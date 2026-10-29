@@ -78,5 +78,8 @@ Tested on the lab XM510 with a JX-H62 under majestic:
   at `60` at 625 (4), and `disabled` returns it to 746.
 - **Colour:** the H62's calibrated matrix gives a mean dE of 10.4 on the
   colour checker, against the vendor daemon's 16.9 in the same light.
+- **Noise reduction by gain** (bulbs dimmed for 3×, 8.5× and 16× gain): the
+  strength follows the gain (0, 0.5, 1). Temporal noise at 8.5× goes from
+  5.0 to 1.9, and at 16× from 12.6 to 1.5. At 3× nothing changes.
 - **Footprint:** about 200 KB of RAM (the vendor's: 430 KB) and almost no
   CPU.

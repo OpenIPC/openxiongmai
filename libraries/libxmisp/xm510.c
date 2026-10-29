@@ -52,6 +52,7 @@
 
 #include "ae.h"
 #include "awb.h"
+#include "tune.h"
 #include "xmisp.h"
 #include "xmisp_priv.h"
 
@@ -112,6 +113,39 @@ static const struct xmisp_ae_cfg ae_xm510 = {
 #define AWB_WINDOW_NARROW 0xf808
 #define AWB_LUMA 0xdc80
 
+/* Noise reduction and sharpening by gain. The vendor daemon moves these
+ * with gain (traced under the lab's dimmable bulbs); the values here are
+ * chosen by measurement on the JX-H62 at 16x gain (temporal and spatial
+ * noise in the chart's grey patches against the chair mesh's detail):
+ * - 2D NR: BASE and THDH set its strength; COEF and DELTA alone change
+ *   nothing;
+ * - 3D NR (YCTRL_ERR70): bits 3:0 are a strength, 0 off; 6 halves the noise
+ *   at 16x, 10 and up cost detail for little more;
+ * - sharpening amplifies the noise: halving it at 16x halves the noise too.
+ * At 16x the high set takes temporal noise from 12.6 to 1.4 and keeps
+ * detail at 2.5 (vendor's set: 0.8, 2.3); at 3x it would over-smooth
+ * (detail 26 to 15), so the strength stays 0 up to 4x and reaches 1 at
+ * 16x: at 9x it halves the noise (5.0 to 2.5) and keeps detail at 20 of
+ * 26. The low set is the script's, read at start. */
+#define NR_GAIN_LO 4.0f
+#define NR_GAIN_HI 16.0f
+#define NR_STEPS 8
+#define NR_3D_STRENGTH 0x0fu /* of NR_3D_YCTRL_ERR70 */
+static const uint32_t nr_regs[] = {
+    0x40020000, /* NR_2D_BASE */
+    0x40020004, /* NR_2D_THDH */
+    0x40020008, /* NR_2D_COEF */
+    0x40020014, /* NR_2D_DELTA_THD */
+    0x400400d8, /* NR_3D_YCTRL_ERR70 */
+    0x40075018, /* SHARPEN_KD */
+    0x4007514c, /* SHARPEN_KM0 */
+    0x40075174, /* SHARPEN_KH0 */
+};
+#define NR_REGS (sizeof(nr_regs) / sizeof(nr_regs[0]))
+#define NR_3D 4 /* index of NR_3D_YCTRL_ERR70 */
+static const uint32_t nr_high[NR_REGS] = {0x10, 0x2f, 0x82, 0x70,
+                                          6,    0x26, 0x20, 0x17};
+
 static const struct xmisp_awb_cfg awb_xm510 = {
     .points_min = 300,
     .near = 3.0f,
@@ -137,6 +171,9 @@ struct xmisp {
   uint32_t front_g; /* the script's G gain, which AWB keeps */
   int awb_dirty;    /* a gain write failed part way */
   uint32_t window, ythd;
+  uint32_t nr_low[NR_REGS]; /* the script's, read at start */
+  float nr_strength;        /* as set; -1 before the first */
+  int nr_on;
   uint32_t grey; /* the last measurement */
   float cb, cr;
   char err[160];
@@ -498,15 +535,36 @@ static int awb_frame(struct xmisp *s) {
   return 1;
 }
 
+static int nr_frame(struct xmisp *s);
+
+/* Two failures' reasons as one, the first's kept from the copy taken. */
+static void both(struct xmisp *s, const char *first) {
+  char second[sizeof(s->err)];
+  memcpy(second, s->err, sizeof(second));
+  snprintf(s->err, sizeof(s->err), "%.78s; %.78s", first, second);
+}
+
 int xmisp_frame(struct xmisp *s) {
-  const int ae = ae_frame(s);
+  int ae = ae_frame(s);
+  /* Noise reduction follows the gain the sensor has even when AE failed:
+   * a failed write is applied as read back. */
   char err[sizeof(s->err)];
+  memcpy(err, s->err, sizeof(err));
+  const int nr = nr_frame(s);
+  if (nr < 0) {
+    if (ae < 0)
+      both(s, err);
+    ae = -1;
+  } else if (ae < 0) {
+    memcpy(s->err, err, sizeof(err));
+  } else {
+    ae = ae > 0 || nr > 0;
+  }
+  memcpy(err, s->err, sizeof(err));
   memcpy(err, s->err, sizeof(err));
   const int awb = awb_frame(s);
   if (ae < 0 && awb < 0) {
-    char awb_err[sizeof(s->err)];
-    memcpy(awb_err, s->err, sizeof(awb_err));
-    snprintf(s->err, sizeof(s->err), "%.78s; %.78s", err, awb_err);
+    both(s, err);
   } else if (ae < 0) {
     memcpy(s->err, err, sizeof(err)); /* AE's reason, not overwritten */
   }
@@ -524,6 +582,44 @@ void xmisp_white_balance(const struct xmisp *s, uint32_t *grey, float *cb,
   *cr = s->cr;
   *r = s->awb.r;
   *b = s->awb.b;
+}
+
+/* The script's noise reduction and sharpening, as the low-gain end. */
+static int nr_start(struct xmisp *s) {
+  s->nr_on = 0;
+  s->nr_strength = -1.0f;
+  if (!s->ae_on)
+    return 0;
+  for (unsigned i = 0; i < NR_REGS; i++)
+    if (isp_r(s, nr_regs[i], &s->nr_low[i]) < 0)
+      return fail(s, "noise reduction read: %s", strerror(errno));
+  s->nr_on = 1;
+  /* For the gain the script left, so the strength is known from here. */
+  return nr_frame(s) < 0 ? -1 : 0;
+}
+
+static int nr_frame(struct xmisp *s) {
+  if (!s->nr_on)
+    return 0;
+  const float n = xmisp_strength(s->gain, NR_GAIN_LO, NR_GAIN_HI, NR_STEPS);
+  if (n == s->nr_strength)
+    return 0;
+  for (unsigned i = 0; i < NR_REGS; i++) {
+    uint32_t v;
+    if (i == NR_3D) /* the strength bits only */
+      v = (s->nr_low[i] & ~NR_3D_STRENGTH) |
+          xmisp_lerp(s->nr_low[i] & NR_3D_STRENGTH, nr_high[i], n);
+    else
+      v = xmisp_lerp(s->nr_low[i], nr_high[i], n);
+    if (isp_w(s, nr_regs[i], v) < 0)
+      return fail(s, "noise reduction: %s", strerror(errno));
+  }
+  s->nr_strength = n;
+  return 1;
+}
+
+float xmisp_nr_strength(const struct xmisp *s) {
+  return s->nr_on && s->nr_strength > 0 ? s->nr_strength : 0.0f;
 }
 
 int xmisp_ae_enabled(const struct xmisp *s) { return s->ae_on; }
@@ -601,11 +697,13 @@ int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
     if (r == 0)
       r = color_start(s);
     if (r == 0)
+      r = nr_start(s);
+    if (r == 0)
       return 0;
     /* A start that failed part way may have 3D-NR on already, and the 3A
      * of the script it was running must not run on. */
     nr3d_off(s);
-    s->ae_on = s->awb_on = 0;
+    s->ae_on = s->awb_on = s->nr_on = 0;
     s->script = NULL;
     return -1;
   }
