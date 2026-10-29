@@ -58,10 +58,16 @@ def words(b):
     return list(struct.unpack(f"<{len(b) // 4}I", b[: len(b) // 4 * 4])) if b else []
 
 
-def ioctl_args(r):
-    """The argument words an ioctl record saw before and after the call."""
+def ioctl_args(r, need_before=0, need_after=0):
+    """The argument words an ioctl record saw before and after the call; at
+    least the counts asked for, or the trace can't make a script."""
     _, before, after = decode.ioctl_snapshots(r["p"], r["version"])
-    return words(before), words(after)
+    before, after = words(before), words(after)
+    if len(before) < need_before or len(after) < need_after:
+        sys.exit(f"{r['ms']:.3f} ms: ioctl {decode.ioc(r['aux'])} on {r['dev']} "
+                 f"lacks its argument ({len(before)} words before, "
+                 f"{len(after)} after)")
+    return before, after
 
 
 def main():
@@ -94,6 +100,9 @@ def main():
                     op("XMISP_DELAY_MS", round(r["ms"] - last_ms))
             last_ms = r["ms"]
         t, dev = r["type"], r["dev"]
+        # A call that failed under the vendor daemon isn't part of the script.
+        if t in (IOCTL, ISP_W) and decode.s16(r["aux2"]) < 0:
+            continue
         if r["frame"] == 0:
             if t == IOCTL and dev == "/dev/mmz" and r["aux"] == 0x4D00:
                 op("XMISP_MMZ_RESET")
@@ -102,17 +111,20 @@ def main():
             elif t == IOCTL and dev == "/dev/rgn" and r["aux"] == 0x5201:
                 op("XMISP_RGN_RESET")
             elif t == IOCTL and dev == "/dev/vi":
-                before, _ = ioctl_args(r)
+                size = (r["aux"] >> 16) & 0x3FFF
+                before, _ = ioctl_args(r, need_before=size // 4)
+                before = before[: size // 4]
                 op("XMISP_VI_IOW", r["aux"], len(args), decode.ioc(r["aux"]))
                 args.extend([len(before)] + before)
             elif t == IOCTL and dev == "/dev/mmz" and (r["aux"] & 0xFF) == 1:
-                _, after = ioctl_args(r)
+                _, after = ioctl_args(r, need_after=10)
                 size, phys = after[8], after[9]
                 name = struct.pack("<8I", *after[:8]).split(b"\0")[0].decode()
                 buf = (phys, size)
                 op("XMISP_ISP_BUF", size, 0, f'MMZ block "{name}"')
             elif t == IOCTL and dev == "/dev/xm_i2c":
-                before, after = ioctl_args(r)
+                before, after = ioctl_args(
+                    r, need_before=5, need_after=5 if r["aux"] == I2C_READ else 0)
                 dev_addr, reg, data = before[0] & 0xFF, before[1], before[3]
                 i2c_dev = i2c_dev or dev_addr
                 if r["aux"] == I2C_WRITE:
@@ -137,7 +149,7 @@ def main():
                     addr -= CSM_BANK1 - CSM_BANK0
                 fixed_isp[addr] = v
             elif t == IOCTL and dev == "/dev/xm_i2c" and r["aux"] == I2C_WRITE:
-                before, _ = ioctl_args(r)
+                before, _ = ioctl_args(r, need_before=5)
                 fixed_i2c[before[1]] = before[3]
         elif r["frame"] > hi:
             break

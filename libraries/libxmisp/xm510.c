@@ -40,6 +40,7 @@
 #define SYSCTL_SIZE 0x1000u
 #define DDR_BASE 0x80000000u
 #define NR_3D_CTRL 0x40040000u
+#define NR_3D_STOP_MS 80 /* two frames at 25 fps */
 
 const struct xmisp_script *const xmisp_scripts[] = {&xmisp_h62_720p, NULL};
 
@@ -126,10 +127,19 @@ struct xmisp *xmisp_open(void) {
   return s;
 }
 
-/* Runs a list of steps. 1 if a chip ID didn't match: another script may
- * fit. */
+static int has_expect(const struct xmisp_op *op) {
+  for (; op->type != XMISP_END; op++)
+    if (op->type == XMISP_I2C_EXPECT)
+      return 1;
+  return 0;
+}
+
+/* Runs a list of steps. 1 if this isn't the script's sensor: a chip ID
+ * didn't match, or the sensor didn't answer before its ID was read. Another
+ * script may fit. */
 static int run(struct xmisp *s, const struct xmisp_op *op) {
   const uint32_t *args = s->script->args;
+  int probing = has_expect(op);
   for (; op->type != XMISP_END; op++) {
     uint32_t v;
     struct mmz_rec m;
@@ -158,17 +168,24 @@ static int run(struct xmisp *s, const struct xmisp_op *op) {
       break;
     case XMISP_I2C_W:
       v = op->b;
-      if (i2c(s, I2C_WRITE, op->a, &v) < 0)
-        return fail(s, "sensor write %#x: %s", op->a, strerror(errno));
+      if (i2c(s, I2C_WRITE, op->a, &v) < 0) {
+        fail(s, "sensor write %#x: %s", op->a, strerror(errno));
+        return probing ? 1 : -1;
+      }
       break;
     case XMISP_I2C_EXPECT:
       v = 0;
-      if (i2c(s, I2C_READ, op->a, &v) < 0)
-        return fail(s, "sensor read %#x: %s", op->a, strerror(errno));
+      if (i2c(s, I2C_READ, op->a, &v) < 0) {
+        fail(s, "sensor read %#x: %s", op->a, strerror(errno));
+        return 1;
+      }
       if (v != op->b) {
         fail(s, "sensor register %#x is %#x, not %#x", op->a, v, op->b);
         return 1;
       }
+      /* Identified once the last ID register matches. */
+      if (op[1].type != XMISP_I2C_EXPECT)
+        probing = 0;
       break;
     case XMISP_VI_IOW:
       if (ioctl(s->vi, op->a, (void *)&args[op->b + 1]) < 0)
@@ -202,24 +219,32 @@ static int run(struct xmisp *s, const struct xmisp_op *op) {
   return 0;
 }
 
+/* 3D noise reduction off, then two frames' time for its DMA to stop. */
+static void nr3d_off(struct xmisp *s) {
+  isp_w(s, NR_3D_CTRL, 0);
+  delay_ms(NR_3D_STOP_MS);
+}
+
 int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
   char why[sizeof(s->err)] = "";
+  /* A daemon that died without its way out left 3D-NR writing to the "Isp"
+   * block: stop it before the MMZ and VI resets hand that memory on. */
+  nr3d_off(s);
   for (; *scripts; scripts++) {
     s->script = *scripts;
-    const int r = run(s, s->script->start);
-    if (r < 0) {
-      s->script = NULL;
-      return -1;
-    }
+    int r = run(s, s->script->start);
     if (r > 0) {
       snprintf(why, sizeof(why), "%s", s->err);
       continue;
     }
-    if (run(s, s->script->fixed) != 0) {
-      s->script = NULL;
-      return -1;
-    }
-    return 0;
+    if (r == 0)
+      r = run(s, s->script->fixed);
+    if (r == 0)
+      return 0;
+    /* A start that failed part way may have 3D-NR on already. */
+    nr3d_off(s);
+    s->script = NULL;
+    return -1;
   }
   s->script = NULL;
   return fail(s, "no sensor script fits (last: %s)", why[0] ? why : "none");

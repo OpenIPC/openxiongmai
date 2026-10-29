@@ -132,7 +132,7 @@ jobs:
               *)    syms=$(${CROSS_COMPILE}nm --defined-only "$lib") ;;
             esac
             for s in "$@"; do
-              if echo "$syms" | grep -qE " T $s\$"; then
+              if echo "$syms" | grep -qE " [TDR] $s\$"; then
                 echo "ok: $lib exports $s"
               else
                 echo "MISSING: $lib does not export $s" >&2; fail=1

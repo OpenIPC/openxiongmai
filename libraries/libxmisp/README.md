@@ -27,7 +27,16 @@ steps:
 Registers that hold addresses in the MMZ block are written relative to
 wherever MMZ puts it, in 8-byte units from DDR (`0x80000000`).
 `xmisp_start()` runs each script in `xmisp_scripts` until one sensor answers
-with its chip ID.
+with its chip ID. A sensor that doesn't answer at all before its ID is read
+counts as a miss too.
+
+Before the first script, `xmisp_start()` turns 3D noise reduction off and
+waits two frames. A daemon killed without its way out leaves 3D-NR writing
+into the "Isp" block, and the MMZ and VI resets would hand that memory on. A
+start that fails part way turns 3D-NR off again.
+
+Generated scripts are clang-format (LLVM) output, so run clang-format after
+`extract.py`.
 
 `tools/xm-isp-trace/extract.py` generates a script from a trace:
 
