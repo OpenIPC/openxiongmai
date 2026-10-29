@@ -517,11 +517,15 @@ int xmv200_layout_start(const struct xmv200_layout *l,
 
   if (chip->vb_mode && fd_vb >= 0)
     ioctl(fd_vb, 0x40044205, &one);
-  for (int s = 0; s < b->n_streams; s++)
+  for (int s = 0; s < b->n_streams; s++) {
+    uint32_t size = b->stream[s].width * b->stream[s].height *
+                    popcount(b->stream[s].groups) * 3 / 2;
+
+    /* small pictures get two more: equal sizes share buffers (vb.ko takes
+     * the best fit), and a faster sensor's would take them all */
     pools[np++] = (struct xmv200_vb_pool){
-        b->stream[s].width * b->stream[s].height *
-            popcount(b->stream[s].groups) * 3 / 2,
-        chip->vb_count};
+        size, chip->vb_count + (size < 0x100000 ? 2 : 0)};
+  }
   if (chip->isp_pool)
     pools[np++] = (struct xmv200_vb_pool){
         (b->isp.tuning->width & ~0xfu) *
