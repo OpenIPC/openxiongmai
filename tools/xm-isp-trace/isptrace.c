@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/ioctl.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -35,6 +36,8 @@
 #include "isptrace.h"
 
 #define BUF_SIZE (64 * 1024)
+#define PAYLOAD_MAX 4096 /* a record's payload, truncated beyond */
+#define FLUSH_WAIT_MS 1000
 #define MAX_FDS 256
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -76,19 +79,37 @@ static uint32_t now_us(void) {
   return (uint32_t)ts.tv_sec * 1000000u + (uint32_t)(ts.tv_nsec / 1000);
 }
 
+/* Called with signals blocked. The output is non-blocking: a reader that
+ * falls behind for FLUSH_WAIT_MS, or goes away, ends the trace, and the
+ * daemon runs on untraced. */
 static void flush_locked(void) {
   size_t off = 0;
+  int waited = 0;
   while (out_fd >= 0 && off < used) {
     const ssize_t n = write(out_fd, buf + off, used - off);
+    if (n > 0) {
+      off += (size_t)n;
+      continue;
+    }
     if (n < 0 && errno == EINTR)
       continue;
-    if (n <= 0) {
-      /* The reader went away: stop tracing, keep the daemon running. */
-      real_close(out_fd);
-      out_fd = -1;
-      break;
+    if (n < 0 && errno == EAGAIN && waited < FLUSH_WAIT_MS) {
+      struct pollfd pfd = {.fd = out_fd, .events = POLLOUT};
+      poll(&pfd, 1, 10);
+      waited += 10;
+      continue;
     }
-    off += (size_t)n;
+    if (n < 0 && errno == EPIPE) {
+      /* The write raised SIGPIPE for this thread; take it while it is
+       * blocked, so it never reaches the daemon. */
+      sigset_t pipe_sig;
+      sigemptyset(&pipe_sig);
+      sigaddset(&pipe_sig, SIGPIPE);
+      const struct timespec now = {0, 0};
+      sigtimedwait(&pipe_sig, NULL, &now);
+    }
+    real_close(out_fd);
+    out_fd = -1;
   }
   used = 0;
 }
@@ -96,6 +117,10 @@ static void flush_locked(void) {
 static void put_locked(uint8_t type, uint8_t fd, uint32_t aux, uint16_t aux2,
                        uint32_t t_us, const void *p1, size_t n1, const void *p2,
                        size_t n2) {
+  if (n1 > PAYLOAD_MAX)
+    n1 = PAYLOAD_MAX, n2 = 0;
+  else if (n1 + n2 > PAYLOAD_MAX)
+    n2 = PAYLOAD_MAX - n1;
   const size_t len = n1 + n2;
   const size_t total = sizeof(struct isptrace_rec) + ((len + 3) & ~(size_t)3);
   if (out_fd < 0)
@@ -228,22 +253,23 @@ static void init(void) {
       fcntl(probe[i], F_SETFL, O_NONBLOCK);
     }
   }
+  fcntl(out_fd, F_SETFL, fcntl(out_fd, F_GETFL) | O_NONBLOCK);
   const struct isptrace_hdr h = {
       .magic = ISPTRACE_MAGIC,
       .version = ISPTRACE_VERSION,
       .t0_us = now_us(),
   };
-  if (write(out_fd, &h, sizeof(h)) != sizeof(h)) {
-    real_close(out_fd);
-    out_fd = -1;
-  }
+  /* Written with the first records, by flush_locked(). */
+  memcpy(buf, &h, sizeof(h));
+  used = sizeof(h);
 }
 
 /* Like the constructor, only if libc runs it. */
 __attribute__((destructor)) static void fini(void) {
-  pthread_mutex_lock(&lock);
+  sigset_t old;
+  lock_nosig(&lock, &old);
   flush_locked();
-  pthread_mutex_unlock(&lock);
+  unlock_nosig(&lock, &old);
 }
 
 static void track(int fd, const char *path) {
@@ -345,10 +371,12 @@ int ioctl(int fd, int req, ...) {
   } before;
   static __thread unsigned char after[ISPTRACE_IOCTL_MAX];
   before.arg = (uint32_t)(uintptr_t)arg;
-  before.valid = safe_copy(before.b, arg, n);
+  before.valid = safe_copy(before.b, arg, n) ? ISPTRACE_BEFORE : 0;
   const int r = real_ioctl(fd, req, arg);
   const int err = errno;
   const int ok = before.valid && safe_copy(after, arg, n);
+  if (ok)
+    before.valid |= ISPTRACE_AFTER;
   emit(ISPTRACE_IOCTL, fd, cmd, (uint16_t)(r < 0 ? -err : r), &before,
        8 + (before.valid ? n : 0), after, ok ? n : 0);
   errno = err;
@@ -390,11 +418,10 @@ ssize_t msgrcv(int qid, void *p, size_t n, long type, int flags) {
 #define MAX_TRAPS 16
 #define REG_SPACE_END 0x80000000u /* DDR starts here */
 
-static void signal_default(int sig) {
-  struct sigaction sa = {.sa_handler = SIG_DFL};
-  sigemptyset(&sa.sa_mask);
-  sigaction(sig, &sa, NULL);
-}
+/* The daemon's own SIGSEGV action, which faults outside the traced pages
+ * go to; signal() records a later one here instead of replacing ours. */
+static struct sigaction app_segv = {.sa_handler = SIG_DFL};
+static volatile int segv_installed;
 
 static struct trap {
   uintptr_t ro;
@@ -418,15 +445,23 @@ static void give_up(struct trap *t, uint32_t insn) {
 }
 
 static void segv(int sig, siginfo_t *si, void *ucv) {
-  (void)sig;
   ucontext_t *uc = ucv;
   struct sigcontext *m = &uc->uc_mcontext;
   unsigned long *r = &m->arm_r0; /* r0-r10, fp, ip, sp, lr, pc */
   const uintptr_t a = (uintptr_t)si->si_addr;
   struct trap *t = trap_at(a);
   if (!t) {
-    /* Not ours: fault again without the handler, as it would have. */
-    signal_default(SIGSEGV);
+    /* Not ours: the daemon's handler, or the fault again without ours. */
+    if (app_segv.sa_flags & SA_SIGINFO) {
+      app_segv.sa_sigaction(sig, si, ucv);
+    } else if (app_segv.sa_handler != SIG_DFL &&
+               app_segv.sa_handler != SIG_IGN) {
+      app_segv.sa_handler(sig);
+    } else {
+      struct sigaction dfl = {.sa_handler = SIG_DFL};
+      sigemptyset(&dfl.sa_mask);
+      sigaction(SIGSEGV, &dfl, NULL);
+    }
     return;
   }
   if (m->arm_cpsr & 0x20) {
@@ -486,7 +521,8 @@ static void trap_init(void) {
   real_munmap = dlsym(RTLD_NEXT, "munmap");
   struct sigaction sa = {.sa_sigaction = segv, .sa_flags = SA_SIGINFO};
   sigemptyset(&sa.sa_mask);
-  sigaction(SIGSEGV, &sa, NULL);
+  sigaction(SIGSEGV, &sa, &app_segv);
+  segv_installed = 1;
 }
 
 static pthread_once_t trap_once = PTHREAD_ONCE_INIT;
@@ -507,7 +543,9 @@ void *xmap(void *start, size_t len, int prot, int flags, int fd, uint32_t off) {
     for (int i = 0; i < MAX_TRAPS && !t; i++)
       if (!traps[i].len)
         t = &traps[i];
-    void *rw = t ? mmap(NULL, len, prot, flags, fd, (off_t)off) : MAP_FAILED;
+    /* The alias goes wherever the kernel puts it. */
+    void *rw = t ? mmap(NULL, len, prot, flags & ~MAP_FIXED, fd, (off_t)off)
+                 : MAP_FAILED;
     r = mmap(start, len, rw != MAP_FAILED ? prot & ~PROT_WRITE : prot, flags,
              fd, (off_t)off);
     if (rw != MAP_FAILED && r != MAP_FAILED) {
@@ -532,10 +570,16 @@ int munmap(void *p, size_t len) {
   pthread_once(&once, init);
   if (!real_munmap)
     real_munmap = dlsym(RTLD_NEXT, "munmap");
+  const uintptr_t a = (uintptr_t)p;
   sigset_t old;
   lock_nosig(&trap_lock, &old);
-  struct trap *t = trap_at((uintptr_t)p);
-  if (t && t->ro == (uintptr_t)p) {
+  for (int i = 0; i < MAX_TRAPS; i++) {
+    struct trap *t = &traps[i];
+    if (!t->len || a >= t->ro + t->len || a + len <= t->ro)
+      continue;
+    /* Part of a traced page left mapped is made writable, untraced. */
+    if (a > t->ro || a + len < t->ro + t->len)
+      give_up(t, ISPTRACE_PARTIAL_UNMAP);
     real_munmap(t->rw, t->len);
     t->len = 0;
   }
@@ -547,6 +591,14 @@ int munmap(void *p, size_t len) {
  * handler can be wrapped. */
 void (*signal(int sig, void (*h)(int)))(int) {
   pthread_once(&once, init);
+  if (sig == SIGSEGV && segv_installed) {
+    void (*prev)(int) =
+        app_segv.sa_flags & SA_SIGINFO ? SIG_DFL : app_segv.sa_handler;
+    app_segv.sa_handler = h;
+    app_segv.sa_flags = 0;
+    emit(ISPTRACE_SIGNAL, 0, (uint32_t)sig, 1, NULL, 0, NULL, 0);
+    return prev;
+  }
   const int fn = h != SIG_DFL && h != SIG_IGN && h != SIG_ERR;
   const int wrap = fn && sig > 0 && sig < NSIG && sig != SIGSEGV;
   struct sigaction sa = {.sa_flags = SA_RESTART}, old;

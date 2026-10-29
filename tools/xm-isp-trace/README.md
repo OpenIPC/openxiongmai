@@ -72,6 +72,9 @@ bytes. `/tmp` is RAM on these boards, so stream long captures off the board.
   through libwrapper's `__uClibc_main` never calls it.
 - The XM510 daemon runs its 3A in the SIGIO handler. Its ioctls re-enter the
   tracer, so the tracer takes its locks with signals blocked.
+- The output is non-blocking. A reader that falls a second behind, or goes
+  away, ends the trace, and the daemon runs on untraced. The SIGPIPE from a
+  closed FIFO is taken by the tracer, not the daemon.
 - Records are written out every 100 ms. Once one of the daemon's own signal
   handlers runs (SIGINT, SIGTERM: its exit path), every record is written out
   at once.
@@ -79,7 +82,8 @@ bytes. `/tmp` is RAM on these boards, so stream long captures off the board.
   still keeps up with 25 frames a second.
 - Only ARM stores (`STR`, `STRB`, `STRH`) to `/dev/mem` register pages are
   decoded. Anything else (Thumb, `STM`) makes that page writable and
-  untraced, and is logged once as such.
+  untraced, and is logged once as such, as is unmapping part of a page.
+  Faults outside the traced pages go to the daemon's own SIGSEGV handler.
 
 ## Log format
 

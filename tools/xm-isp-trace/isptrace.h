@@ -9,11 +9,18 @@
 #include <stdint.h>
 
 #define ISPTRACE_MAGIC 0x54495358 /* "XSIT" */
-#define ISPTRACE_VERSION 1
+#define ISPTRACE_VERSION 2
 
 /* The XM510 /dev/isp commands, unencoded, on {u32 addr; u32 val}. */
 #define ISPTRACE_ISP_WRITE 0x101
 #define ISPTRACE_ISP_READ 0x103
+
+/* An ioctl record's snapshots of its argument. */
+#define ISPTRACE_BEFORE 1
+#define ISPTRACE_AFTER 2
+
+/* A MEMRW record's instruction for a page partly unmapped. */
+#define ISPTRACE_PARTIAL_UNMAP 0xffffffffu
 
 /* The most argument bytes an ioctl record keeps, before and after. */
 #define ISPTRACE_IOCTL_MAX 256
@@ -40,8 +47,10 @@ enum {
   ISPTRACE_ISPW,      /* aux: register; payload: u32 value */
   ISPTRACE_ISPR,      /* aux: register; payload: u32 value read */
   ISPTRACE_IOCTL,     /* aux: cmd; aux2: result or -errno; payload:
-                         u32 arg, u32 readable, then the bytes at arg before
-                         and, if readable, after: the same size each */
+                         u32 arg, u32 flags (ISPTRACE_BEFORE, _AFTER), then
+                         the bytes at arg before and after, the same size
+                         each, as the flags say they were readable. Version 1
+                         had a flag of 1 for both */
   ISPTRACE_OPEN,      /* aux: flags; aux2: fd; payload: path */
   ISPTRACE_CREAT,     /* aux: mode; aux2: fd; payload: path */
   ISPTRACE_FOPEN,     /* aux2: opened; payload: path, mode */

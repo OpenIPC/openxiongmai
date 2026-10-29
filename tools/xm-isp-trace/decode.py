@@ -17,6 +17,7 @@ import struct
 import sys
 
 MAGIC = 0x54495358
+VERSIONS = (1, 2)
 HDR = struct.Struct("<4I")
 REC = struct.Struct("<IIHBBHH")
 
@@ -80,6 +81,27 @@ def namer(names, bases):
     return name
 
 
+def ioctl_snapshots(p, version):
+    """An ioctl record's argument value and the bytes at it before and after
+    (None if unreadable). Version 1 had one flag for both, the after-image
+    present whenever the before-image was."""
+    arg, flags = struct.unpack_from("<II", p)
+    body = p[8:]
+    if version == 1:
+        if not flags:
+            return arg, None, None
+        half = len(body) // 2
+        return arg, body[:half], body[half:] or None
+    before = after = None
+    if flags & 1:
+        if flags & 2:
+            half = len(body) // 2
+            before, after = body[:half], body[half:]
+        else:
+            before = body
+    return arg, before, after
+
+
 def words(b):
     n = len(b) // 4
     return " ".join(f"{w:08x}" for w in struct.unpack(f"<{n}I", b[: n * 4]))
@@ -100,8 +122,8 @@ def main():
 
     data = open(a.trace, "rb").read()
     magic, version, t0, _ = HDR.unpack_from(data)
-    if magic != MAGIC or version != 1:
-        sys.exit(f"{a.trace}: not an isptrace log (version 1)")
+    if magic != MAGIC or version not in VERSIONS:
+        sys.exit(f"{a.trace}: not an isptrace log (version 1 or 2)")
     fds = {}
     frame = 0
     off = HDR.size
@@ -132,15 +154,12 @@ def main():
             if regname(aux):
                 line += f"  {regname(aux)}"
         elif typ == IOCTL:
-            arg, ok = struct.unpack_from("<II", p)
-            body = p[8:]
-            half = len(body) // 2 if ok and len(body) % 2 == 0 else len(body)
+            arg, before, after = ioctl_snapshots(p, version)
             line = f"ioctl {dev} {ioc(aux)} arg={arg:#x} -> {s16(aux2)}"
-            if ok:
-                before, after = body[:half], body[half:]
+            if before is not None:
                 line += f"\n{'':18}in  {words(before)}"
-                if after and after != before:
-                    line += f"\n{'':18}out {words(after)}"
+            if after is not None and after != before:
+                line += f"\n{'':18}out {words(after)}"
         elif typ in (OPEN, CREAT):
             name = "open" if typ == OPEN else "creat"
             line = f"{name} {cstrs(p)[0]} {aux:#o} -> {s16(aux2)}"
@@ -169,7 +188,8 @@ def main():
                 line += f"  {regname(aux)}"
         elif typ == MEMRW:
             (insn,) = struct.unpack("<I", p[:4])
-            line = f"untraced from here: page {aux:08x}, store {insn:08x}"
+            what = "partly unmapped" if insn == 0xFFFFFFFF else f"store {insn:08x}"
+            line = f"untraced from here: page {aux:08x}, {what}"
         elif typ == SIGNAL:
             line = f"signal {aux}" + {0: "", 1: " (wrapped)", 2: " delivered"}.get(aux2, "")
         else:
