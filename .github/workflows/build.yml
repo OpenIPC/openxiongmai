@@ -82,6 +82,16 @@ jobs:
             echo "xm-rgn-test is not static" >&2; exit 1
           fi
           echo "::endgroup::"
+          echo "::group::tools/xm-isp-trace"
+          make -C tools/xm-isp-trace CROSS_COMPILE="$CROSS_COMPILE"
+          ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/isptrace.so | grep -q 'Type:.*DYN'
+          ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/isptrace.so | grep -q 'Machine:.*ARM'
+          for s in open ioctl xmap munmap signal msgrcv; do
+            ${CROSS_COMPILE}nm -D --defined-only tools/xm-isp-trace/isptrace.so | grep -qw "$s" ||
+              { echo "isptrace.so does not export $s" >&2; exit 1; }
+          done
+          python3 -m py_compile tools/xm-isp-trace/decode.py
+          echo "::endgroup::"
           echo "::group::tools/xmhevc-test"
           make -C tools/xmhevc-test CROSS_COMPILE="$CROSS_COMPILE"
           ${CROSS_COMPILE}readelf -h tools/xmhevc-test/xmhevc-test | grep -q 'Machine:.*ARM'

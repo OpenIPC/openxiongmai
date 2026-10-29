@@ -86,6 +86,16 @@ The XM530/XM550 H.265 encoder is an Arm Mali-V550 (`hw_version 0x56550002`, regi
 
 The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't copy that header or `mvx` code in: define only what a trace shows, under our own names.
 
+### `tools/xm-isp-trace` (open XM510 ISP, M0)
+
+`isptrace.so` (MIT) is an `LD_PRELOAD` tracer for the XM510 vendor `isp` daemon, the observation step towards a clean-room open ISP: write the open one from traces, the register map and hardware behaviour only, never from the daemon's code. It logs `/dev/isp` register traffic, every other ioctl with its argument, stores to `/dev/mem` register pages (handed out read-only and trapped), file and queue activity, and the frame-start SIGIO, and `decode.py -m libraries/isp/include/xm/xm510_isp.h` names the registers. What the traces show of the daemon (JX-H62, 720p25):
+- **Majestic's side:** the daemon is majestic's child, found on `PATH` (a bind mount over `/usr/bin/isp` takes its place), with its stdout and stderr on a pipe whose lines land in majestic's log; majestic logs "The ISP daemon did not come up within 15s" if it doesn't start, and stopping majestic sends it SIGTERM. Its SysV queues (`/tmp/ispmsg`) carry nothing (`ipcs`: no sender). Killing only the daemon leaves VI capturing (on `open_vi`); majestic gives up ("ISP fail, breaking").
+- **Start-up (about 3.4 s):** MMZ reset, VI init, region reset; the sensor PLL through the system controller (`0x2000002c` unlock, `0x2000000c`/`0x10`/`0x14`, lock), twice; chip ID over I2C (`0x30`, registers `0x0a`/`0x0b` = `0xa062`); VI channel setup; about 80 sensor writes; about 495 ISP writes (colour correction, sharpening, gamma, 3D-NR, AWB); an MMZ block "Isp" of `0x270000` mapped through `/dev/mem`.
+- **I2C:** `/dev/xm_i2c` command 1 writes and 3 reads `{dev, reg, reg_bytes, data, data_bytes}`; writes leave `dev` as stack garbage, so the driver keeps its own.
+- **Per frame (in the SIGIO handler):** reads of the AWB zone statistics (`0x400140c0`.., 4 channels) and 81 words at `0x400330ec`-`0x400331d8` (not in the header: the AE statistics candidate); writes of the AWB front gains (`0x40015000`), Cb/Cr gain, the colour matrix (CSM, double-buffered: the idle bank, then `CSM_BUF_SW`), sharpening, 2D/3D-NR, and exposure and gain over I2C.
+- **Exit (SIGTERM):** it drops its SIGIO handler, turns 3D-NR off (`0x40040000` = 0) and closes its devices.
+- **Cost:** untraced the daemon takes about 5% CPU, traced about 50%.
+
 ### `tools/xm-vi-hang`
 
 `tools/xm-vi-hang` (MIT, static) reproduces the XM530/XM550 VI driver hang with raw ioctls only. A VI init (`_IO('V', 6)`) issued while the previous process left VI capturing freezes the board now and then, CPU and IRQs included; it's the "camera hangs at majestic start" problem.
