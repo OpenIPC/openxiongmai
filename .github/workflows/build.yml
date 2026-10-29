@@ -142,7 +142,9 @@ jobs:
                 xmvenc_pipe_stop xmvenc_pipe_chn xmvenc_pipe_get \
                 xmvenc_pipe_release xmvenc_pipe_stats
           check libraries/libxmv200/libxmv200.a \
-                xmv200_board_start xmv200_frame_get xmv200_frame_release \
+                xmv200_board_start xmv200_board_layout xmv200_layout_start \
+                xmv200_layout_parse xmv200_layout_format \
+                xmv200_frame_get xmv200_frame_release \
                 xmv200_venc_create xmv200_venc_encode xmv200_venc_destroy \
                 xmv200_venc_request_idr xmv200_ae_frame xmv200_i2c_read \
                 xmv200_i2c_write xmv200_mmz_alloc

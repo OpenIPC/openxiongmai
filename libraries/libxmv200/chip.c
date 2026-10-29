@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 /*
  * The V200 series' chip families: the same pipeline and steps, with their
- * kernel modules' own struct versions and clock access. Each sensor tuning
- * names the family it was captured on.
+ * kernel modules' own struct versions, register places and clock access.
+ * Each sensor tuning names the family it was captured on.
  */
 #include <string.h>
 
@@ -18,6 +18,10 @@ static const struct xmv200_chip chips[] = {
         .hevc_reset = 0x10002,
         .isp_pool = 1,
         .vb_count = 3,
+        .rx = 0x4000,
+        .vicu = 0x40000,
+        .vi_ctrl_chn = 1,
+        .comm_n = 9,
     },
     {
         /* XM535D1/D2: the PLL through sys.ko; isp.ko's offline BPU wants
@@ -32,6 +36,46 @@ static const struct xmv200_chip chips[] = {
         .vb_mode = 1,
         .vb_count = 2,
         .venc_v2 = 1,
+        .rx = 0x4000,
+        .vicu = 0x40000,
+        .vi_ctrl_chn = 1,
+        .comm_n = 9,
+        .comm_ib = 1,
+    },
+    {
+        /* XM535W1: the XM530V200's isp.ko, the XM535's clocks and encoder;
+         * no VPSS, vi.ko scales */
+        .name = "xm535w1",
+        .engine = "xm535",
+        .sys_clocks = 1,
+        .frame_answer = 1,
+        .vi_window = 1,
+        .vi_sync2 = 1,
+        .hevc_reset = 0x04000000,
+        .vb_mode = 1,
+        .vb_count = 2,
+        .rx = 0x4000,
+        .vicu = 0x40000,
+        .vi_ctrl_chn = 1,
+        .comm_n = 9,
+        .vi_scaler = 1,
+        .vi_format = 2,
+    },
+    {
+        /* XM533: the XM530V200's ISP with VI's blocks moved; its own
+         * encoder; no VPSS, vi.ko scales */
+        .name = "xm533",
+        .engine = "xm533",
+        .frame_answer = 1,
+        .vi_window = 1,
+        .vi_sync2 = 1,
+        .hevc_reset = 0x10002,
+        .vb_count = 3,
+        .rx = 0x0000,
+        .vicu = 0x10000,
+        .vi_ctrl = 0xf0000,
+        .comm_n = 10,
+        .vi_scaler = 1,
     },
 };
 

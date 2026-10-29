@@ -52,14 +52,22 @@ struct xmv200_chip {
   int isp_pool;         /* a VB pool for the ISP's output to VPSS */
   int vb_count;         /* buffers per stream pool */
   int venc_v2;          /* 0x41044901 as the XM535's Sofia fills it */
+  uint32_t rx, vicu;    /* VI's MIPI receiver and first VICU, from VI */
+  uint32_t vi_ctrl;     /* VI's input select register, from VI */
+  int vi_ctrl_chn;      /* ... and the channel after it (+0x18) */
+  int comm_n;           /* 0x4962: the byte with the ISP count (0: none) */
+  int comm_ib;          /* 0x4962 word 9: the BPU's raw buffers */
+  /* no VPSS: VI (vi.ko) scales and queues the streams for VENC, in this
+   * pixel format; no VENC configuration */
+  int vi_scaler;
+  uint32_t vi_format;
 };
 const struct xmv200_chip *xmv200_chip_of(const struct xmv200_sns_tuning *t);
 
 int xmv200_isp_start(const struct xmv200_isp_cfg *cfg);
 void xmv200_isp_stop(void);
-int xmv200_isp_frames_start(void);
-/* program boards: the digital gain (isp.ko 0x4964, 0x100 = 1x) the frame
- * thread sends with every frame */
+/* the digital gain (isp.ko 0x4964, 0x100 = 1x) the frame thread sends with
+ * every frame, on the chips that answer each frame wait */
 void xmv200_isp_set_dgain(uint32_t chn, uint32_t gain);
 
 /* a sensor, for AE: its I2C, its ISP channel and where its picture is
@@ -75,8 +83,4 @@ struct xmv200_ae_sensor {
  * goes to the frame thread (frame_answer) */
 void xmv200_ae_init(const struct xmv200_isp_cfg *cfg,
                     const struct xmv200_ae_sensor *where, int handoff);
-struct xmv200_prog;
-void xmv200_ae_init_prog(const struct xmv200_ae_sensor *s, int n,
-                         const struct xmv200_prog *p);
-
 #endif

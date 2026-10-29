@@ -3,12 +3,10 @@
  * from a reference capture of the vendor stack. Do not edit. */
 #include "sns_tuning.h"
 
-static const struct xmv200_sns_reg init_regs[] = {
+static const struct xmv200_sns_reg run0[] = {
+    {0x0100, 0x00},
     {0x36e9, 0x80},
     {0x37f9, 0x80},
-};
-
-static const struct xmv200_sns_reg mode_regs[] = {
     {0x301f, 0x0c},
     {0x3106, 0x05},
     {0x3200, 0x00},
@@ -113,15 +111,70 @@ static const struct xmv200_sns_reg mode_regs[] = {
     {0x3943, 0xcb},
     {0x3952, 0x02},
     {0x3953, 0x0f},
-};
-
-static const struct xmv200_sns_reg exposure_regs[] = {
     {0x3e01, 0x46},
     {0x3e08, 0x1f},
     {0x3e1b, 0x14},
     {0x440e, 0x02},
     {0x4509, 0x38},
     {0x5799, 0x06},
+    {0x5ae0, 0xfe},
+    {0x5ae1, 0x40},
+    {0x5ae2, 0x30},
+    {0x5ae3, 0x28},
+    {0x5ae4, 0x20},
+    {0x5ae5, 0x30},
+    {0x5ae6, 0x28},
+    {0x5ae7, 0x20},
+    {0x5ae8, 0x3c},
+    {0x5ae9, 0x30},
+    {0x5aea, 0x28},
+    {0x5aeb, 0x3c},
+    {0x5aec, 0x30},
+    {0x5aed, 0x28},
+    {0x5aee, 0xfe},
+    {0x5aef, 0x40},
+    {0x5af4, 0x30},
+    {0x5af5, 0x28},
+    {0x5af6, 0x20},
+    {0x5af7, 0x30},
+    {0x5af8, 0x28},
+    {0x5af9, 0x20},
+    {0x5afa, 0x3c},
+    {0x5afb, 0x30},
+    {0x5afc, 0x28},
+    {0x5afd, 0x3c},
+    {0x5afe, 0x30},
+    {0x5aff, 0x28},
+    {0x36e9, 0x20},
+    {0x37f9, 0x27},
+    {0x4800, 0x44},
+    {0x0100, 0x01},
+};
+
+static const struct xmv200_sns_reg run1[] = {
+    {0x301f, 0x48},
+    {0x320c, 0x0a},
+    {0x320d, 0x50},
+    {0x320e, 0x08},
+    {0x320f, 0xca},
+    {0x301f, 0x47},
+    {0x322e, 0x08},
+    {0x322f, 0xc6},
+};
+
+static const struct xmv200_sns_reg run2[] = {
+    {0x3e02, 0xe0},
+    {0x3e01, 0x2e},
+    {0x3e00, 0x00},
+    {0x3e09, 0x00},
+    {0x3e06, 0x00},
+    {0x3e07, 0x80},
+};
+
+static const struct xmv200_sns_run runs[] = {
+    {run0, sizeof(run0) / sizeof(run0[0])},
+    {run1, sizeof(run1) / sizeof(run1[0])},
+    {run2, sizeof(run2) / sizeof(run2[0])},
 };
 
 static const uint8_t p000_4974[16] = {
@@ -800,7 +853,7 @@ static const struct xmv200_isp_block blocks[] = {
 
 static const uint16_t program[] = {
     XMV200_OP_BLOCK(0),
-    XMV200_OP_SNS_INIT,
+    XMV200_OP_SNS_RUN(0),
     XMV200_OP_BLOCK(1),
     XMV200_OP_ALLOC(0),
     XMV200_OP_ALLOC(1),
@@ -820,10 +873,10 @@ static const uint16_t program[] = {
     XMV200_OP_BLOCK(9),
     XMV200_OP_BLOCK(10),
     XMV200_OP_LDC,
-    XMV200_OP_SNS_MODE,
+    XMV200_OP_SNS_RUN(1),
     XMV200_OP_VI_SYNC,
     XMV200_OP_CHN_ATTR,
-    XMV200_OP_SNS_EXPOSURE,
+    XMV200_OP_SNS_RUN(2),
     XMV200_OP_BLOCK(11),
     XMV200_OP_AE_INIT,
     XMV200_OP_CHN_INIT,
@@ -3974,12 +4027,29 @@ static const struct xmv200_isp_buf bufs[] = {
     {"isp_ltm_ch%u", 0x800},
 };
 
+static const struct xmv200_reg pll0[] = {
+    {0x10, 0x1016063},
+    {0x44, 0xd2b0d2b},
+    {0x48, 0x50f050f},
+    {0x50, 0x10f050f},
+    {0x54, 0x5070505},
+};
+
+static const struct xmv200_reg pll1[] = {
+    {0x10, 0x1016063},
+    {0x44, 0xd2b0d2b},
+    {0x48, 0x50f050f},
+    {0x50, 0x10a0504},
+    {0x54, 0x5050505},
+};
+
 const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535 = {
     .chip = "xm535",
     .width = 1920,
     .height = 1080,
     .sns_clk = {0x87020000, 0x85040000},
-    .pll = {{0x1016063, 0xd2b0d2b, 0x50f050f, 0x10f050f, 0x5070505}, {0x1016063, 0xd2b0d2b, 0x50f050f, 0x10a0504, 0x5050505}},
+    .pll = {pll0, pll1},
+    .n_pll = {sizeof(pll0) / sizeof(pll0[0]), sizeof(pll1) / sizeof(pll1[0])},
     .mipi = mipi,
     .n_mipi = sizeof(mipi) / sizeof(mipi[0]),
     .mipi_ctrl = 0x281f83e0,
@@ -3995,12 +4065,9 @@ const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535 = {
     .ldc = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
     .bufs = bufs,
     .n_bufs = sizeof(bufs) / sizeof(bufs[0]),
-    .init_regs = init_regs,
-    .n_init_regs = sizeof(init_regs) / sizeof(init_regs[0]),
-    .mode_regs = mode_regs,
-    .exposure_regs = exposure_regs,
-    .n_exposure_regs = sizeof(exposure_regs) / sizeof(exposure_regs[0]),
-    .n_mode_regs = sizeof(mode_regs) / sizeof(mode_regs[0]),
+    .runs = runs,
+    .n_runs = sizeof(runs) / sizeof(runs[0]),
+    .exp_lines = 750,
     .program = program,
     .n_program = sizeof(program) / sizeof(program[0]),
     .blocks = blocks,

@@ -15,6 +15,12 @@ struct xmv200_sns_reg {
   uint8_t val;
 };
 
+/* writes to the sensor the vendor ISP makes at one point of its program */
+struct xmv200_sns_run {
+  const struct xmv200_sns_reg *regs;
+  int n;
+};
+
 /* a buffer a channel allocates, which blocks address: its MMZ name (a
  * format taking the channel) and size */
 struct xmv200_isp_buf {
@@ -36,14 +42,12 @@ struct xmv200_isp_block {
   } patch[16];
 };
 
-/* program steps: a block, a buffer, or one of libxmv200's own */
+/* program steps: a block, a buffer, a sensor run, or one of libxmv200's */
 #define XMV200_OP_BLOCK(n) (0x8000 | (n))
-#define XMV200_OP_ALLOC(n) (0x4000 | (n)) /* the tuning's buffer n */
+#define XMV200_OP_ALLOC(n) (0x4000 | (n))   /* the tuning's buffer n */
+#define XMV200_OP_SNS_RUN(n) (0x2000 | (n)) /* the tuning's sensor run n */
 enum {
   XMV200_OP_NOP,
-  XMV200_OP_SNS_INIT,     /* sensor init registers */
-  XMV200_OP_SNS_MODE,     /* sensor mode registers (frame timing) */
-  XMV200_OP_SNS_EXPOSURE, /* the starting exposure and gain */
   XMV200_OP_SNS_FLIP,     /* the board's mirror/flip for this lens */
   XMV200_OP_MIPI_CTRL,    /* the MIPI receiver's lane control */
   XMV200_OP_VI_SYNC,      /* the receiver's sync timeouts */
@@ -69,14 +73,15 @@ struct xmv200_reg {
 
 struct xmv200_sns_tuning {
   /* the chip family it was captured on, whose isp.ko it is for:
-   * "xm530v200" or "xm535" (XM535D1/D2) */
+   * "xm530v200", "xm535" (XM535D1/D2), "xm535w1" or "xm533" */
   const char *chip;
   /* the mode: the sensor's output, the clocks and the MIPI receiver */
   uint32_t width, height;
-  uint32_t sns_clk[2];   /* 0x20000074 / 0x20000078 (XM530V200) */
-  uint32_t pll[2][5];    /* the ISP PLL before and after the sensors start:
-                          * 0x14 (XM530V200) or 0x10 (XM535), then 0x44,
-                          * 0x48, 0x50, 0x54 */
+  uint32_t sns_clk[2];   /* 0x20000074 / 0x20000078 (/dev/mem chips) */
+  /* the ISP PLL before and after the sensors start, as written: offsets in
+   * the clock block (0x20000000) */
+  const struct xmv200_reg *pll[2];
+  int n_pll[2];
   const struct xmv200_reg *mipi;
   int n_mipi;
   uint32_t mipi_ctrl;    /* 0x30004000 */
@@ -94,12 +99,9 @@ struct xmv200_sns_tuning {
   uint32_t ldc[12];      /* 0x49e9 */
   const struct xmv200_isp_buf *bufs; /* the channel buffers */
   int n_bufs;
-  const struct xmv200_sns_reg *init_regs;
-  int n_init_regs;
-  const struct xmv200_sns_reg *mode_regs;
-  int n_mode_regs;
-  const struct xmv200_sns_reg *exposure_regs; /* the starting exposure */
-  int n_exposure_regs;
+  const struct xmv200_sns_run *runs; /* the sensor's register runs */
+  int n_runs;
+  uint32_t exp_lines; /* the exposure the program leaves the sensor at */
   const uint16_t *program;
   int n_program;
   const struct xmv200_isp_block *blocks;
@@ -119,7 +121,5 @@ struct xmv200_sns {
 extern const struct xmv200_sns xmv200_sensors[];
 extern const int xmv200_n_sensors;
 
-extern const struct xmv200_sns_tuning xmv200_tuning_sc2336;
-extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535;
 
 #endif

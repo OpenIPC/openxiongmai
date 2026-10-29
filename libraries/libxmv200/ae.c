@@ -12,10 +12,10 @@
  * 1x). AWB is gray world: the R and B gains (0x4967, 0x100 = 1x) move
  * until the mean chroma is neutral.
  *
- * A layout board's sensors are its ISP configuration's, in stream 0. A
- * program board's are listed with the board (struct xmv200_ae_sensor). Where
- * the frame thread sends the digital gain with every frame (XM535), AE hands
- * it the value instead of sending it.
+ * Each sensor's picture is a band of the first stream with its group
+ * (struct xmv200_ae_sensor). Where the frame thread sends the digital gain
+ * with every frame (XM535, XM533), AE hands it the value instead of
+ * sending it.
  */
 #include <fcntl.h>
 #include <stdlib.h>
@@ -23,7 +23,6 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "board_prog.h"
 #include "sns_tuning.h"
 #include "xmv200.h"
 #include "xmv200_priv.h"
@@ -47,7 +46,7 @@ struct ae_state {
 };
 
 static struct ae_state st[MAX_SNS];
-static int n_sns, prog_board;
+static int n_sns, handoff;
 static int isp_fd = -1, mem_fd = -1;
 static unsigned count[XMV200_MAX_STREAMS];
 
@@ -59,56 +58,18 @@ static void open_devs(void) {
 }
 
 void xmv200_ae_init(const struct xmv200_isp_cfg *c,
-                    const struct xmv200_ae_sensor *where, int handoff) {
+                    const struct xmv200_ae_sensor *where, int give) {
   const struct xmv200_sns_tuning *t = c->tuning;
-  uint32_t lines = 0;
 
-  /* the mode's starting exposure: 0x3e00..0x3e02 hold lines << 4 */
-  for (int i = 0; i < t->n_exposure_regs; i++)
-    if (t->exposure_regs[i].reg >= 0x3e00 && t->exposure_regs[i].reg <= 0x3e02)
-      lines |= (uint32_t)t->exposure_regs[i].val
-               << (8 * (0x3e02 - t->exposure_regs[i].reg));
   n_sns = c->n_chn < MAX_SNS ? c->n_chn : MAX_SNS;
-  prog_board = handoff;
+  handoff = give;
   for (int i = 0; i < n_sns; i++)
     st[i] = (struct ae_state){.where = where[i],
                               .max_lines = t->chn_attr[2] - 4, /* VTS */
-                              .lines = lines >> 4,
+                              .lines = t->exp_lines,
                               .dgain = 0x100,
                               .r = 0x100,
                               .b = 0x100};
-  open_devs();
-}
-
-/* a program board's sensors start where its program left them: exposure
- * (0x3e00..0x3e02), coarse gain (0x3e09) and frame length (0x320e/0x320f) */
-void xmv200_ae_init_prog(const struct xmv200_ae_sensor *s, int n,
-                         const struct xmv200_prog *p) {
-  n_sns = 0;
-  prog_board = 1;
-  for (int i = 0; i < n && i < MAX_SNS; i++) {
-    struct ae_state *a = &st[n_sns];
-    int e0 = xmv200_prog_i2c_last(p, s[i].bus, s[i].addr, 0x3e00);
-    int e1 = xmv200_prog_i2c_last(p, s[i].bus, s[i].addr, 0x3e01);
-    int e2 = xmv200_prog_i2c_last(p, s[i].bus, s[i].addr, 0x3e02);
-    int vh = xmv200_prog_i2c_last(p, s[i].bus, s[i].addr, 0x320e);
-    int vl = xmv200_prog_i2c_last(p, s[i].bus, s[i].addr, 0x320f);
-    int g = xmv200_prog_i2c_last(p, s[i].bus, s[i].addr, 0x3e09);
-
-    if (e1 < 0 || e2 < 0 || vh < 0 || vl < 0)
-      continue; /* not a SmartSens part this loop knows */
-    *a = (struct ae_state){.where = s[i],
-                           .max_lines = ((uint32_t)vh << 8 | vl) - 4,
-                           .lines = ((uint32_t)(e0 < 0 ? 0 : e0) << 12 |
-                                     (uint32_t)e1 << 4 | (uint32_t)e2 >> 4),
-                           .dgain = 0x100,
-                           .r = 0x100,
-                           .b = 0x100};
-    for (int k = 0; k < (int)sizeof(again_reg); k++)
-      if (again_reg[k] == g)
-        a->again = k;
-    n_sns++;
-  }
   open_devs();
 }
 
@@ -121,7 +82,7 @@ static void apply(struct ae_state *a) {
   xmv200_i2c_write(s->bus, s->addr, 0x3e01, 2, (a->lines >> 4) & 0xff, 1);
   xmv200_i2c_write(s->bus, s->addr, 0x3e00, 2, (a->lines >> 12) & 0x0f, 1);
   xmv200_i2c_write(s->bus, s->addr, 0x3e09, 2, again_reg[a->again], 1);
-  if (prog_board)
+  if (handoff)
     xmv200_isp_set_dgain(s->isp_chn, a->dgain);
   else
     ioctl(isp_fd, ISP_DGAIN, dg);

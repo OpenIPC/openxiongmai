@@ -161,7 +161,23 @@ int main(int argc, char **argv) {
     int n = argc > 3 ? atoi(argv[3]) : 30, got[XMV200_MAX_STREAMS] = {0};
     int done = 0;
 
-    if (xmv200_board_start(argv[2], &info)) {
+    struct xmv200_layout l;
+    int r;
+
+    /* a board's name, or a layout file */
+    if (strchr(argv[2], '/') || strstr(argv[2], ".conf")) {
+      static char text[8192];
+      FILE *lf = fopen(argv[2], "r");
+      size_t len = lf ? fread(text, 1, sizeof(text) - 1, lf) : 0;
+
+      if (lf)
+        fclose(lf);
+      text[len] = 0;
+      r = !lf || xmv200_layout_parse(text, &l);
+    } else {
+      r = xmv200_board_layout(argv[2], &l);
+    }
+    if (r || xmv200_layout_start(&l, &info)) {
       fprintf(stderr, "board %s: start failed\n", argv[2]);
       return 1;
     }
@@ -208,6 +224,20 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
-  fprintf(stderr, "usage: %s probe | run <board> [frames] | replay | encode [n]\n", argv[0]);
+  if (argc > 2 && !strcmp(argv[1], "layout")) {
+    /* a board's layout as text, to start a layout file from */
+    struct xmv200_layout l;
+    static char text[8192];
+
+    if (xmv200_board_layout(argv[2], &l))
+      return 1;
+    xmv200_layout_format(&l, text, sizeof(text));
+    fputs(text, stdout);
+    return 0;
+  }
+  fprintf(stderr,
+          "usage: %s probe | run <board|layout file> [frames] | layout <board>"
+          " | replay | encode [n]\n",
+          argv[0]);
   return 1;
 }

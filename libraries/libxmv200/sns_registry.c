@@ -22,7 +22,9 @@ extern const struct xmv200_sns_tuning xmv200_tuning_sc430ai;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc4336;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc500ai;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc831hai;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc2337p_xm533;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc1346_xm535w1;
 
 const struct xmv200_sns xmv200_sensors[] = {
     {0xca3f, "SC1336", &xmv200_tuning_sc1336},
@@ -44,7 +46,9 @@ const struct xmv200_sns xmv200_sensors[] = {
     {0xdc42, "SC4336", &xmv200_tuning_sc4336},
     {0xce1f, "SC500AI", &xmv200_tuning_sc500ai},
     {0xc170, "SC831HAI", &xmv200_tuning_sc831hai},
+    {0xcb3a, "SC2337P", &xmv200_tuning_sc2337p_xm533},
     {0xcb3a, "SC2336", &xmv200_tuning_sc2336_xm535},
+    {0xda4d, "SC1346", &xmv200_tuning_sc1346_xm535w1},
 };
 
 const int xmv200_n_sensors = sizeof(xmv200_sensors) / sizeof(xmv200_sensors[0]);

@@ -3,11 +3,9 @@
  * from a reference capture of the vendor stack. Do not edit. */
 #include "sns_tuning.h"
 
-static const struct xmv200_sns_reg init_regs[] = {
+static const struct xmv200_sns_reg run0[] = {
+    {0x0100, 0x00},
     {0x36e9, 0x80},
-};
-
-static const struct xmv200_sns_reg mode_regs[] = {
     {0x301f, 0x07},
     {0x3200, 0x00},
     {0x3201, 0x00},
@@ -77,15 +75,49 @@ static const struct xmv200_sns_reg mode_regs[] = {
     {0x36eb, 0x88},
     {0x36ec, 0x1d},
     {0x36ed, 0x24},
-};
-
-static const struct xmv200_sns_reg exposure_regs[] = {
     {0x3e00, 0x00},
     {0x3e01, 0x2e},
     {0x3e02, 0x00},
     {0x3e08, 0x03},
     {0x3e09, 0x20},
     {0x4509, 0x20},
+    {0x4800, 0x44},
+    {0x4819, 0x06},
+    {0x481b, 0x04},
+    {0x481d, 0x0c},
+    {0x481f, 0x03},
+    {0x4821, 0x08},
+    {0x4823, 0x03},
+    {0x4825, 0x03},
+    {0x4827, 0x03},
+    {0x4829, 0x05},
+    {0x36e9, 0x23},
+    {0x0100, 0x01},
+};
+
+static const struct xmv200_sns_reg run1[] = {
+    {0x320c, 0x13},
+    {0x320d, 0x88},
+};
+
+static const struct xmv200_sns_reg run2[] = {
+    {0x3e02, 0x40},
+    {0x3e01, 0x5d},
+    {0x3e00, 0x00},
+    {0x3812, 0x00},
+    {0x363a, 0x0c},
+    {0x3622, 0xc6},
+    {0x3812, 0x30},
+    {0x3e08, 0x03},
+    {0x3e09, 0x20},
+    {0x3e06, 0x00},
+    {0x3e07, 0x80},
+};
+
+static const struct xmv200_sns_run runs[] = {
+    {run0, sizeof(run0) / sizeof(run0[0])},
+    {run1, sizeof(run1) / sizeof(run1[0])},
+    {run2, sizeof(run2) / sizeof(run2[0])},
 };
 
 static const uint8_t p000_4913[8] = {
@@ -741,7 +773,7 @@ static const struct xmv200_isp_block blocks[] = {
 static const uint16_t program[] = {
     XMV200_OP_BLOCK(0),
     XMV200_OP_BLOCK(1),
-    XMV200_OP_SNS_INIT,
+    XMV200_OP_SNS_RUN(0),
     XMV200_OP_BLOCK(2),
     XMV200_OP_ALLOC(0),
     XMV200_OP_ALLOC(1),
@@ -758,10 +790,10 @@ static const uint16_t program[] = {
     XMV200_OP_BLOCK(10),
     XMV200_OP_BLOCK(11),
     XMV200_OP_LDC,
-    XMV200_OP_NOP,
+    XMV200_OP_SNS_RUN(1),
     XMV200_OP_VI_SYNC,
     XMV200_OP_CHN_ATTR,
-    XMV200_OP_SNS_EXPOSURE,
+    XMV200_OP_SNS_RUN(2),
     XMV200_OP_BLOCK(12),
     XMV200_OP_AE_INIT,
     XMV200_OP_CHN_INIT,
@@ -3568,12 +3600,35 @@ static const struct xmv200_isp_buf bufs[] = {
     {"isp_defog_ch%u", 0x1800},
 };
 
+static const struct xmv200_reg pll0[] = {
+    {0x10, 0x10a8000},
+    {0x14, 0x20b60000},
+    {0x44, 0xd620d62},
+    {0x48, 0x51f051f},
+    {0x50, 0x51f0000},
+    {0x54, 0x51f0509},
+    {0x10, 0x800a8000},
+    {0x10, 0x810a8000},
+};
+
+static const struct xmv200_reg pll1[] = {
+    {0x10, 0x10a8000},
+    {0x14, 0x20a40000},
+    {0x44, 0xd590d59},
+    {0x48, 0x509052f},
+    {0x50, 0x51f0000},
+    {0x54, 0x5090507},
+    {0x10, 0x800a8000},
+    {0x10, 0x810a8000},
+};
+
 const struct xmv200_sns_tuning xmv200_tuning_sc1345 = {
     .chip = "xm530v200",
     .width = 1290,
     .height = 726,
     .sns_clk = {0xc104c103, 0xc105c0ff},
-    .pll = {{0x20b60000, 0xd620d62, 0x51f051f, 0x51f0000, 0x51f0509}, {0x20a40000, 0xd590d59, 0x509052f, 0x51f0000, 0x5090507}},
+    .pll = {pll0, pll1},
+    .n_pll = {sizeof(pll0) / sizeof(pll0[0]), sizeof(pll1) / sizeof(pll1[0])},
     .mipi = mipi,
     .n_mipi = sizeof(mipi) / sizeof(mipi[0]),
     .mipi_ctrl = 0x0,
@@ -3589,12 +3644,9 @@ const struct xmv200_sns_tuning xmv200_tuning_sc1345 = {
     .ldc = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
     .bufs = bufs,
     .n_bufs = sizeof(bufs) / sizeof(bufs[0]),
-    .init_regs = init_regs,
-    .n_init_regs = sizeof(init_regs) / sizeof(init_regs[0]),
-    .mode_regs = mode_regs,
-    .exposure_regs = exposure_regs,
-    .n_exposure_regs = sizeof(exposure_regs) / sizeof(exposure_regs[0]),
-    .n_mode_regs = sizeof(mode_regs) / sizeof(mode_regs[0]),
+    .runs = runs,
+    .n_runs = sizeof(runs) / sizeof(runs[0]),
+    .exp_lines = 1492,
     .program = program,
     .n_program = sizeof(program) / sizeof(program[0]),
     .blocks = blocks,

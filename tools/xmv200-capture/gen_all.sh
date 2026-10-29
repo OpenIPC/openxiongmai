@@ -18,7 +18,7 @@ for d in "$C"/*/; do
     name=$(grep -a -o '[A-Z0-9]*! Chn:0' "$d/console.log" 2>/dev/null | head -1 | cut -d'!' -f1)
     [ -n "$name" ] && grep -q SNAPSHOT "$d/merged.trace" || { echo "skip $id" >&2; continue; }
     n=$(echo "$name" | tr 'A-Z' 'a-z')$suffix
-    "$D/gen_tuning.py" "$d/merged.trace" "$d/page.bin" "$d/ldc.bin" "$n" > "$L/sns_${n}_tuning.c"
+    "$D/gen_tuning.py" "$d/merged.trace" "$d/page.bin" "$d/ldc.bin" "$n" "$F" > "$L/sns_${n}_tuning.c"
     echo "$id $name $n" >> "$list.new"
 done
 sort -k3 "$list.new" > "$list"; rm -f "$list.new"

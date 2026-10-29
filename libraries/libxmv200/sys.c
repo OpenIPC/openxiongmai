@@ -78,12 +78,22 @@ struct i2c_rec {
 
 static int i2c_fd[3] = {-1, -1, -1};
 
+/* i2c.ko's devices: /dev/i2c0..2, or on the XM533 /dev/xm_i2c (bus 0) and
+ * /dev/xm_i2c1..2 */
 static int i2c_open(int bus) {
   char path[16];
 
   if (bus < 0 || bus > 2)
     return -1;
+  if (i2c_fd[bus] >= 0)
+    return i2c_fd[bus];
   snprintf(path, sizeof(path), "/dev/i2c%d", bus);
+  if (access(path, F_OK)) {
+    if (bus)
+      snprintf(path, sizeof(path), "/dev/xm_i2c%d", bus);
+    else
+      snprintf(path, sizeof(path), "/dev/xm_i2c");
+  }
   return open_once(&i2c_fd[bus], path);
 }
 

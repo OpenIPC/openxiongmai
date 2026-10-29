@@ -44,7 +44,9 @@
 #define ISP_WAIT_FRAME 0x490a /* 12 bytes; the channels with a new frame */
 
 #define VI 0x30000000
-#define VICU(c) (VI + 0x40000 + (c) * 0x10000)
+
+static const struct xmv200_chip *cur_chip;
+#define VICU(c) (VI + cur_chip->vicu + (c) * 0x10000)
 
 static int isp_fd = -1;
 static uint8_t *isp_page;
@@ -171,7 +173,7 @@ static int run_program(const struct xmv200_isp_chn *c,
                        const struct xmv200_sns_tuning *t,
                        const struct xmv200_chip *chip, struct chn_place pl) {
   struct xmv200_buf bufs[MAX_BUFS];
-  uint32_t rx = VI + c->phy * 0x1000; /* the channel's receiver */
+  uint32_t rx = VI + chip->rx + c->phy * 0x1000; /* the channel's receiver */
   char name[40];
 
   memset(bufs, 0, sizeof(bufs));
@@ -193,29 +195,25 @@ static int run_program(const struct xmv200_isp_chn *c,
         return -1;
       continue;
     }
+    if (op & 0x2000) {
+      if ((op & 0xff) >= t->n_runs)
+        return -1;
+      sns_table(s, t->runs[op & 0xff].regs, t->runs[op & 0xff].n);
+      continue;
+    }
     switch (op) {
-    case XMV200_OP_SNS_INIT:
-      sns_write(s, 0x0100, 0); /* standby while it is set up */
-      sns_table(s, t->init_regs, t->n_init_regs);
-      break;
-    case XMV200_OP_SNS_MODE:
-      sns_table(s, t->mode_regs, t->n_mode_regs);
-      break;
-    case XMV200_OP_SNS_EXPOSURE:
-      sns_table(s, t->exposure_regs, t->n_exposure_regs);
-      break;
     case XMV200_OP_SNS_FLIP:
       sns_write(s, 0x3221, s->flip);
       break;
     case XMV200_OP_MIPI_CTRL:
       if (pl.first_on_phy)
-        xmv200_reg_write(rx + 0x4000, t->mipi_ctrl);
+        xmv200_reg_write(rx, t->mipi_ctrl);
       break;
     case XMV200_OP_VI_SYNC:
       if (pl.first_on_phy) {
-        xmv200_reg_write(rx + 0x430c, t->vi_sync);
+        xmv200_reg_write(rx + 0x30c, t->vi_sync);
         if (chip->vi_sync2)
-          xmv200_reg_write(rx + 0x4310, t->vi_sync);
+          xmv200_reg_write(rx + 0x310, t->vi_sync);
       }
       break;
     case XMV200_OP_VI_WINDOW:
@@ -325,6 +323,8 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   const struct xmv200_chip *chip = xmv200_chip_of(t);
   int n = cfg->n_chn;
 
+  cur_chip = chip;
+
   isp_fd = open("/dev/isp", O_RDWR);
   if (isp_fd < 0)
     return -1;
@@ -357,12 +357,14 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
 
   memset(comm, 0, sizeof(comm));
   memcpy(comm, t->comm, sizeof(t->comm));
-  comm[9] = n;     /* ISPs in use */
-  comm[10] = mask; /* their channels */
-  comm[12] = n;
-  comm[13] = mask;
-  if (t->comm[9] < (uint32_t)n) /* the BPU's raw buffers, one per channel */
-    memcpy(comm + 36, &n, 4);
+  if (chip->comm_n) {
+    comm[chip->comm_n] = n;        /* ISPs in use */
+    comm[chip->comm_n + 1] = mask; /* their channels */
+    comm[chip->comm_n + 3] = n;
+    comm[chip->comm_n + 4] = mask;
+  }
+  if (chip->comm_ib && t->comm[9] < (uint32_t)n)
+    memcpy(comm + 36, &n, 4); /* the BPU's raw buffers, one per channel */
   if (isp_cmd(ISP_COMM_INIT, comm) || isp_cmd(ISP_COMM_INIT_VPSS, comm))
     return -1;
   for (int c = 0; c < n; c++) {
@@ -396,17 +398,6 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   isp_running = 1;
   pthread_create(&isp_thread, NULL, isp_frames, NULL);
   return 0;
-}
-
-/* the frame waits alone, for boards whose ISP a board program set up */
-int xmv200_isp_frames_start(void) {
-  frames_ae = 1;
-  if (isp_fd < 0)
-    isp_fd = open("/dev/isp", O_RDWR);
-  if (isp_fd < 0)
-    return -1;
-  isp_running = 1;
-  return pthread_create(&isp_thread, NULL, isp_frames, NULL);
 }
 
 void xmv200_isp_stop(void) {

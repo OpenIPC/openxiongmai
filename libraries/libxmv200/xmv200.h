@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: MIT */
 /*
  * libxmv200: the media pipeline of the Xiongmai V200 series (XM530V200,
- * XM533, XM535) on the vendor kernel modules (i2c, mmz, vb, sys, isp, vpss,
- * hevc), without the vendor userspace (Sofia, isp).
+ * XM533, XM535D1/D2/W1) on the vendor kernel modules (i2c, mmz, vb, sys,
+ * isp, vpss or vi, venc, hevc), without the vendor userspace (Sofia, isp).
  *
  * The vendor modules do the register work. This library makes the calls the
  * vendor userspace makes: device ioctls, the few registers it writes through
@@ -48,10 +48,46 @@ struct xmv200_vb_pool {
 int xmv200_vb_init(const struct xmv200_vb_pool *pools, int n);
 
 /*
- * A board's whole pipeline: sensors, ISP, VPSS, the VENC channels. After it
- * the streams' pictures queue for xmv200_frame_get.
+ * A board's whole pipeline: sensors, ISP, VPSS (or VI's scaler), the VENC
+ * channels. After it the streams' pictures queue for xmv200_frame_get.
+ *
+ * A board is a layout: its sensors, how they are wired, and the streams to
+ * make of them. It can come from a configuration file; the sensor's mode
+ * (its registers and the ISP's tuning for it) comes from the tunings
+ * libxmv200 has for the running chip.
  */
 #define XMV200_MAX_STREAMS 6
+#define XMV200_MAX_SENSORS 3
+
+struct xmv200_layout_sensor {
+  const char *model; /* "SC2336"; NULL: probe its chip ID */
+  int bus;           /* /dev/i2cN */
+  uint8_t addr;      /* 7-bit */
+  uint8_t flip;      /* SmartSens 0x3221: 0x66 mirrors and flips */
+  uint32_t x0, y0;   /* the lens' crop in the sensor's output */
+  /* the ISP's picture of it, what VPSS or VI scales from (0: the mode's,
+   * to whole lines of 8 and columns of 16) */
+  uint32_t width, height;
+  /* how it is wired: its MIPI receiver (phy), and on the XM535D1/D2 the VI
+   * device its channel is on with its index there; on the XM530V200 the
+   * receiver input a second sensor takes (mipi) */
+  uint32_t phy, vi_dev, vi_idx, mipi;
+  int ldc; /* lens distortion correction, where the tuning has it */
+};
+
+struct xmv200_layout_stream {
+  uint32_t width, height; /* per sensor */
+  uint32_t sensors;       /* mask: several are spliced top to bottom */
+};
+
+struct xmv200_layout {
+  const char *chip; /* "xm535d1", ...; NULL: the running kernel's */
+  int n_sensors;
+  struct xmv200_layout_sensor sensor[XMV200_MAX_SENSORS];
+  int n_streams; /* stream n is VENC channel n */
+  struct xmv200_layout_stream stream[XMV200_MAX_STREAMS];
+  uint32_t fps;
+};
 
 struct xmv200_board_info {
   int n_streams;
@@ -60,7 +96,19 @@ struct xmv200_board_info {
     uint32_t width, height; /* what VENC channel n gets */
   } stream[XMV200_MAX_STREAMS];
 };
+
+int xmv200_layout_start(const struct xmv200_layout *l,
+                        struct xmv200_board_info *info);
+/* a known board's layout ("x6c-weq", ...), or "auto": the sensors found on
+ * I2C, one picture each or two of a kind spliced, and a 640-wide stream */
+int xmv200_board_layout(const char *board, struct xmv200_layout *l);
+/* a layout from text (layout.c has the format), and back */
+int xmv200_layout_parse(const char *text, struct xmv200_layout *l);
+int xmv200_layout_format(const struct xmv200_layout *l, char *out, int cap);
+/* xmv200_board_layout, then xmv200_layout_start */
 int xmv200_board_start(const char *board, struct xmv200_board_info *info);
+/* the running chip ("xm530v200", "xm535d1", ...), or NULL */
+const char *xmv200_chip_name(void);
 
 /*
  * H.265 encoding on the hevc.ko engine, one encoder per stream size. Frames
