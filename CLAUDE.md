@@ -96,7 +96,7 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 - **Exit (SIGTERM):** it drops its SIGIO handler, turns 3D-NR off (`0x40040000` = 0) and closes its devices.
 - **Cost:** untraced the daemon takes about 5% CPU, traced about 50%.
 
-### `libraries/libxmisp` and `tools/xmispd` (open XM510 ISP, M1)
+### `libraries/libxmisp` and `tools/xmispd` (open XM510 ISP, M1-M2)
 
 `libxmisp` (static `libxmisp.a`, MIT) is the open ISP and `tools/xmispd` (MIT, static) the daemon on it, a drop-in for the vendor `/usr/bin/isp`. Keep both clean-room as above, and keep GPL code and the vendor-derived headers in `libraries/isp/include` out: register names appear as comments only.
 - **Sensor scripts (`script.h`):** the start-up for one sensor and mode as steps: MMZ/VI/region resets, system controller writes, sensor writes, the chip ID to expect, VI ioctls, the "Isp" MMZ block, and ISP writes. A script also carries a fixed 3A state applied once after it. `xmisp_start()` tries each script in `xmisp_scripts` until a chip ID matches. Registers holding addresses in the "Isp" block are written relative to its allocation, in 8-byte units from DDR (`0x80000000`).
@@ -104,7 +104,11 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 - **XM510 interfaces:**
   - MMZ alloc is `0xC0284D01`. musl's `_IOWR()` takes a type, so `_IOWR('M', 1, 40)` encodes `sizeof(int)`, and `mmz.ko` answers "ioctl cmd error". Use encoded numbers for size-only commands.
   - The vendor sleeps 100 ms after the sensor reset and 3 × 1 s around the 3D-NR enable, so start-up takes about 3.4 s.
-- **Daemon:** it prints the vendor daemon's last start-up line, `ispMsgReceive start!`, in the vendor's format (`\033[0;32;32mDEBUG: ...\n\033[m`); majestic starts video after it. It takes signals with `sigwaitinfo()` (SIGIO from `/dev/isp` with `O_ASYNC`) and on SIGTERM turns 3D-NR off. No AE or AWB yet (M2, M3): exposure and white balance stay at the script's fixed state, so the picture matches the vendor's only in the light of the capture.
+- **AE (M2):** three layers, so the XM530 can reuse the first:
+  - `ae.c` knows neither SoC nor sensor: mean luma in, lines and gain out. It moves lines × gain by the square root of target/mean each step, lines before gain, then waits `interval` frames. Test it on the host with `make -C libraries/libxmisp test`; CI runs that.
+  - `sensor_h62.c`: exposure in lines at `0x02`/`0x01`; gain at `0x00`, 2^[6:4] × (1 + [3:0]/16), with `0x7x` measuring the same as `0x6x`. Both were measured with the statistics, not taken from the vendor.
+  - `xm510.c` reads the statistics: a 32-bin luma histogram at `0x40033080`, and 7×7 zone sums from `0x40033100` (rows in pairs `0x40` apart, the second `0x1c` in). Zone total over histogram total is the 8-bit linear mean. The vendor holds it at about 37.5, and so does `ae_xm510`.
+- **Daemon:** it prints the vendor daemon's last start-up line, `ispMsgReceive start!`, in the vendor's format (`\033[0;32;32mDEBUG: ...\n\033[m`); majestic starts video after it. It takes signals with `sigwaitinfo()` (SIGIO from `/dev/isp` with `O_ASYNC`) and on SIGTERM turns 3D-NR off. It runs `xmisp_frame()` on every SIGIO. White balance stays at the script's fixed state until AWB (M3), so in another light the colour is off while the brightness is right.
 
 ### `tools/xm-vi-hang`
 

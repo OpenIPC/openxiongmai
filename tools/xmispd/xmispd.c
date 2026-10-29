@@ -5,7 +5,9 @@
  * ISP up through libxmisp, prints the vendor daemon's ready line, and waits;
  * on SIGTERM or SIGINT it takes the vendor daemon's way out.
  *
- * M1: exposure and white balance stay at the script's fixed state.
+ * Each frame start runs auto-exposure; white balance stays at the script's
+ * fixed state. With XMISPD_VERBOSE set in its environment it prints every
+ * exposure change (majestic logs each line, so not by default).
  *
  * Output follows the vendor daemon's format, which the streamer forwards to
  * its log: "\033[0;32;32mDEBUG: ..." or "\033[0;32;31mERR: ...", each line
@@ -16,6 +18,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -66,8 +69,9 @@ int main(void) {
     xmisp_close(isp);
     return 1;
   }
-  debug("%s up: open ISP, fixed exposure and white balance",
+  debug("%s up: open ISP, auto-exposure, fixed white balance",
         xmisp_script(isp)->name);
+  const int verbose = getenv("XMISPD_VERBOSE") != NULL;
 
   const int fd = xmisp_fd(isp);
   if (fcntl(fd, F_SETOWN, getpid()) < 0 ||
@@ -82,9 +86,19 @@ int main(void) {
   for (;;) {
     siginfo_t si;
     const int sig = sigwaitinfo(&set, &si);
-    if (sig == SIGIO)
+    if (sig == SIGIO) {
       frames++;
-    else if (sig == SIGTERM || sig == SIGINT)
+      const int r = xmisp_frame(isp);
+      if (r < 0)
+        error("exposure: %s", strerror(errno));
+      else if (r > 0 && verbose) {
+        float mean, gain;
+        uint32_t lines;
+        xmisp_exposure(isp, &mean, &lines, &gain);
+        debug("frame %lu: mean %.1f -> %u lines, gain %.2f", frames, mean,
+              (unsigned)lines, gain);
+      }
+    } else if (sig == SIGTERM || sig == SIGINT)
       break;
   }
 

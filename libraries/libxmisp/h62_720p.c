@@ -739,6 +739,7 @@ static const struct xmisp_op fixed[] = {
 
 const struct xmisp_script xmisp_h62_720p = {
     .name = "JX-H62 720p25",
+    .sensor = &xmisp_sensor_h62,
     .i2c_dev = 0x30,
     .start = start,
     .fixed = fixed,

@@ -1,0 +1,38 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * Auto-exposure, independent of the SoC and the sensor: it takes the mean
+ * luma of a frame and gives the exposure (lines) and gain to aim for. The
+ * SoC side measures, the sensor side encodes.
+ */
+#ifndef XMISP_AE_H
+#define XMISP_AE_H
+
+#include <stdint.h>
+
+struct xmisp_ae_cfg {
+  float target;       /* mean luma to hold, 8-bit, linear (before gamma) */
+  float tolerance;    /* relative error left alone, e.g. 0.08 */
+  uint32_t lines_min; /* exposure range of the sensor mode */
+  uint32_t lines_max;
+  float gain_max;    /* 1.0 = no gain */
+  unsigned interval; /* frames from a change until its result is measured */
+};
+
+struct xmisp_ae {
+  struct xmisp_ae_cfg cfg;
+  float total; /* lines x gain */
+  unsigned wait;
+};
+
+void xmisp_ae_init(struct xmisp_ae *ae, const struct xmisp_ae_cfg *cfg,
+                   uint32_t lines, float gain);
+
+/* One frame's mean luma. 1 if the exposure should change, with *lines and
+ * *gain set; then tell xmisp_ae_applied() what the sensor took. */
+int xmisp_ae_update(struct xmisp_ae *ae, float mean, uint32_t *lines,
+                    float *gain);
+
+/* The exposure the sensor took, after its gain steps. */
+void xmisp_ae_applied(struct xmisp_ae *ae, uint32_t lines, float gain);
+
+#endif
