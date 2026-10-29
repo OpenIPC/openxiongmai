@@ -114,12 +114,15 @@ int main(void) {
              "periods), gain %5.2f, mean %6.2f\n",
              fscenes[i], settled, (unsigned)lines, periods, gain, mean);
       check(settled >= 0, "keeps changing (anti-flicker)", fscenes[i]);
-      check(lines < 187 || whole, "not whole flicker periods", fscenes[i]);
+      check(whole && lines >= 187, "not whole flicker periods", fscenes[i]);
       check(lines <= 563, "beyond the last whole period", fscenes[i]);
       const double want = fc.target / fscenes[i];
-      if (want >= 1 && want <= 562.5 * fc.gain_max)
+      if (want >= 187.5 && want <= 562.5 * fc.gain_max)
         check(fabs(mean / fc.target - 1.0) <= fc.tolerance + 0.07,
               "mean off target (anti-flicker)", fscenes[i]);
+      if (want < 187.5) /* too bright for a period: one period, gain 1 */
+        check(lines == 188 && gain == 1.0f, "not one period when too bright",
+              fscenes[i]);
     }
     /* Turned on while settled at 300 lines: it moves to whole periods in
      * the same light. */

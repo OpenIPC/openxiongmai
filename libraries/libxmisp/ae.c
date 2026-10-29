@@ -8,9 +8,10 @@
  * are whole; the fraction a total leaves goes to gain, the sensor taking
  * its nearest step.
  *
- * Under anti-flicker the lines are whole flicker periods once the light
- * allows one, the rest made up by gain; in brighter light, shorter than a
- * period, no exposure can avoid the flicker, and lines are free.
+ * Under anti-flicker the lines are whole flicker periods, at least one, the
+ * rest made up by gain. Light too bright for one period is overexposed, not
+ * banded: under a 200 W LED lamp on the lab camera, 88 lines (1.6 ms) gave
+ * bands of 8.6% at 186.4 rows, the 10 ms period at 53.33 us a line.
  *
  * Only xmisp_ae_applied() changes the state, with what the sensor took: a
  * write that failed leaves the controller where the sensor is. A proposal
@@ -36,33 +37,43 @@ static float lines_top(const struct xmisp_ae_cfg *c) {
   return (float)c->lines_max;
 }
 
+/* The fewest lines the exposure may have: under anti-flicker, the first
+ * whole period at or above the sensor's minimum, if the range has one. */
+static float lines_bottom(const struct xmisp_ae_cfg *c) {
+  const float fl = c->flicker_lines;
+  if (fl < 1.0f || (float)c->lines_max < fl)
+    return (float)c->lines_min;
+  float p = 1.0f;
+  while (p * fl + 0.5f < (float)c->lines_min && (p + 1) * fl <= lines_top(c))
+    p++;
+  return p * fl;
+}
+
 /* The lines for a total of lines x gain: whole lines, the fraction left
  * made up by gain (1.5 lines of light is 1 line at 1.5x, not 2 lines);
- * under anti-flicker whole periods, once there is light for one. */
+ * under anti-flicker whole periods, at least one. */
 static uint32_t lines_for(const struct xmisp_ae_cfg *c, float total) {
-  const float top = lines_top(c), fl = c->flicker_lines;
+  const float top = lines_top(c), bottom = lines_bottom(c),
+              fl = c->flicker_lines;
   float l = total < top ? total : top;
-  if (fl >= 1.0f && l >= fl) {
-    float periods = floorf(l / fl);
-    /* A sensor minimum inside the first periods: the first whole period
-     * at or above it, if the range has one. */
-    while (periods * fl + 0.5f < (float)c->lines_min &&
-           (periods + 1) * fl <= top)
-      periods++;
-    l = periods * fl + 0.5f;
-  }
+  if (l < bottom)
+    l = bottom;
+  if (fl >= 1.0f && (float)c->lines_max >= fl)
+    l = floorf(l / fl + 1e-4f) * fl + 0.5f;
   uint32_t n = (uint32_t)l;
   if (n > c->lines_max)
     n = c->lines_max;
   return n < c->lines_min ? c->lines_min : n;
 }
 
-/* Whether lines are as anti-flicker wants them: whole periods, or under
- * one period (no exposure helps there), or anti-flicker off. */
+/* Whether lines are as anti-flicker wants them: whole periods, or
+ * anti-flicker off (or no period fits the sensor). */
 static int aligned(const struct xmisp_ae_cfg *c, uint32_t lines) {
   const float fl = c->flicker_lines;
-  if (fl < 1.0f || (float)lines < fl - 0.5f)
+  if (fl < 1.0f || (float)c->lines_max < fl)
     return 1;
+  if ((float)lines < fl - 0.5f)
+    return 0;
   const float periods = (float)lines / fl;
   return fabsf(periods - floorf(periods + 0.5f)) * fl <= 0.51f;
 }
@@ -107,7 +118,7 @@ int xmisp_ae_update(struct xmisp_ae *ae, float mean, uint32_t *lines,
   const int replan = ae->replan;
   if (fabsf(ratio - 1.0f) <= c->tolerance && !replan)
     return 0;
-  const float lo = (float)c->lines_min, hi = lines_top(c) * c->gain_max;
+  const float lo = lines_bottom(c), hi = lines_top(c) * c->gain_max;
   const float step = fabsf(ratio - 1.0f) <= c->tolerance
                          ? 1.0f /* re-planning only: the same light */
                          : clampf(sqrtf(ratio), 1.0f / STEP_MAX, STEP_MAX);

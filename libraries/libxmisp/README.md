@@ -24,9 +24,12 @@ XM510 only so far:
   which after a failed write is what it reads back. After each change it
   waits `interval` frames for the change to show in the statistics.
   With anti-flicker on (`xmisp_set_antiflicker()`, 50 or 60 Hz), the lines
-  are whole flicker periods (10 or 8.33 ms) once there is light for one,
-  and gain makes up the rest. In brighter light, under one period, no
-  exposure avoids the flicker, and the lines are free. `make test` runs it on the host against a simulated sensor:
+  are whole flicker periods (10 or 8.33 ms), at least one, and gain makes
+  up the rest. Light too bright for one period is overexposed, not banded.
+  Under a 200 W LED lamp, with the lines left free under one period,
+  88 lines (1.6 ms) gave rolling bands of 8.6% at 186.4 rows; at one period
+  the rows varied by 0.15%, at noise level, and the picture was 1.45× the
+  target brightness. `make test` runs it on the host against a simulated sensor:
   convergence from far off either way, steadiness, and the limits.
 - **`awb.c`: auto white balance, independent of the SoC.** It does
   grey-world over the pixels that look grey under the gains already set. The

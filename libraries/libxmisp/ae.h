@@ -17,8 +17,9 @@ struct xmisp_ae_cfg {
   float gain_max;    /* 1.0 = no gain */
   unsigned interval; /* frames from a change until its result is measured */
   /* Anti-flicker: lines in one period of the light's flicker (half the
-   * mains period), 0 for none. With at least one period of light, the
-   * exposure is whole periods and gain makes up the rest. */
+   * mains period), 0 for none. The exposure is whole periods, at least
+   * one, and gain makes up the rest; light too bright for one period is
+   * overexposed, not banded. */
   float flicker_lines;
 };
 

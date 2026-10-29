@@ -48,11 +48,15 @@ Tested on the lab XM510 with a JX-H62 under majestic:
   it settles in about 22 frames at R 1.47, B 2.31. The chart's greys come
   out R/G 0.92, B/G 1.02; the vendor daemon's are R/G 0.35, B/G 1.30 (cyan).
   It then makes no change for a minute.
-- **Anti-flicker:** with `cli -s .isp.antiFlicker 50`, in dim light, AE
-  settles at 563 lines (3 periods of 10 ms) and makes up the rest with gain.
-  At 60 it settles at 625 (4 of 8.33 ms), and `disabled` returns it to 746.
-  The lab has no flickering light to film, so only the exposure arithmetic
-  is verified, not the absence of banding.
+- **Anti-flicker, under a 200 W LED lamp** (switched by the lab's
+  controllable plug): with `isp.antiFlicker` disabled, AE settled at 87
+  lines (1.6 ms), and the rows varied by 8.6% in rolling bands 186.4 rows
+  apart. That's the 10 ms period at 53.33 µs a line (185.9 rows after VI's
+  726 to 720 scaling), so it confirms the line time. With `50` AE holds one
+  period (188 lines), the bands are gone (rows vary by 0.15%), and the
+  picture is overexposed 1.45×.
+- **Anti-flicker, dim light:** at `50` AE settles at 563 lines (3 periods),
+  at `60` at 625 (4), and `disabled` returns it to 746.
 - **Colour:** the H62's calibrated matrix gives a mean dE of 10.4 on the
   colour checker, against the vendor daemon's 16.9 in the same light.
 - **Footprint:** about 200 KB of RAM (the vendor's: 430 KB) and almost no
