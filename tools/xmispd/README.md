@@ -81,5 +81,8 @@ Tested on the lab XM510 with a JX-H62 under majestic:
 - **Noise reduction by gain** (bulbs dimmed for 3×, 8.5× and 16× gain): the
   strength follows the gain (0, 0.5, 1). Temporal noise at 8.5× goes from
   5.0 to 1.9, and at 16× from 12.6 to 1.5. At 3× nothing changes.
+- **Chroma noise by gain** (bulbs dimmed to 15× gain): it falls from 5.1 to
+  2.9, the matrix eased a quarter and Cb/Cr at 0.8, for 2.9 more mean dE on
+  the chart. At 3× nothing changes.
 - **Footprint:** about 200 KB of RAM (the vendor's: 430 KB) and almost no
   CPU.

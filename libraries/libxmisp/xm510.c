@@ -31,7 +31,8 @@
  *
  * Colour: the correction matrix (CSM) is double-buffered, banks at
  * 0x40061040 and 0x40061080 (per row an offset, then three coefficients,
- * 0x100 = 1, signed 32-bit), switched by a write to 0x40061000. After the
+ * 0x100 = 1, signed 32-bit), switched by a write to 0x40061000; the idle
+ * bank reads at 0x40061004. After the
  * RGB gamma and RGB to YCbCr, Cb and Cr are scaled by 0x40076004/08,
  * 0x100 = 1: a blue gain change through an identity matrix moved only B at
  * 0x100, and leaked into R and G at 0x200. The vendor daemon moves both with
@@ -41,6 +42,7 @@
 #define _DEFAULT_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -97,6 +99,7 @@ static const struct xmisp_ae_cfg ae_xm510 = {
 #define CSM_BANK0 0x40061040u
 #define CSM_BANK1 0x40061080u
 #define CSM_SWITCH 0x40061000u
+#define CSM_SWITCH_STATE 0x40061004u /* the idle bank, 0 or 1 */
 #define CB_GAIN 0x40076004u
 #define CR_GAIN 0x40076008u
 #define CBCR_ONE 0x100
@@ -142,7 +145,16 @@ static const uint32_t nr_regs[] = {
     0x40075174, /* SHARPEN_KH0 */
 };
 #define NR_REGS (sizeof(nr_regs) / sizeof(nr_regs[0]))
-#define NR_3D 4 /* index of NR_3D_YCTRL_ERR70 */
+/* Chroma noise at high gain comes from the colour matrix and the Cb/Cr
+ * gain, which amplify it. At 15x (JX-H62, chart under dimmed bulbs, AWB
+ * converged) chroma noise in the grey patches went from 5.4 to 2.8 with the
+ * matrix eased a quarter towards identity and Cb/Cr at 0.8, for 2.7 more
+ * CIELAB dE (20.6 to 23.3); Cb/Cr alone at 0.7 gave 3.1 for the same dE.
+ * Turning SHARPEN_CBCR_ENABLE off raises chroma noise (5.1 to 7.7), so it
+ * stays. Both follow the noise reduction's strength. */
+#define CCM_EASE_HIGH 0.25f
+#define CBCR_HIGH 0xcd /* 0.8 */
+#define NR_3D 4        /* index of NR_3D_YCTRL_ERR70 */
 static const uint32_t nr_high[NR_REGS] = {0x10, 0x2f, 0x82, 0x70,
                                           6,    0x26, 0x20, 0x17};
 
@@ -172,6 +184,7 @@ struct xmisp {
   int awb_dirty;    /* a gain write failed part way */
   uint32_t window, ythd;
   uint32_t nr_low[NR_REGS]; /* the script's, read at start */
+  int color_on;             /* the sensor's colour matrix is set */
   float nr_strength;        /* as set; -1 before the first */
   int nr_on;
   uint32_t grey; /* the last measurement */
@@ -598,6 +611,8 @@ static int nr_start(struct xmisp *s) {
   return nr_frame(s) < 0 ? -1 : 0;
 }
 
+static int color_set(struct xmisp *s, float ease, uint32_t cbcr);
+
 static int nr_frame(struct xmisp *s) {
   if (!s->nr_on)
     return 0;
@@ -614,6 +629,9 @@ static int nr_frame(struct xmisp *s) {
     if (isp_w(s, nr_regs[i], v) < 0)
       return fail(s, "noise reduction: %s", strerror(errno));
   }
+  if (s->color_on &&
+      color_set(s, CCM_EASE_HIGH * n, xmisp_lerp(CBCR_ONE, CBCR_HIGH, n)) < 0)
+    return -1;
   s->nr_strength = n;
   return 1;
 }
@@ -645,28 +663,54 @@ void xmisp_exposure(const struct xmisp *s, float *mean, uint32_t *lines,
   *gain = s->gain;
 }
 
-/* The sensor's colour matrix in both banks, and Cb/Cr at 1. */
+/* The colour matrix eased towards identity by ease (0 = the sensor's, 1 =
+ * identity), rows kept summing to 256, and the Cb/Cr gain. The matrix goes
+ * into the idle bank only, which CSM_SWITCH_STATE names (0 or 1), and the
+ * switch then makes it the active one: bit 0 of the value written becomes
+ * the state, so the bank just written is no longer the idle one (state 0:
+ * write bank 0, then 0xffffffff; the state reads 1 after). A frame never
+ * sees a matrix half written. */
+static int color_set(struct xmisp *s, float ease, uint32_t cbcr) {
+  const int16_t *ccm = s->script->sensor->ccm;
+  uint32_t idle;
+  if (isp_r(s, CSM_SWITCH_STATE, &idle) < 0)
+    return fail(s, "colour matrix: %s", strerror(errno));
+  idle &= 1;
+  const uint32_t bank = idle ? CSM_BANK1 : CSM_BANK0;
+  for (unsigned row = 0; row < 3; row++) {
+    int32_t m[3], sum = 0;
+    for (unsigned col = 0; col < 3; col++) {
+      const float one = row == col ? 256.0f : 0.0f;
+      m[col] = (int32_t)lrintf((float)ccm[row * 3 + col] +
+                               (one - (float)ccm[row * 3 + col]) * ease);
+      sum += m[col];
+    }
+    m[row] += 256 - sum; /* grey stays grey */
+    const uint32_t a = bank + row * 0x10;
+    if (isp_w(s, a, 0) < 0)
+      return fail(s, "colour matrix: %s", strerror(errno));
+    for (unsigned col = 0; col < 3; col++)
+      if (isp_w(s, a + 4 + col * 4, (uint32_t)m[col]) < 0)
+        return fail(s, "colour matrix: %s", strerror(errno));
+  }
+  if (isp_w(s, CSM_SWITCH, 0xfffffffe | (idle ^ 1)) < 0 ||
+      isp_w(s, CB_GAIN, cbcr) < 0 || isp_w(s, CR_GAIN, cbcr) < 0)
+    return fail(s, "colour matrix: %s", strerror(errno));
+  return 0;
+}
+
+/* The sensor's colour matrix, and Cb/Cr at 1. */
 static int color_start(struct xmisp *s) {
   const struct xmisp_sensor *sn = s->script->sensor;
+  s->color_on = 0;
   if (!sn || !sn->ccm)
     return 0;
   for (unsigned row = 0; row < 3; row++)
     if (sn->ccm[row * 3] + sn->ccm[row * 3 + 1] + sn->ccm[row * 3 + 2] != 256)
       return fail(s, "colour matrix row %u does not sum to 256", row);
-  const uint32_t banks[] = {CSM_BANK0, CSM_BANK1};
-  for (unsigned b = 0; b < 2; b++)
-    for (unsigned row = 0; row < 3; row++) {
-      const uint32_t a = banks[b] + row * 0x10;
-      if (isp_w(s, a, 0) < 0)
-        return fail(s, "colour matrix: %s", strerror(errno));
-      for (unsigned col = 0; col < 3; col++)
-        if (isp_w(s, a + 4 + col * 4,
-                  (uint32_t)(int32_t)sn->ccm[row * 3 + col]) < 0)
-          return fail(s, "colour matrix: %s", strerror(errno));
-    }
-  if (isp_w(s, CSM_SWITCH, 0xffffffff) < 0 || isp_w(s, CB_GAIN, CBCR_ONE) < 0 ||
-      isp_w(s, CR_GAIN, CBCR_ONE) < 0)
-    return fail(s, "colour matrix: %s", strerror(errno));
+  if (color_set(s, 0.0f, CBCR_ONE) < 0)
+    return -1;
+  s->color_on = 1;
   return 0;
 }
 
@@ -703,7 +747,7 @@ int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
     /* A start that failed part way may have 3D-NR on already, and the 3A
      * of the script it was running must not run on. */
     nr3d_off(s);
-    s->ae_on = s->awb_on = s->nr_on = 0;
+    s->ae_on = s->awb_on = s->nr_on = s->color_on = 0;
     s->script = NULL;
     return -1;
   }
