@@ -528,6 +528,20 @@ void xmisp_white_balance(const struct xmisp *s, uint32_t *grey, float *cb,
 
 int xmisp_ae_enabled(const struct xmisp *s) { return s->ae_on; }
 
+int xmisp_set_antiflicker(struct xmisp *s, unsigned hz) {
+  if (hz && hz != 50 && hz != 60)
+    return fail(s, "anti-flicker at %u Hz: 50 or 60, or 0 for off", hz);
+  if (!s->ae_on)
+    return hz ? fail(s, "anti-flicker without auto-exposure") : 0;
+  const uint32_t line_ns = s->script->sensor->line_ns;
+  if (hz && !line_ns)
+    return fail(s, "anti-flicker: the sensor's line time is unknown");
+  /* Lights flicker at twice the mains frequency. */
+  xmisp_ae_flicker(&s->ae,
+                   hz ? 1e9f / (2.0f * (float)hz) / (float)line_ns : 0.0f);
+  return 0;
+}
+
 void xmisp_exposure(const struct xmisp *s, float *mean, uint32_t *lines,
                     float *gain) {
   *mean = s->mean;

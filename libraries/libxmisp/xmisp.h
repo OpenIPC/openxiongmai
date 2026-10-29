@@ -38,6 +38,12 @@ int xmisp_frame(struct xmisp *isp);
 /* 1 if AE runs: the script's sensor has a driver. */
 int xmisp_ae_enabled(const struct xmisp *isp);
 
+/* Anti-flicker for 50 or 60 Hz mains, or 0 for off: with light for at
+ * least one flicker period, the exposure is whole periods (10 ms or
+ * 8.33 ms) and gain makes up the rest. Needs AE and the sensor's line time.
+ * 0, or -1 with xmisp_error(). */
+int xmisp_set_antiflicker(struct xmisp *isp, unsigned hz);
+
 /* 1 if AWB runs: the sensor driver gives its white balance range. */
 int xmisp_awb_enabled(const struct xmisp *isp);
 

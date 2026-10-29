@@ -16,6 +16,10 @@ struct xmisp_ae_cfg {
   uint32_t lines_max;
   float gain_max;    /* 1.0 = no gain */
   unsigned interval; /* frames from a change until its result is measured */
+  /* Anti-flicker: lines in one period of the light's flicker (half the
+   * mains period), 0 for none. With at least one period of light, the
+   * exposure is whole periods and gain makes up the rest. */
+  float flicker_lines;
 };
 
 struct xmisp_ae {
@@ -24,6 +28,7 @@ struct xmisp_ae {
   float gain;
   float total; /* lines x gain */
   unsigned wait;
+  int replan; /* the exposure rules changed: re-plan even within tolerance */
 };
 
 void xmisp_ae_init(struct xmisp_ae *ae, const struct xmisp_ae_cfg *cfg,
@@ -34,6 +39,10 @@ void xmisp_ae_init(struct xmisp_ae *ae, const struct xmisp_ae_cfg *cfg,
  * took (after a failed write, what it reads back). */
 int xmisp_ae_update(struct xmisp_ae *ae, float mean, uint32_t *lines,
                     float *gain);
+
+/* Anti-flicker on (lines in a flicker period) or off (0), from the next
+ * update. */
+void xmisp_ae_flicker(struct xmisp_ae *ae, float flicker_lines);
 
 /* The exposure the sensor took, after its gain steps. */
 void xmisp_ae_applied(struct xmisp_ae *ae, uint32_t lines, float gain);

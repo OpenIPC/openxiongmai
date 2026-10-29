@@ -9,6 +9,11 @@
  * XMISPD_VERBOSE set in its environment it prints every change (majestic
  * logs each line, so not by default).
  *
+ * Anti-flicker follows majestic's isp.antiFlicker ("disabled", "50" or
+ * "60"; see /api/v1/config.schema.json), read from /etc/majestic.yaml at
+ * start and again on SIGHUP. XMISPD_ANTIFLICKER in the environment (0, 50
+ * or 60) overrides it.
+ *
  * Output follows the vendor daemon's format, which the streamer forwards to
  * its log: "\033[0;32;32mDEBUG: ..." or "\033[0;32;31mERR: ...", each line
  * followed by "\033[m".
@@ -28,6 +33,7 @@
 #include "xmisp.h"
 
 #define LOCK_FILE "/tmp/Isplock"
+#define MAJESTIC_YAML "/etc/majestic.yaml"
 
 static void say(const char *kind, const char *fmt, ...) {
   va_list ap;
@@ -41,6 +47,58 @@ static void say(const char *kind, const char *fmt, ...) {
 
 #define debug(...) say("DEBUG", __VA_ARGS__)
 #define error(...) say("ERR", __VA_ARGS__)
+
+/* "50" or "60" (quoted or not) as Hz, "disabled" or absent as 0, anything
+ * else as -1. */
+static int hz_of(const char *v) {
+  while (*v == ' ' || *v == '"' || *v == '\'')
+    v++;
+  if (!strncmp(v, "50", 2))
+    return 50;
+  if (!strncmp(v, "60", 2))
+    return 60;
+  if (!*v || !strncmp(v, "disabled", 8) || !strncmp(v, "0", 1))
+    return 0;
+  return -1;
+}
+
+/* isp.antiFlicker from majestic's YAML: the "antiFlicker:" key indented
+ * under the top-level "isp:". */
+static int antiflicker_hz(void) {
+  const char *env = getenv("XMISPD_ANTIFLICKER");
+  if (env)
+    return hz_of(env);
+  FILE *f = fopen(MAJESTIC_YAML, "r");
+  if (!f)
+    return 0;
+  char line[256];
+  int in_isp = 0, hz = 0;
+  while (fgets(line, sizeof(line), f)) {
+    line[strcspn(line, "\r\n#")] = 0;
+    if (line[0] && line[0] != ' ') {
+      in_isp = !strncmp(line, "isp:", 4);
+      continue;
+    }
+    const char *k = line + strspn(line, " ");
+    if (in_isp && !strncmp(k, "antiFlicker:", 12)) {
+      hz = hz_of(k + 12);
+      break;
+    }
+  }
+  fclose(f);
+  return hz;
+}
+
+static void antiflicker(struct xmisp *isp) {
+  const int hz = antiflicker_hz();
+  if (hz < 0)
+    error("isp.antiFlicker: not disabled, 50 or 60; left off");
+  if (xmisp_set_antiflicker(isp, hz > 0 ? (unsigned)hz : 0) < 0)
+    error("%s", xmisp_error(isp));
+  else if (hz > 0)
+    debug("anti-flicker: %d Hz mains, exposure in whole %.2f ms periods", hz,
+          500.0 / hz);
+}
 
 int main(void) {
   /* One daemon at a time, as the vendor's lock file has it. */
@@ -57,6 +115,7 @@ int main(void) {
   sigaddset(&set, SIGIO);
   sigaddset(&set, SIGTERM);
   sigaddset(&set, SIGINT);
+  sigaddset(&set, SIGHUP);
   sigprocmask(SIG_BLOCK, &set, NULL);
 
   struct xmisp *isp = xmisp_open();
@@ -81,6 +140,8 @@ int main(void) {
   if (fcntl(fd, F_SETOWN, getpid()) < 0 ||
       fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_ASYNC) < 0)
     error("no frame signal: %s", strerror(errno));
+
+  antiflicker(isp);
 
   /* The vendor daemon's last start-up line; the streamer starts video once
    * it has it. */
@@ -111,6 +172,8 @@ int main(void) {
               frames, mean, (unsigned)lines, gain, (unsigned)grey, cb, cr, wr,
               wb);
       }
+    } else if (sig == SIGHUP) {
+      antiflicker(isp);
     } else if (sig == SIGTERM || sig == SIGINT)
       break;
   }

@@ -11,6 +11,13 @@ An open ISP daemon for the XM510 (MIT), a drop-in for the vendor
 - on SIGTERM or SIGINT, does what the vendor daemon does on its way out:
   3D noise reduction off, then exit.
 
+Anti-flicker follows majestic's `isp.antiFlicker` (`disabled`, `50` or `60`,
+as `/api/v1/config.schema.json` describes it). The daemon reads it from
+`/etc/majestic.yaml` at start and again on SIGHUP; `XMISPD_ANTIFLICKER`
+(0, 50, 60) overrides it. Changing it through majestic needs nothing more:
+majestic logs `isp.antiFlicker (changed)` and, on this platform, restarts
+itself, and with it the daemon.
+
 Its output uses the vendor daemon's format (`\033[0;32;32mDEBUG: ...`,
 `\033[0;32;31mERR: ...`), which majestic forwards to its log. It holds
 `/tmp/Isplock` like the vendor daemon, so two can't run.
@@ -41,6 +48,11 @@ Tested on the lab XM510 with a JX-H62 under majestic:
   it settles in about 22 frames at R 1.47, B 2.31. The chart's greys come
   out R/G 0.92, B/G 1.02; the vendor daemon's are R/G 0.35, B/G 1.30 (cyan).
   It then makes no change for a minute.
+- **Anti-flicker:** with `cli -s .isp.antiFlicker 50`, in dim light, AE
+  settles at 563 lines (3 periods of 10 ms) and makes up the rest with gain.
+  At 60 it settles at 625 (4 of 8.33 ms), and `disabled` returns it to 746.
+  The lab has no flickering light to film, so only the exposure arithmetic
+  is verified, not the absence of banding.
 - **Colour:** the H62's calibrated matrix gives a mean dE of 10.4 on the
   colour checker, against the vendor daemon's 16.9 in the same light.
 - **Footprint:** about 200 KB of RAM (the vendor's: 430 KB) and almost no
