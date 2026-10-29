@@ -34,8 +34,9 @@
  * 0x100 = 1, signed 32-bit), switched by a write to 0x40061000. After the
  * RGB gamma and RGB to YCbCr, Cb and Cr are scaled by 0x40076004/08,
  * 0x100 = 1: a blue gain change through an identity matrix moved only B at
- * 0x100, and leaked into R and G at 0x200. The vendor's 0x250 is a 2.3x
- * saturation boost on top of its matrix.
+ * 0x100, and leaked into R and G at 0x200. The vendor daemon moves both with
+ * the light (Cb/Cr 0x20e-0x250 in the lab traces, 80-150 matrices a
+ * trace): a 2-2.3x saturation boost on top of its matrix.
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>

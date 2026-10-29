@@ -19,7 +19,7 @@ that and prints the ratios. Then:
 ```sh
 make CROSS_COMPILE=arm-openipc-linux-musleabi-
 cat ispreg | ssh root@CAMERA 'cat > /tmp/ispreg; chmod +x /tmp/ispreg'
-./colorchecker.py CAMERA --grid 533,404,848,583
+SSHPASS=... ./colorchecker.py CAMERA --grid 533,404,848,583
 ```
 
 `--grid` is the centres of the first patch (top left) and the last (bottom
@@ -32,13 +32,19 @@ right) in picture pixels. The script:
 - then measures the picture with the fitted matrix and with the vendor's,
   for comparison.
 
-It needs numpy, scipy and Pillow, and ffmpeg in docker
-(`linuxserver/ffmpeg`).
+It needs numpy and scipy, and ffmpeg: the local one, or else a docker
+image pinned by digest. The camera's root password comes from `SSHPASS`
+(`sshpass -e`), and its host key is checked as ssh checks it. Check a new
+camera's key fingerprint on its console, then pass `--accept-new-host-key`
+once.
 
-On the lab XM510 (JX-H62, daylight) it fits a matrix scoring a mean dE of
-10.7 on the chart, against 17.7 for the vendor's matrix with its 2.3× Cb/Cr
-gain, which clips three patches. A second run reproduces the matrix to
-within a few units in 256.
+On the lab XM510 (JX-H62, daylight) it fits matrices scoring a mean dE of
+10.4–10.8 on the chart over three runs. The vendor daemon's matrix and Cb/Cr
+gain, as traced in the same light, score 16.9 and clip three patches. The
+vendor moves its matrix with the light (80–150 distinct matrices a trace)
+and its Cb/Cr gain too (`0x20e`–`0x250`), so its baseline is light-specific.
+The fit also moves a little as the daylight changes: rows within about 40
+in 256 over an afternoon.
 
 These findings let the fit model the pipeline:
 - **Cb/Cr unity:** the Cb/Cr gains (`0x40076004`/`08`) are 1 at `0x100`.

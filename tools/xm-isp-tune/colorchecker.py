@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Calibrates an XM510 sensor's colour matrix against a 24-patch colour checker.
 
-    colorchecker.py HOST --grid X0,Y0,X1,Y1 [--password PW]
+    colorchecker.py HOST --grid X0,Y0,X1,Y1 [--accept-new-host-key]
 
 The camera runs xmispd (AWB on, the chart's greys neutral) under majestic,
 with /tmp/ispreg on it. The script:
@@ -14,14 +14,27 @@ with /tmp/ispreg on it. The script:
 4. fits a 3x3 matrix, each row summing to 1 so grey stays grey, for the least
    CIELAB error of the picture as an sRGB display would show it, through the
    camera's own gamma, against the ColorChecker Classic reference;
-5. measures the picture with the fitted matrix, and with the vendor's matrix
-   and its 2.3x Cb/Cr gain, and prints the matrix for the sensor driver.
+5. measures the picture with the fitted matrix, and with the vendor daemon's
+   matrix and Cb/Cr gain as traced in the lab's daylight, and prints the
+   matrix for the sensor driver.
 
 --grid gives the centres of the first patch (dark skin, top left) and the
-last (black, bottom right), in picture pixels. Requires numpy, scipy and
-Pillow, and ffmpeg (here through docker, image linuxserver/ffmpeg).
+last (black, bottom right), in picture pixels.
+
+The camera's root password comes from SSHPASS in the environment, for
+sshpass -e; the host key is checked as ssh checks it. For a camera not yet
+in known_hosts, check its key's fingerprint on the console
+(dropbearkey -y -f /etc/dropbear/dropbear_ed25519_host_key) and pass
+--accept-new-host-key once, which adds it.
+
+Requires numpy and scipy, and ffmpeg: the local one if on PATH, else the
+docker image pinned in FFMPEG_IMAGE (to update it: docker pull
+linuxserver/ffmpeg, then docker image inspect --format
+'{{index .RepoDigests 0}}' linuxserver/ffmpeg).
 """
 import argparse
+import os
+import shutil
 import subprocess
 import sys
 
@@ -45,11 +58,17 @@ GAMMA60 = [0, 54, 106, 158, 209, 259, 308, 356, 403, 450, 495, 540, 584, 628, 67
 KNOTS = (list(range(0, 513, 16)) + list(range(544, 1025, 32)) + list(range(1152, 2049, 128))
          + list(range(2560, 4097, 512)))
 
+FFMPEG_IMAGE = "linuxserver/ffmpeg@sha256:6547359fac23a2747e606d380e10267b2923a38f68485d9cacefd039e74d3aa8"
+
 CSM_BANKS = (0x40061040, 0x40061080)
 CSM_SWITCH = 0x40061000
 CB_GAIN, CR_GAIN = 0x40076004, 0x40076008
-# The matrix the JX-H62 script's fixed state has, the vendor daemon's.
-VENDOR = [[0xd2, 0x47, -0x19], [-0x5b, 0x166, -0x0b], [-0x32, -0x44, 0x176]]
+# The vendor daemon's matrix and Cb/Cr gain with the lab colour checker in
+# view in daylight, where its AWB had converged (last values in the trace
+# h62-720p-colorchecker). Its matrix moves with the light (80-150 distinct
+# ones a trace), so this is a baseline for that light only.
+VENDOR = [[197, 98, -39], [-90, 360, -14], [-62, -78, 396]]
+VENDOR_CBCR = 0x20e
 SRGB_XYZ = np.array([[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]])
 
 
@@ -73,15 +92,26 @@ def lab(lin):
 
 
 class Camera:
-    def __init__(self, host, password):
-        self.ssh = ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no",
-                    "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", f"root@{host}"]
+    def __init__(self, host, accept_new):
+        if "SSHPASS" not in os.environ:
+            sys.exit("set SSHPASS to the camera's root password")
+        self.ssh = ["sshpass", "-e", "ssh", "-o", "LogLevel=ERROR",
+                    "-o", f"StrictHostKeyChecking={'accept-new' if accept_new else 'yes'}", f"root@{host}"]
 
     def run(self, cmd, **kw):
         return subprocess.run(self.ssh + [cmd], capture_output=True, **kw)
 
+    def ispreg(self, args):
+        r = self.run("/tmp/ispreg " + args, text=True)
+        if r.returncode:
+            sys.exit(f"ispreg {args.split()[0]}: {r.stderr.strip() or 'failed'} (exit {r.returncode})")
+        return r.stdout
+
     def write(self, pairs):
-        self.run("/tmp/ispreg w " + " ".join(f"{a:#x} {v & 0xffffffff:#x}" for a, v in pairs))
+        self.ispreg("w " + " ".join(f"{a:#x} {v & 0xffffffff:#x}" for a, v in pairs))
+
+    def read(self, addr, n):
+        return [int(line.split()[1], 16) for line in self.ispreg(f"r {addr:#x} {n}").splitlines()]
 
     def matrix(self, m256, cbcr):
         pairs = []
@@ -90,6 +120,14 @@ class Camera:
                 pairs.append((bank + row * 0x10, 0))
                 pairs += [(bank + row * 0x10 + 4 + col * 4, int(m256[row][col])) for col in range(3)]
         self.write(pairs + [(CSM_SWITCH, 0xffffffff), (CB_GAIN, cbcr), (CR_GAIN, cbcr)])
+        # The coefficients read back as 13-bit two's complement.
+        for bank in CSM_BANKS:
+            got = [self.read(bank + row * 0x10 + 4, 3) for row in range(3)]
+            got = [[v - 0x2000 if v & 0x1000 else v for v in row] for row in got]
+            if got != [[int(v) for v in row] for row in m256]:
+                sys.exit(f"colour matrix at {bank:#x} reads back {got}, not {m256}")
+        if self.read(CB_GAIN, 2) != [cbcr, cbcr]:
+            sys.exit("Cb/Cr gain did not take")
 
     def frames(self, n=10):
         """The last n frames of a clip, full-range BT.601 decoded, averaged: HxWx3 RGB."""
@@ -97,10 +135,7 @@ class Camera:
         for _ in range(6):
             mp4 = self.run("timeout 3 wget -q -O /tmp/cc.mp4 http://127.0.0.1/video.mp4 2>/dev/null;"
                            " cat /tmp/cc.mp4; rm -f /tmp/cc.mp4").stdout
-            raw = subprocess.run(["docker", "run", "--rm", "-i", "--entrypoint", "sh", "linuxserver/ffmpeg:latest",
-                                  "-c", f"cat > /tmp/in.mp4; ffmpeg -loglevel error -sseof -1 -i /tmp/in.mp4"
-                                  f" -frames:v {n} -f rawvideo -pix_fmt yuv444p -"],
-                                 input=mp4, capture_output=True).stdout
+            raw = decode(mp4, n)
             k = len(raw) // fsz
             if k:
                 break
@@ -110,6 +145,20 @@ class Camera:
         yuv = np.frombuffer(raw[:k * fsz], np.uint8).reshape(k, 3, 720, 1280).astype(float).mean(0)
         y, cb, cr = yuv[0], yuv[1] - 128, yuv[2] - 128
         return np.stack([y + 1.402 * cr, y - 0.344136 * cb - 0.714136 * cr, y + 1.772 * cb], -1).clip(0, 255)
+
+
+def decode(mp4, n):
+    """The last n frames of an MP4 as raw YUV 4:4:4, through ffmpeg."""
+    args = f"-loglevel error -sseof -1 -i {{}} -frames:v {n} -f rawvideo -pix_fmt yuv444p -"
+    if shutil.which("ffmpeg"):
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
+            f.write(mp4)
+            f.flush()
+            return subprocess.run(["ffmpeg"] + args.format(f.name).split(), capture_output=True).stdout
+    return subprocess.run(["docker", "run", "--rm", "-i", "--entrypoint", "sh", FFMPEG_IMAGE, "-c",
+                           "cat > /tmp/in.mp4; ffmpeg " + args.format("/tmp/in.mp4")],
+                          input=mp4, capture_output=True).stdout
 
 
 def patches(rgb, grid):
@@ -149,11 +198,12 @@ def fit(cam):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("host")
-    ap.add_argument("--password", default="12345678")
+    ap.add_argument("--accept-new-host-key", action="store_true",
+                    help="add the camera's host key to known_hosts if it isn't there (check it first)")
     ap.add_argument("--grid", required=True, help="X0,Y0,X1,Y1: first and last patch centres")
     a = ap.parse_args()
     grid = [float(v) for v in a.grid.split(",")]
-    cam = Camera(a.host, a.password)
+    cam = Camera(a.host, a.accept_new_host_key)
 
     cam.matrix([[256, 0, 0], [0, 256, 0], [0, 0, 256]], 0x100)
     native = patches(cam.frames(), grid)
@@ -163,7 +213,8 @@ def main():
           " (white balance; near 1 wanted)")
     m256 = fit(lin * (srgb_lin(REF)[19:23, 1].sum() / greys[:, 1].sum()))
 
-    for name, m, cbcr in (("vendor matrix, Cb/Cr 2.3x", VENDOR, 0x250), ("fitted matrix, Cb/Cr 1", m256, 0x100)):
+    for name, m, cbcr in (("vendor's (traced), Cb/Cr 2.05x", VENDOR, VENDOR_CBCR),
+                          ("fitted matrix, Cb/Cr 1", m256, 0x100)):
         cam.matrix(m, cbcr)
         de, dc, clipped = score(patches(cam.frames(), grid))
         print(f"{name:28} dE mean {de.mean():5.1f} max {de.max():5.1f}, chroma {dc.mean():5.1f}, "

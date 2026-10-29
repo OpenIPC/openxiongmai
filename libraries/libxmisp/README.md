@@ -121,8 +121,9 @@ These were measured on the lab XM510 with `xmispd` holding the rest fixed:
   relative to G. AWB keeps to the range the vendor daemon's AWB searches,
   R 0.75–2.8 and B 1.1–3.6.
 - **Colour matrix:** calibrated against the colour checker in daylight with
-  `tools/xm-isp-tune/colorchecker.py`, scoring mean dE 10.4. The vendor's
-  matrix with its 2.3× Cb/Cr gain scores 18.0 and clips three patches. The
+  `tools/xm-isp-tune/colorchecker.py`, scoring mean dE 10.4–10.8. The
+  vendor daemon's matrix and Cb/Cr gain (2.05×), traced in the same light,
+  score 16.9 and clip three patches. The
   matrix is written to both CSM banks (`0x40061040`, `0x40061080`, switched
   at `0x40061000`), and Cb/Cr gain (`0x40076004`/`08`) is set to 1,
   `0x100`. It's one illuminant's: a warm-light calibration to interpolate
