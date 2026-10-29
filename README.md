@@ -293,6 +293,15 @@ Known boards (`xmv200_board_layout()`, or `xmv200-test layout <board>` for the t
 | `x3-wq-b` | XM533 | one SC2337P | 2304x1296, 800x448 |
 | `auto` | any | the sensors found at 0x30/0x32 on bus 0 | one picture, or two of a kind spliced; plus 640 wide |
 
+Sensors with a tuning, per chip family (each captured from that chip's vendor firmware; a sensor its firmware has no mode for can't be captured there):
+
+| Family | Sensors |
+|--------|---------|
+| XM530V200 | SC1336, SC1345, SC1346, SC1A4T, SC200AI, SC223AP, SC231AI, SC2331, SC2336, SC2337P, SC307C, SC3235, SC3335, SC3338, SC401AI, SC430AI, SC4336, SC500AI, SC831HAI |
+| XM535D1/D2 | SC1336, SC1345, SC1346, SC1A4T, SC200AI, SC223AP, SC2331, SC2336, SC2336P, SC307C, SC3235, SC3335, SC401AI |
+| XM535W1 | SC1346, SC1A4T, SC200AI, SC2336, SC2336P, SC3338, SC500AI |
+| XM533 | SC1346, SC1A4T, SC223A, SC231AI, SC2331, SC2337P, SC3338, SC401AI, SC4336, SC500AI |
+
 A layout file (`xmv200_layout_parse()`):
 
 ```
