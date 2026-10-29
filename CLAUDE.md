@@ -128,6 +128,7 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 
 ### Kernel drivers
 
+- `drivers/xm533_vi`: the XM533's video input (`/dev/vi`), built as `open_vi.ko`, a drop-in for the vendor `vi.ko`. Frame start/end IRQs 59/60 take and fill vb buffers; channel 0's crop goes to isp.ko's `vpss_isp_set_attr`. Exports `vi_set_chn_win` (rgn covers) and `vi_release_frame`.
 - `drivers/xm_v200_rgn`: the V200 series' regions (`/dev/rgn`), built as `open_rgn.ko`, a drop-in for the vendor `rgn.ko`. Exports `osd_process` (and `comp_osd_process` on the XM535) for venc; calls the vendor vpss.ko/vi.ko cover and line hooks. `RGN_CHIP` = v200 / xm533 / xm535 (engine base 0x21300000 on the XM530V200, 0x21200000 otherwise).
 - `drivers/xm_v200_venc`: the V200 series' VENC frame queue (`/dev/venc_info`), built as `open_venc.ko`, a drop-in for the vendor `venc.ko` (without the XM535's `/dev/venc_mem`). Takes VENC-bound pictures from vb's list 2, calls `rgn.ko`'s `osd_process`, queues up to `fifo_depth`. `VENC_LAYOUT` must match `VB_LAYOUT`.
 - `drivers/xm_v200_vb`: the V200 series' video buffer pools, built as `open_vb.ko`, a drop-in for the vendor `vb.ko`. The vendor media modules read the buffer descriptors directly: keep the layout (`VB_LAYOUT`: 64 bytes on the XM530V200/XM533, 72 on the XM535).
