@@ -11,7 +11,7 @@
  *
  * Usage: xmvenc-test [-w width] [-h height] [-q qp] [-n frames]
  *                    [-g gop] [-c | -H] [-v chn] [-d dump.nv12] [-j quality]
- *                    [-b kbps] [-f fps] [-Q qmin:qmax] [-o file]
+ *                    [-b kbps] [-f fps] [-Q qmin:qmax] [-V] [-o file]
  *                    [-p [-J quality] [-r frames] [-S ms] [-G ms]] [-B kib]
  *
  * -g sets the IDR interval (1: every frame is IDR), -c selects CABAC.
@@ -25,7 +25,9 @@
  * more than one frame gives concatenated JPEGs.
  * -b turns on frame-level rate control for that bitrate at -f frames per
  * second (default 25), with the QP kept within -Q (default 20:45); -q is
- * then the starting QP and the PPS pic_init_qp.
+ * then the starting QP and the PPS pic_init_qp. -V makes that variable
+ * bitrate: the bitrate is a ceiling and the QP stays at qmin while the
+ * stream is under it.
  * -p encodes the -v channel through a libxmvenc pipe (its own thread and
  * queue); -J adds JPEG snapshots of VI channel 1 at that quality, about
  * one a second, to <file>.jpg, -r requests an IDR once that many
@@ -298,14 +300,14 @@ int main(int argc, char **argv) {
   int width = 704, height = 576, qp = 26, frames = 1, gop = 30, cabac = 0,
       vi_chn = -1, jpeg_q = 0, qmin = 20, qmax = 45, pipe = 0, snap_q = 0,
       idr_at = 0, sub_w = 0, sub_h = 0, strm_kib = 0, gop_ms = 0, h265 = 0,
-      opt;
+      vbr = 0, opt;
   double kbps = 0, fps = 25;
   const char *out = "xmvenc-test.h264", *dump = NULL;
   struct xmvenc *enc;
   struct xmvenc_chn *chn;
   struct xmvenc_buf in;
 
-  while ((opt = getopt(argc, argv, "w:h:q:n:g:cHv:d:j:b:f:Q:o:pJ:r:B:S:G:")) != -1) {
+  while ((opt = getopt(argc, argv, "w:h:q:n:g:cHv:d:j:b:f:Q:Vo:pJ:r:B:S:G:")) != -1) {
     switch (opt) {
     case 'w': width = atoi(optarg); break;
     case 'h': height = atoi(optarg); break;
@@ -327,6 +329,7 @@ int main(int argc, char **argv) {
       if (sscanf(optarg, "%d:%d", &qmin, &qmax) != 2)
         qmin = -1;
       break;
+    case 'V': vbr = 1; break;
     case 'o': out = optarg; break;
     case 'p': pipe = 1; break;
     case 'J': snap_q = atoi(optarg); break;
@@ -344,7 +347,7 @@ int main(int argc, char **argv) {
       fprintf(stderr,
               "usage: %s [-w width] [-h height] [-q qp] [-n frames] "
               "[-g gop] [-c | -H] [-v chn] [-d dump.nv12] [-j quality] "
-              "[-b kbps] [-f fps] [-Q qmin:qmax] [-o file] "
+              "[-b kbps] [-f fps] [-Q qmin:qmax] [-V] [-o file] "
               "[-p [-J quality] [-r frames] [-S ms] [-G ms]] [-B kib]\n",
               argv[0]);
       return 2;
@@ -428,6 +431,7 @@ int main(int argc, char **argv) {
       .fps = fps,
       .qmin = qmin,
       .qmax = qmax,
+      .vbr = vbr,
       .quality = jpeg_q,
       .min_luma = luma_max,
       .strm_size = (uint32_t)strm_kib * 1024,

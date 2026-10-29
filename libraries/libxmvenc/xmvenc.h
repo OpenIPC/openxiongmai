@@ -74,6 +74,12 @@ struct xmvenc_chn_attr {
    * or below 1000. */
   double kbps, fps;
   int qmin, qmax;
+  /* H.264 rate control: variable bitrate. A frame under its budget is not
+   * paid for by the next ones, so an easy scene settles at qmin and costs
+   * what that quality needs, and kbps is a ceiling a busy scene is held to
+   * rather than a target every scene is filled to. 0: constant bitrate.
+   * H.265's firmware mode is variable either way. */
+  int vbr;
   /* JPEG quality, 1-100 */
   int quality;
   /* Allocate the reconstruction buffers for at least this many luma
