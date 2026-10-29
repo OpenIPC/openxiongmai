@@ -41,5 +41,7 @@ Tested on the lab XM510 with a JX-H62 under majestic:
   it settles in about 22 frames at R 1.47, B 2.31. The chart's greys come
   out R/G 0.92, B/G 1.02; the vendor daemon's are R/G 0.35, B/G 1.30 (cyan).
   It then makes no change for a minute.
+- **Colour:** the H62's calibrated matrix gives a mean dE of 10.4 on the
+  colour checker, against the vendor daemon's 16.9 in the same light.
 - **Footprint:** about 200 KB of RAM (the vendor's: 430 KB) and almost no
   CPU.

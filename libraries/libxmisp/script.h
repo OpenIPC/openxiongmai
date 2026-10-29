@@ -42,6 +42,10 @@ struct xmisp_sensor {
    * from warm light (high blue) to shade (high red). */
   float awb_r_min, awb_r_max;
   float awb_b_min, awb_b_max;
+  /* Colour correction from white-balanced camera RGB to sRGB, rows of
+   * three in units of 256, each row summing to 256 so grey stays grey;
+   * NULL keeps the script's. */
+  const int16_t *ccm;
   /* The exposure the sensor has now. 0 or -1. */
   int (*get_exposure)(struct xmisp *isp, uint32_t *lines, float *gain);
   /* Sets it; *gain comes back as the step the sensor took. 0 or -1. */
