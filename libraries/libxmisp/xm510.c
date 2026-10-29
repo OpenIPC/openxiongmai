@@ -537,19 +537,34 @@ static int awb_frame(struct xmisp *s) {
 
 static int nr_frame(struct xmisp *s);
 
+/* Two failures' reasons as one, the first's kept from the copy taken. */
+static void both(struct xmisp *s, const char *first) {
+  char second[sizeof(s->err)];
+  memcpy(second, s->err, sizeof(second));
+  snprintf(s->err, sizeof(s->err), "%.78s; %.78s", first, second);
+}
+
 int xmisp_frame(struct xmisp *s) {
   int ae = ae_frame(s);
-  if (ae >= 0) {
-    const int nr = nr_frame(s);
-    ae = nr < 0 ? -1 : ae > 0 || nr > 0;
-  }
+  /* Noise reduction follows the gain the sensor has even when AE failed:
+   * a failed write is applied as read back. */
   char err[sizeof(s->err)];
+  memcpy(err, s->err, sizeof(err));
+  const int nr = nr_frame(s);
+  if (nr < 0) {
+    if (ae < 0)
+      both(s, err);
+    ae = -1;
+  } else if (ae < 0) {
+    memcpy(s->err, err, sizeof(err));
+  } else {
+    ae = ae > 0 || nr > 0;
+  }
+  memcpy(err, s->err, sizeof(err));
   memcpy(err, s->err, sizeof(err));
   const int awb = awb_frame(s);
   if (ae < 0 && awb < 0) {
-    char awb_err[sizeof(s->err)];
-    memcpy(awb_err, s->err, sizeof(awb_err));
-    snprintf(s->err, sizeof(s->err), "%.78s; %.78s", err, awb_err);
+    both(s, err);
   } else if (ae < 0) {
     memcpy(s->err, err, sizeof(err)); /* AE's reason, not overwritten */
   }
@@ -579,7 +594,8 @@ static int nr_start(struct xmisp *s) {
     if (isp_r(s, nr_regs[i], &s->nr_low[i]) < 0)
       return fail(s, "noise reduction read: %s", strerror(errno));
   s->nr_on = 1;
-  return 0;
+  /* For the gain the script left, so the strength is known from here. */
+  return nr_frame(s) < 0 ? -1 : 0;
 }
 
 static int nr_frame(struct xmisp *s) {
@@ -603,7 +619,7 @@ static int nr_frame(struct xmisp *s) {
 }
 
 float xmisp_nr_strength(const struct xmisp *s) {
-  return s->nr_on ? s->nr_strength : 0.0f;
+  return s->nr_on && s->nr_strength > 0 ? s->nr_strength : 0.0f;
 }
 
 int xmisp_ae_enabled(const struct xmisp *s) { return s->ae_on; }
