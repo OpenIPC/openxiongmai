@@ -37,8 +37,19 @@ XM510 only so far:
   SoC gives their count and mean Cb and Cr; R is scaled by exp(−Cr / step)
   and B by exp(−Cb / step), within the sensor's range. The grey window stays
   wide while the gains are far off and narrows once near, so only grey
-  pixels count. With too few grey pixels the gains hold. `make test` also
-  runs it on the host.
+  pixels count; it widens again only when well off (twice the error that
+  narrows it) or when the narrow window finds nothing. With too few grey
+  pixels the gains hold.
+
+  Grey-world can settle where some surfaces only look grey, so a search
+  chooses where it starts from: a 5×5 grid of gains, log-spaced over the
+  sensor's range, measured three at a time in the spare statistics
+  channels with the narrow window. The point with the most grey pixels
+  wins if it has 1.25× the count at the gains set. It runs at start, every
+  250 frames, when the narrow window twice in a row finds nothing, and
+  when the wide one does. That also ends a stall between two populations,
+  where the wide window's mean looks grey and the narrow one is empty.
+  `make test` also runs it on the host, with the scene the camera measured.
 - **`tune.c`: tuning by gain, independent of the SoC.** It gives a strength
   from 0 to 1, log-linear in gain between two gains, in steps, and
   interpolates register values by it. `make test` runs it on the host.
@@ -74,10 +85,15 @@ XM510 only so far:
   Over a whole room of wood, beige and an orange chair, the dim pixels that
   pass as grey pull grey-world to far too blue gains; the vendor daemon's
   AWB lands there too, and its picture is cyan. Counting only pixels of luma
-  0x80 and above lands within 5% of the chart's grey, so `xmisp` does that.
-  When too few pixels are bright, it holds its gains: in the first frames,
-  before AE has the picture bright, and in a dark scene. Falling back to
-  0x40 there settled in the cyan trap on the camera.
+  0x80 and above lands within 5% of the chart's grey in daylight. Under
+  4000 K bulbs, at 0x80 the warm surfaces still counted nearly as many
+  (3869) at their too-blue gains as the real grey (4164), and a start in
+  the dark settled there both times tried (greys R/G 0.41, B/G 1.84). At
+  0xa0 the real grey has a single peak (2143 to 40), so `xmisp` counts luma
+  0xa0 and above, and the search finds that peak. When too few pixels are
+  bright, it holds its gains: in the first frames, before AE has the
+  picture bright, and in a dark scene. Falling back to 0x40 there settled
+  in the cyan trap on the camera.
 
 ## Sensor scripts
 
