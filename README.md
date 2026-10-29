@@ -47,6 +47,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 │   ├── xm_v200_rgn/             V200-series regions: OSD, covers, lines (/dev/rgn)
 │   ├── xm533_vi/                XM533 video input: scaling, store, frame rate (/dev/vi)
 │   ├── xm535_vpss/              XM535D1/D2 VPSS: scaling, splicing, store (/dev/vpss)
+│   ├── xm535w1_vi/              XM535W1 video input on the VPSS block (/dev/vi)
 │   ├── xm_v200_venc/            V200-series VENC frame queue (/dev/venc_info)
 │   └── xm_vi/                   XM530/XM550 video input driver (/dev/vi)
 │
@@ -100,6 +101,7 @@ make -C drivers/xm_v200_venc KDIR=/path/to/linux VENC_LAYOUT=v200 # or xm535
 make -C drivers/xm_v200_rgn  KDIR=/path/to/linux RGN_CHIP=v200    # or xm533, xm535
 make -C drivers/xm533_vi     KDIR=/path/to/linux                  # XM533 kernel
 make -C drivers/xm535_vpss   KDIR=/path/to/linux                  # XM535 kernel
+make -C drivers/xm535w1_vi   KDIR=/path/to/linux                  # XM535W1 kernel
 ```
 
 The Makefiles set different default toolchains (`arm-xm-linux-`, `arm-linux-` or `arm-openipc-linux-musleabi-`), so pass `CROSS_COMPILE` explicitly. `libmpi` and the kernel module Makefiles also hard-code `PATH` to a vendor toolchain directory. Override it from the command line, for example `make PATH="$PATH" ...`, or give an absolute `CROSS_COMPILE` prefix. Most components build with `-Werror`.
@@ -154,6 +156,7 @@ To add a sensor:
 | `xm_v200_i2c` | V200-series I2C masters, the sensor buses (`/dev/i2c0..2`, `/dev/xm_i2c*` on XM533) | Builds `open_i2c.ko`. Same devices, record and ioctls as the vendor `i2c.ko`, per-chip timing, pins and resets; ran libxmv200 (sensor writes and chip-ID probes) on all five V200-series chips in qemu-bench in place of it |
 | `xm_v200_sys` | V200-series system module: the bind table and the XM535's clock calls (`/dev/sys`, `sys_set_clk`/`sys_get_clk`) | Builds `open_sys.ko`. Same ioctls, exports and `/proc/umap/sys` as the vendor `sys.ko`; ran libxmv200 on all five V200-series chips in qemu-bench in place of it, the XM535's `isp.ko` on its clock calls |
 | `xm_v200_vb` | V200-series video buffer pools: the frame buffers `isp`, `vpss`/`vi` and `venc` share (`/dev/vb`, `vb_get_buf`/`vb_put_buf`, ...) | Builds `open_vb.ko`. Same descriptors, lists, exports, ioctls and `/proc/umap/vb` as the vendor `vb.ko`; ran libxmv200 on all five V200-series chips in qemu-bench in place of it |
+| `xm535w1_vi` | XM535W1 video input: the three channels' scaling and store on the XM535's VPSS block from their frame interrupts, covers, lines, OSD background luminance (`/dev/vi`) | Builds `open_vi.ko`. Same ioctls and hooks as the W1's vendor `vi.ko`; in qemu-bench the W1 streams with it, pictures as with the vendor module |
 | `xm535_vpss` | XM535D1/D2 VPSS: per-frame scaling of each sensor's picture into three channels, splicing of up to three sensors, store into VB buffers, covers and lines (`/dev/vpss`) | Builds `open_vpss.ko`. Same ioctls and `isp.ko` hooks as the vendor `vpss.ko`; all D1/D2 streams in qemu-bench, pictures as with the vendor module |
 | `xm533_vi` | XM533 video input: the three channels' scaling and store into VB buffers, frame-rate control, covers (`/dev/vi`) | Builds `open_vi.ko`. Same ioctls and records as the vendor `vi.ko`; in qemu-bench its pictures match the vendor module's |
 | `xm_v200_rgn` | V200-series regions: overlays the OSD engine blends into VENC pictures (`osd_process`), covers and (XM535) lines through VI/VPSS, the XM535's encoder OSD (`/dev/rgn`) | Builds `open_rgn.ko`. Same ioctls as the vendor `rgn.ko`; overlays checked pixel by pixel in qemu-bench on the XM530V200, XM533 and XM535D1 |
