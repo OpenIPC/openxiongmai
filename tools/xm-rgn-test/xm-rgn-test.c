@@ -41,6 +41,54 @@ struct bitmap {
 
 static int fd;
 
+/* How many numbers each operation takes */
+static const struct {
+	const char *op;
+	int n;
+} ops[] = {
+	{ "reset", 0 },    { "pal", 17 }, { "ocreate", 5 }, { "odestroy", 2 },
+	{ "oattr", 6 },    { "obmp", 6 }, { "oen", 3 },     { "ccreate", 8 },
+	{ "cdestroy", 2 }, { "cattr", 8 }, { "cen", 3 },
+};
+
+static int op_args(const char *op)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(ops) / sizeof(ops[0]); i++)
+		if (!strcmp(op, ops[i].op))
+			return ops[i].n;
+	return -1;
+}
+
+/* The operation's numbers into a; 0 if they are all there and numbers */
+static int parse(const char *op, int argc, char **argv, uint32_t *a)
+{
+	int i, n = op_args(op);
+	unsigned long v;
+	char *end;
+
+	if (n < 0) {
+		fprintf(stderr, "unknown operation %s\n", op);
+		return 2;
+	}
+	if (argc != n) {
+		fprintf(stderr, "%s takes %d numbers\n", op, n);
+		return 2;
+	}
+	for (i = 0; i < n; i++) {
+		errno = 0;
+		v = strtoul(argv[i], &end, 0);
+		if (errno || end == argv[i] || *end || argv[i][0] == '-' ||
+		    v > UINT32_MAX) {
+			fprintf(stderr, "%s: not a number: %s\n", op, argv[i]);
+			return 2;
+		}
+		a[i] = v;
+	}
+	return 0;
+}
+
 static int run(unsigned long cmd, void *arg, const char *what)
 {
 	int r = ioctl(fd, cmd, arg);
@@ -96,7 +144,6 @@ int main(int argc, char **argv)
 {
 	uint32_t a[17] = { 0 };
 	const char *op;
-	int i;
 
 	if (argc < 2) {
 		fprintf(stderr,
@@ -108,14 +155,14 @@ int main(int argc, char **argv)
 			argv[0]);
 		return 2;
 	}
+	op = argv[1];
+	if (parse(op, argc - 2, argv + 2, a))
+		return 2;
 	fd = open("/dev/rgn", O_RDWR);
 	if (fd < 0) {
 		perror("/dev/rgn");
 		return 1;
 	}
-	op = argv[1];
-	for (i = 2; i < argc && i - 2 < 17; i++)
-		a[i - 2] = strtoul(argv[i], NULL, 0);
 
 	if (!strcmp(op, "reset"))
 		return run(_IO('R', 1), NULL, op);

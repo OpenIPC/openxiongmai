@@ -22,7 +22,7 @@ All calls are `ioctl`s of type `'R'`, with records of 32-bit words copied in; no
 | 2 | `{chn, handle, w, h, format}` | Creates overlay `handle` (0-7): `w` × `h` pixels (1-4095), format 0, 1 or 2 (1, 2 or 4 bits a pixel). |
 | 3 | `{chn, handle, -, -, -}` | Destroys it. |
 | 4 | `{chn, handle, x, y, colormap, effect}` | Places it at `x`, `y` (0-4095) and sets its colours and effects. |
-| 5 | `{chn, handle, data, size}` | Loads its bitmap: `size` bytes at `data`, at most what `w` × `h` × bits takes. |
+| 5 | `{chn, handle, data, size}` | Loads its bitmap: `size` bytes at `data`. Bytes past what `w` × `h` × bits takes are ignored, as the vendor module ignores them. |
 | 6 | `{chn, handle, on}` | Shows it (`on` 1) or hides it. |
 | 7 | `{chn, handle, w, h, x, y, color, effect}` | Creates cover `handle` (0-31). |
 | 8 | `{chn, handle, ...}` (8 words) | Destroys it. |
@@ -30,7 +30,7 @@ All calls are `ioctl`s of type `'R'`, with records of 32-bit words copied in; no
 | 10 | `{chn, handle, on}` | Shows it (`on` 1) or hides it. |
 | 11 | `{chn, color[16]}` | Loads the channel's palette, 0x00YYUUVV each. |
 
-`chn` is 0-2. A wrong channel, handle, size or format fails with `EINVAL`. A region that exists already gives `EEXIST`, and one that doesn't `ENOENT`. An overlay that doesn't fit in what is left of the channel's OSD memory gives `ENOSPC`. The vendor library creates an overlay with ioctls 2 and 4, and a cover with 7 and 9.
+`chn` is 0-2. A wrong channel, handle, size or format fails with `EINVAL`. A region that exists already gives `EEXIST`, and one that doesn't `ENOENT`. An overlay that doesn't fit in what is left of the channel's OSD memory gives `ENOSPC`. A new overlay's bitmap is cleared in the OSD memory before it can be shown, so create, like a bitmap load, waits for the hardware and can fail with `ETIMEDOUT` or `EINTR`. When a destroy's load fails, the remaining overlays keep their old place until the next load succeeds. The vendor library creates an overlay with ioctls 2 and 4, and a cover with 7 and 9.
 
 ### Bitmaps and colours
 
