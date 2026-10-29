@@ -174,11 +174,18 @@ struct xmvenc {
  * aim at IDR_WEIGHT P budgets with a QP of their own, when there are P
  * frames to pay that back; with every frame an IDR (gop 1), they follow
  * the buffer the way P frames do.
+ *
+ * In VBR the buffer never goes below zero: bits a frame did not use are
+ * not banked for later ones. Banked, a long still scene ran up a credit
+ * that kept QP at its floor and let the first seconds of motion spend far
+ * over the bitrate; and with nothing to pay back, an easy scene's QP falls
+ * to qmin and stays there, so its frames are as small as that quality
+ * makes them instead of growing to fill the budget.
  */
 #define IDR_WEIGHT 4.0
 
 struct rc {
-  int on, qp_i, qp_p, qmin, qmax, gop;
+  int on, qp_i, qp_p, qmin, qmax, gop, vbr;
   double budget, buffer, fps, kbps;
 };
 
@@ -692,6 +699,8 @@ static double rc_want(const struct rc *rc) {
 
 static void rc_update(struct rc *rc, int idr, uint32_t bits) {
   rc->buffer += bits - rc->budget;
+  if (rc->vbr && rc->buffer < 0)
+    rc->buffer = 0;
   if (idr && rc->gop > 1) {
     double d = 6 * log2(bits / (rc->budget * IDR_WEIGHT));
 
@@ -822,6 +831,7 @@ struct xmvenc_chn *xmvenc_chn_create(struct xmvenc *enc, int id,
     chn->rc.budget = a->kbps * 1000 / a->fps;
     chn->rc.qp_i = chn->rc.qp_p = clampi(a->qp, a->qmin, a->qmax);
     chn->rc.gop = a->gop;
+    chn->rc.vbr = a->vbr;
   }
   pthread_mutex_unlock(&enc->setup);
   return chn;
