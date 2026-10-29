@@ -74,12 +74,6 @@ struct xmvenc_chn_attr {
    * or below 1000. */
   double kbps, fps;
   int qmin, qmax;
-  /* H.264 rate control: variable bitrate. A frame under its budget is not
-   * paid for by the next ones, so an easy scene settles at qmin and costs
-   * what that quality needs, and kbps is a ceiling a busy scene is held to
-   * rather than a target every scene is filled to. 0: constant bitrate.
-   * H.265's firmware mode is variable either way. */
-  int vbr;
   /* JPEG quality, 1-100 */
   int quality;
   /* Allocate the reconstruction buffers for at least this many luma
@@ -95,6 +89,13 @@ struct xmvenc_chn_attr {
    * last one, by the frames' timestamps, whatever rate they come at; gop is
    * then not used. 0: every gop frames. */
   uint64_t gop_us;
+  /* H.264 rate control: variable bitrate. A frame under its budget is not
+   * paid for by the next ones, so an easy scene settles at qmin and costs
+   * what that quality needs, and kbps is a ceiling a busy scene is held to
+   * rather than a target every scene is filled to. 0: constant bitrate.
+   * H.265's firmware mode is variable either way. Last, so initializers
+   * written before it keep their meaning. */
+  int vbr;
 };
 
 /* Creates channel id (0-3; it names the channel's MMZ blocks, so each id
