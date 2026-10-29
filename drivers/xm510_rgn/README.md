@@ -29,7 +29,7 @@ All calls are `ioctl`s of type `'R'`, with records of 32-bit words copied in; no
 | 9 | as 7 | Places it, and sets the colour of all covers to `color` (0x00YYUUVV): there is one colour register. |
 | 10 | `{-, handle, on}` | Shows cover `handle` (`on` 1) or hides it. |
 
-A wrong channel, handle or size fails with `EINVAL`. A region that exists already gives `EEXIST`, and one that doesn't `ENOENT`. An overlay that doesn't fit in what is left of the channel's OSD memory gives `ENOSPC`. A new overlay's bitmap is cleared in the OSD memory before it can be shown, so create, like a bitmap load, waits for the hardware and can fail with `ETIMEDOUT` or `EINTR`. When a destroy's load fails, the remaining overlays keep their old place until the next load succeeds. A cover must end within 2047 in both directions. The vendor library creates an overlay with ioctls 2 and 4, and a cover with 7 and 9.
+A wrong channel, handle or size fails with `EINVAL`. A region that exists already gives `EEXIST`, and one that doesn't `ENOENT`. An overlay that doesn't fit in what is left of the channel's OSD memory gives `ENOSPC`. A new overlay's bitmap is cleared in the OSD memory before it can be shown, so create, like a bitmap load, waits for the hardware and can fail with `ETIMEDOUT` or `EINTR`. When a destroy's load fails, the remaining overlays keep their old place until the next load succeeds. A cover must end within 2047 in both directions.
 
 ### Bitmaps and colours
 
