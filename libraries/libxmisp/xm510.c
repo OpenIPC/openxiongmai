@@ -111,10 +111,10 @@ static const struct xmisp_ae_cfg ae_xm510 = {
  * 0x80 to 0xc8 land within 5% of the chart's grey, the vendor's 0x40
  * nowhere near. Under 4000 K bulbs, in the narrow window, 0x80 gave the
  * real grey and the warm surfaces nearly equal counts (4164 to 3869) and
- * 0xa0 a single peak (2143 to 40), which the AWB search finds. Too few bright grey pixels,
- * as in the first frames before AE has the picture bright, or in a dark
- * scene, and AWB holds its gains: falling back to 0x40 there settles in
- * the trap. */
+ * 0xa0 a single peak (2143 to 40), which the AWB search finds. Too few
+ * bright grey pixels, as in the first frames before AE has the picture
+ * bright, or in a dark scene, and AWB holds its gains: falling back to
+ * 0x40 there settles in the trap. */
 #define AWB_WINDOW_WIDE 0xda26
 #define AWB_WINDOW_NARROW 0xf808
 #define AWB_LUMA 0xdca0
@@ -534,7 +534,12 @@ static int awb_start(struct xmisp *s) {
 
 /* All four channels: each four regions of {count, Cb sum, Cr sum}. */
 static int awb_measure(struct xmisp *s, struct xmisp_awb_meas *m) {
-  for (unsigned ch = 0; ch < XMISP_AWB_CHANNELS; ch++) {
+  /* Channels 1-3 only when a search round takes their counts: 36 reads a
+   * frame otherwise wasted. */
+  const unsigned n = s->awb.searching && !s->awb.wait ? 1 + s->awb.n_cand : 1;
+  for (unsigned ch = n; ch < XMISP_AWB_CHANNELS; ch++)
+    m[ch] = (struct xmisp_awb_meas){0, 0, 0};
+  for (unsigned ch = 0; ch < n; ch++) {
     int32_t sum[3] = {0, 0, 0};
     for (unsigned i = 0; i < 12; i++) {
       uint32_t v;
