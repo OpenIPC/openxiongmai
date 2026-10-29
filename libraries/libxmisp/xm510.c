@@ -18,6 +18,16 @@
  * the pixels counted) and 7x7 zone sums from 0x40033100, rows in pairs
  * 0x40 apart, the second of a pair 0x1c after the first. Zone total over
  * histogram total is the mean.
+ *
+ * The AWB statistics are of the raw picture times candidate gains: four
+ * channels, each with its own R and B gains (0x40010000.. and
+ * 0x40010010.., 0x100 = 1, G 1), none of which reach the picture. For the
+ * pixels that look grey under a channel's gains (inside a window around
+ * Cb = Cr = 0 and a luma range), each channel gives four regions of
+ * {count, Cb sum, Cr sum} from 0x400140c0, 0x40 apart; summed, they are the
+ * grey pixels' count and mean Cb and Cr (BT.601, 9-bit signed coefficients
+ * at 0x4001300c..). The picture's gains are AWB_FRONTGAIN R, G, B at
+ * 0x40015000.
  */
 #define _DEFAULT_SOURCE
 #include <errno.h>
@@ -32,6 +42,7 @@
 #include <unistd.h>
 
 #include "ae.h"
+#include "awb.h"
 #include "xmisp.h"
 #include "xmisp_priv.h"
 
@@ -65,6 +76,36 @@ static const struct xmisp_ae_cfg ae_xm510 = {
     .interval = 2,
 };
 
+#define AWB_BACK_R 0x40010000u /* 4 channels */
+#define AWB_BACK_B 0x40010010u
+#define AWB_STAT 0x400140c0u  /* channel 1: 4 regions x {n, Cb, Cr} */
+#define AWB_L45 0x40014048u   /* Cb + Cr limits: min << 8 | max, signed */
+#define AWB_L135 0x4001404cu  /* Cb - Cr limits */
+#define AWB_YTHD 0x40014054u  /* luma limits: max << 8 | min */
+#define AWB_FRONT 0x40015000u /* R, G, B */
+#define AWB_GAIN_ONE 0x100
+#define AWB_GAIN_MAX 0xfff
+
+/* The grey window, Cb ± Cr within ±38 (the vendor's) while far off, ±8
+ * once near. Luma at least 0x80: dimmer pixels in a room of wood and beige
+ * pass as grey under far too blue gains (lab colour checker, daylight:
+ * 0x80 lands within 5% of the chart's grey, 0x40 nowhere near). With too
+ * few bright grey pixels the vendor's 0x40 is used, and 0x80 tried again
+ * every AWB_DIM_RETRY frames. */
+#define AWB_WINDOW_WIDE 0xda26
+#define AWB_WINDOW_NARROW 0xf808
+#define AWB_YTHD_BRIGHT 0xdc80
+#define AWB_YTHD_DIM 0xdc40
+#define AWB_DIM_RETRY 250
+
+static const struct xmisp_awb_cfg awb_xm510 = {
+    .points_min = 300,
+    .near = 3.0f,
+    .tolerance = 0.5f,
+    .step = 40.0f,
+    .interval = 2,
+};
+
 const struct xmisp_script *const xmisp_scripts[] = {&xmisp_h62_720p, NULL};
 
 struct xmisp {
@@ -77,6 +118,13 @@ struct xmisp {
   float mean;
   uint32_t lines;
   float gain;
+  struct xmisp_awb awb;
+  int awb_on;
+  uint32_t front_g; /* the script's G gain, which AWB keeps */
+  uint32_t window, ythd;
+  unsigned dim;  /* frames in the dim luma range */
+  uint32_t grey; /* the last measurement */
+  float cb, cr;
   char err[160];
 };
 
@@ -304,7 +352,7 @@ static int ae_mean(struct xmisp *s, float *mean) {
   return 0;
 }
 
-int xmisp_frame(struct xmisp *s) {
+static int ae_frame(struct xmisp *s) {
   if (!s->ae_on)
     return 0;
   if (ae_mean(s, &s->mean) < 0)
@@ -325,6 +373,129 @@ int xmisp_frame(struct xmisp *s) {
   s->gain = gain;
   xmisp_ae_applied(&s->ae, lines, gain);
   return 1;
+}
+
+static uint32_t gain_reg(float gain, uint32_t one) {
+  const float v = gain * (float)one + 0.5f;
+  return v > AWB_GAIN_MAX ? AWB_GAIN_MAX : (uint32_t)v;
+}
+
+/* The statistics' candidate gains, all four channels, and the picture's. */
+static int awb_set(struct xmisp *s, float r, float b) {
+  for (unsigned i = 0; i < 4; i++)
+    if (isp_w(s, AWB_BACK_R + i * 4, gain_reg(r, AWB_GAIN_ONE)) < 0 ||
+        isp_w(s, AWB_BACK_B + i * 4, gain_reg(b, AWB_GAIN_ONE)) < 0)
+      return fail(s, "AWB gains: %s", strerror(errno));
+  if (isp_w(s, AWB_FRONT, gain_reg(r, s->front_g)) < 0 ||
+      isp_w(s, AWB_FRONT + 8, gain_reg(b, s->front_g)) < 0)
+    return fail(s, "AWB gains: %s", strerror(errno));
+  return 0;
+}
+
+static int awb_gate(struct xmisp *s, uint32_t window, uint32_t ythd) {
+  if (window != s->window &&
+      (isp_w(s, AWB_L45, window) < 0 || isp_w(s, AWB_L135, window) < 0))
+    return fail(s, "AWB window: %s", strerror(errno));
+  s->window = window;
+  if (ythd != s->ythd && isp_w(s, AWB_YTHD, ythd) < 0)
+    return fail(s, "AWB luma range: %s", strerror(errno));
+  s->ythd = ythd;
+  return 0;
+}
+
+/* AWB from the fixed state's gains, if the script's sensor has a range. */
+static int awb_start(struct xmisp *s) {
+  const struct xmisp_sensor *sn = s->script->sensor;
+  uint32_t r = 0, g = 0, b = 0;
+  s->awb_on = 0;
+  if (!sn || !sn->awb_r_max)
+    return 0;
+  if (isp_r(s, AWB_FRONT, &r) < 0 || isp_r(s, AWB_FRONT + 4, &g) < 0 ||
+      isp_r(s, AWB_FRONT + 8, &b) < 0 || !g)
+    return fail(s, "AWB gains read: %s", g ? strerror(errno) : "G is 0");
+  struct xmisp_awb_cfg cfg = awb_xm510;
+  cfg.r_min = sn->awb_r_min;
+  cfg.r_max = sn->awb_r_max;
+  cfg.b_min = sn->awb_b_min;
+  cfg.b_max = sn->awb_b_max;
+  s->front_g = g;
+  xmisp_awb_init(&s->awb, &cfg, (float)r / (float)g, (float)b / (float)g);
+  s->window = s->ythd = 0;
+  s->dim = 0;
+  if (awb_set(s, s->awb.r, s->awb.b) < 0 ||
+      awb_gate(s, AWB_WINDOW_WIDE, AWB_YTHD_BRIGHT) < 0)
+    return -1;
+  s->awb_on = 1;
+  return 0;
+}
+
+static int awb_measure(struct xmisp *s) {
+  int32_t sum[3] = {0, 0, 0};
+  for (unsigned i = 0; i < 12; i++) {
+    uint32_t v;
+    if (isp_r(s, AWB_STAT + i * 4, &v) < 0)
+      return fail(s, "AWB statistics: %s", strerror(errno));
+    sum[i % 3] += (int32_t)v;
+  }
+  s->grey = sum[0] > 0 ? (uint32_t)sum[0] : 0;
+  s->cb = s->grey ? (float)sum[1] / (float)s->grey : 0;
+  s->cr = s->grey ? (float)sum[2] / (float)s->grey : 0;
+  return 0;
+}
+
+static int awb_frame(struct xmisp *s) {
+  if (!s->awb_on)
+    return 0;
+  if (awb_measure(s) < 0)
+    return -1;
+  /* Too few bright grey pixels: the dim range, and the bright one again
+   * now and then. A change of range makes the next frame's numbers of
+   * other pixels, so it waits a frame. */
+  uint32_t ythd = s->ythd;
+  if (s->ythd == AWB_YTHD_BRIGHT && s->grey < s->awb.cfg.points_min)
+    ythd = AWB_YTHD_DIM;
+  else if (s->ythd == AWB_YTHD_DIM && ++s->dim >= AWB_DIM_RETRY)
+    ythd = AWB_YTHD_BRIGHT;
+  if (ythd != s->ythd) {
+    s->dim = 0;
+    return awb_gate(s, s->window, ythd) < 0 ? -1 : 0;
+  }
+  float r, b;
+  const int change = xmisp_awb_update(&s->awb, s->grey, s->cb, s->cr, &r, &b);
+  if (awb_gate(s,
+               s->awb.window == XMISP_AWB_NARROW ? AWB_WINDOW_NARROW
+                                                 : AWB_WINDOW_WIDE,
+               s->ythd) < 0)
+    return -1;
+  if (!change)
+    return 0;
+  if (awb_set(s, r, b) < 0)
+    return -1;
+  xmisp_awb_applied(&s->awb, r, b);
+  return 1;
+}
+
+int xmisp_frame(struct xmisp *s) {
+  const int ae = ae_frame(s);
+  char err[sizeof(s->err)];
+  memcpy(err, s->err, sizeof(err));
+  const int awb = awb_frame(s);
+  if (ae < 0 && awb >= 0)
+    memcpy(s->err, err, sizeof(err)); /* AE's reason, not overwritten */
+  if (ae < 0 || awb < 0)
+    return -1;
+  return ae > 0 || awb > 0;
+}
+
+int xmisp_awb_enabled(const struct xmisp *s) { return s->awb_on; }
+
+void xmisp_white_balance(const struct xmisp *s, uint32_t *grey, float *cb,
+                         float *cr, float *r, float *b) {
+  *grey = s->grey;
+  *cb = s->cb;
+  *cr = s->cr;
+  *r = s->awb.r;
+  *b = s->awb.b;
 }
 
 int xmisp_ae_enabled(const struct xmisp *s) { return s->ae_on; }
@@ -358,6 +529,8 @@ int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
       r = run(s, s->script->fixed);
     if (r == 0)
       r = ae_start(s);
+    if (r == 0)
+      r = awb_start(s);
     if (r == 0)
       return 0;
     /* A start that failed part way may have 3D-NR on already. */

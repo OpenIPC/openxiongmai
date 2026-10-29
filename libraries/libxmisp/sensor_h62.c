@@ -62,6 +62,13 @@ const struct xmisp_sensor xmisp_sensor_h62 = {
     .lines_min = 1,
     .lines_max = 746,  /* a few lines short of the 750-line frame */
     .gain_max = 16.0f, /* 24 dB: noise over brightness, for now */
+    /* The range the vendor daemon's AWB searches on this sensor (its
+     * candidate gains, traced). Daylight grey on the lab chart is R 1.56,
+     * B 2.19. */
+    .awb_r_min = 0.75f,
+    .awb_r_max = 2.8f,
+    .awb_b_min = 1.1f,
+    .awb_b_max = 3.6f,
     .get_exposure = get_exposure,
     .set_exposure = set_exposure,
 };

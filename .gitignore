@@ -14,3 +14,4 @@ tools/xm-vi-hang/xm-vi-hang
 tools/xm-rgn-test/xm-rgn-test
 tools/xmispd/xmispd
 libraries/libxmisp/test/ae_test
+libraries/libxmisp/test/awb_test

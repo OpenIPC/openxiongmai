@@ -8,8 +8,8 @@ daemon on top of it.
 XM510 only so far:
 - `xmisp_start()` brings VI, the sensor and the ISP up from a sensor script
   and applies that script's fixed 3A state;
-- `xmisp_frame()`, once a frame, runs auto-exposure (M2);
-- white balance stays at the fixed state until AWB (M3).
+- `xmisp_frame()`, once a frame, runs auto-exposure (M2) and auto white
+  balance (M3).
 
 ## Layers
 
@@ -22,9 +22,16 @@ XM510 only so far:
   which after a failed write is what it reads back. After each change it
   waits `interval` frames for the change to show in the statistics. `make test` runs it on the host against a simulated sensor:
   convergence from far off either way, steadiness, and the limits.
+- **`awb.c`: auto white balance, independent of the SoC.** It does
+  grey-world over the pixels that look grey under the gains already set. The
+  SoC gives their count and mean Cb and Cr; R is scaled by exp(−Cr / step)
+  and B by exp(−Cb / step), within the sensor's range. The grey window stays
+  wide while the gains are far off and narrows once near, so only grey
+  pixels count. With too few grey pixels the gains hold. `make test` also
+  runs it on the host.
 - **`sensor_*.c`: what a sensor's 3A needs.** That's the exposure range,
-  the gain ceiling, and reading and setting exposure and gain in its
-  register encoding.
+  the gain ceiling, the white balance gain range, and reading and setting
+  exposure and gain in its register encoding.
 - **`xm510.c`: the SoC.** Device access, the script interpreter, and the
   AE statistics:
   - a 32-bin luma histogram at `0x40033080`, whose total is the pixels
@@ -35,6 +42,27 @@ XM510 only so far:
   Zone total over histogram total is the frame's 8-bit mean, linear (before
   gamma). The vendor daemon holds it at about 37.5 in daylight and indoors
   alike, and so does `xmisp`.
+
+  The AWB statistics, from experiments on the lab XM510:
+  - they're of the raw picture times candidate gains, four channels each
+    with its own R and B gains (`0x40010000`.., `0x40010010`..,
+    `0x100` = 1). None of these reach the picture, and the picture's gains
+    (`AWB_FRONTGAIN` R, G, B at `0x40015000`) don't reach the statistics;
+  - per channel, four regions of {count, Cb sum, Cr sum} from
+    `0x400140c0`, `0x40` apart, for the pixels inside a grey window
+    (`0x40014048`/`4c`: Cb ± Cr limits, signed bytes min << 8 | max) and a
+    luma range (`0x40014054`: max << 8 | min). Summed, they are the grey
+    pixels' count and mean Cb and Cr, BT.601 with 9-bit signed
+    coefficients at `0x4001300c`;
+  - restricted to the colour checker's grey row (the window registers at
+    `0x40014000`), grey-world on them lands within 2% of the gains that make
+    those patches neutral in the picture.
+
+  Over a whole room of wood, beige and an orange chair, the dim pixels that
+  pass as grey pull grey-world to far too blue gains; the vendor daemon's
+  AWB lands there too, and its picture is cyan. Counting only pixels of luma
+  0x80 and above lands within 5% of the chart's grey, so `xmisp` does that,
+  and falls back to the vendor's 0x40 when too few pixels are bright.
 
 ## Sensor scripts
 
@@ -73,8 +101,7 @@ extract.py trace.bin h62_720p "JX-H62 720p25" --fixed 500-510 \
 | `h62_720p.c` | JX-H62 (I2C `0x30`, ID `0xa062`), `sensor_h62.c` | 1280x720, 25 fps | lab XM510, vendor daemon under majestic |
 
 The fixed state is one converged frame of the vendor's 3A in the light of
-the capture. AE moves the exposure away from it. The white balance stays,
-so a different light gets the wrong colour until AWB exists.
+the capture, and AE and AWB start from it.
 
 ## JX-H62
 
@@ -86,3 +113,6 @@ These were measured on the lab XM510 with `xmispd` holding the rest fixed:
   bits 6:4 doubled the mean, and `0x7x` measured the same as `0x6x`.
 - **Frame:** the 720p25 script sets 750 lines (`0x23`/`0x22`). AE uses up to
   746 lines, and gain up to 16 for now.
+- **White balance:** in daylight the chart's grey needs R 1.56 and B 2.19
+  relative to G. AWB keeps to the range the vendor daemon's AWB searches,
+  R 0.75–2.8 and B 1.1–3.6.

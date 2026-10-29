@@ -5,17 +5,15 @@ An open ISP daemon for the XM510 (MIT), a drop-in for the vendor
 - brings up VI, the sensor and the ISP;
 - prints the vendor daemon's last start-up line, `ispMsgReceive start!`,
   after which majestic starts video;
-- runs auto-exposure at each frame signal from `/dev/isp` (with
-  `XMISPD_VERBOSE` in its environment it prints every change; majestic logs
-  each line, so not by default);
+- runs auto-exposure and auto white balance at each frame signal from
+  `/dev/isp` (with `XMISPD_VERBOSE` in its environment it prints every
+  change; majestic logs each line, so not by default);
 - on SIGTERM or SIGINT, does what the vendor daemon does on its way out:
   3D noise reduction off, then exit.
 
 Its output uses the vendor daemon's format (`\033[0;32;32mDEBUG: ...`,
 `\033[0;32;31mERR: ...`), which majestic forwards to its log. It holds
 `/tmp/Isplock` like the vendor daemon, so two can't run.
-
-White balance stays at the sensor script's fixed state until AWB (M3).
 
 ## Build and try
 
@@ -39,5 +37,9 @@ Tested on the lab XM510 with a JX-H62 under majestic:
   for a minute.
 - **Knocked off:** exposure forced to 20 lines, or to 746 lines at 8× gain,
   comes back within about 20 frames.
+- **AWB, daylight, colour checker in view:** from the script's fixed state
+  it settles in about 22 frames at R 1.47, B 2.31. The chart's greys come
+  out R/G 0.92, B/G 1.02; the vendor daemon's are R/G 0.35, B/G 1.30 (cyan).
+  It then makes no change for a minute.
 - **Footprint:** about 200 KB of RAM (the vendor's: 430 KB) and almost no
   CPU.
