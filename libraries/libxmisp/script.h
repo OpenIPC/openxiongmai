@@ -1,8 +1,10 @@
 /* SPDX-License-Identifier: MIT */
 /*
- * Sensor scripts: the XM510 ISP start-up for one sensor and mode as a list
- * of steps, and a fixed 3A state applied once after it. extract.py in
- * tools/xm-isp-trace generates them from a trace of the vendor daemon.
+ * Sensor scripts: the XM510 ISP start-up as the SoC's list of steps with
+ * slots for one sensor and mode's parts, the ISP values that sensor needs
+ * other than the SoC's, and a fixed 3A state applied once after it.
+ * extract.py in tools/xm-isp-trace generates both from traces of the
+ * vendor daemon.
  */
 #ifndef XMISP_SCRIPT_H
 #define XMISP_SCRIPT_H
@@ -18,11 +20,23 @@ enum xmisp_op_type {
   XMISP_SYS_W,      /* a: system controller register, b: value */
   XMISP_I2C_W,      /* a: sensor register, b: value */
   XMISP_I2C_EXPECT, /* a: sensor register, b: the value it must read (ID) */
+  XMISP_I2C_R,      /* a: sensor register, read; b: what the trace read */
   XMISP_VI_IOW,     /* a: command, b: index in args[]: a count, then words */
   XMISP_ISP_BUF,    /* a: size of the ISP's MMZ block "Isp", allocated */
   XMISP_ISP_W,      /* a: ISP register, b: value */
   XMISP_ISP_W_BUF,  /* a: ISP register, b: offset in the "Isp" block; the
                        register takes the address in 8-byte units from DDR */
+  XMISP_SENSOR,     /* a: the script's part (xmisp_part) that goes here */
+};
+
+/* A sensor and mode's parts of the start-up, in order. */
+enum xmisp_part {
+  XMISP_PART_PROBE, /* reset and chip ID */
+  XMISP_PART_PLL,   /* its clock, through the system controller */
+  XMISP_PART_VI,    /* VI channel setup: window, sizes */
+  XMISP_PART_INIT,  /* its register writes */
+  XMISP_PART_POST,  /* its register writes after the ISP's */
+  XMISP_PARTS
 };
 
 struct xmisp_op {
@@ -53,14 +67,37 @@ struct xmisp_sensor {
   int (*set_exposure)(struct xmisp *isp, uint32_t lines, float *gain);
 };
 
+/* An ISP register's value for this sensor, other than the SoC's: it takes
+ * the place of the register's last write in the template (an offset in the
+ * "Isp" block for an XMISP_ISP_W_BUF write). Where the template writes a
+ * register twice, the first is a default the same for every sensor. */
+struct xmisp_isp_val {
+  uint32_t addr; /* 0 ends the list */
+  uint32_t val;
+};
+
 struct xmisp_script {
   const char *name;
-  const struct xmisp_sensor *sensor;
-  uint8_t i2c_dev; /* 7-bit sensor address; 8-bit registers and data */
-  const struct xmisp_op *start;
+  const struct xmisp_sensor *sensor; /* NULL: the fixed state only */
+  uint8_t i2c_dev;                   /* 7-bit sensor address */
+  uint8_t reg_bytes;                 /* 1 or 2 */
+  uint8_t data_bytes;                /* 1 or 2 */
+  const struct xmisp_op *part[XMISP_PARTS];
+  const struct xmisp_isp_val *isp;
+  uint32_t isp_buf; /* the "Isp" block's size; 0: the template's */
   const struct xmisp_op *fixed;
-  const uint32_t *args;
+  const uint32_t *args; /* XMISP_VI_IOW arguments */
 };
+
+/* The XM510's start-up, with XMISP_SENSOR slots. */
+extern const struct xmisp_op xmisp_xm510_start[];
+
+/* The steps of soc with script's parts in their slots and its ISP values,
+ * into out (up to max, the XMISP_END included). The number of steps, END
+ * included; more than max if out is too short. */
+unsigned xmisp_expand(const struct xmisp_op *soc,
+                      const struct xmisp_script *script, struct xmisp_op *out,
+                      unsigned max);
 
 extern const struct xmisp_script xmisp_h62_720p;
 extern const struct xmisp_sensor xmisp_sensor_h62;

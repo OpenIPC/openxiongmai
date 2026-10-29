@@ -1,0 +1,668 @@
+// SPDX-License-Identifier: MIT
+/*
+ * The JX-H62 720p25 start-up as one list, as extract.py made it before the
+ * SoC template and the sensor's parts were split (h62_720p.c at 7582151):
+ * the template with the H62's parts must give exactly these steps.
+ */
+#include "../script.h"
+
+const struct xmisp_op h62_720p_flat[] = {
+    {XMISP_MMZ_RESET, 0x0, 0x0},
+    {XMISP_VI_INIT, 0x0, 0x0},
+    {XMISP_RGN_RESET, 0x0, 0x0},
+    {XMISP_SYS_W, 0x2000002c, 0x1},        /* PLL_SYSCTRLREG_LOCK */
+    {XMISP_SYS_W, 0x2000000c, 0x10110010}, /* PLLB1_CTRL */
+    {XMISP_SYS_W, 0x20000010, 0x901f0010}, /* PLLB2_CTRL */
+    {XMISP_SYS_W, 0x20000014, 0x1120000},  /* PLLB_CTRL */
+    {XMISP_SYS_W, 0x2000002c, 0x0},        /* PLL_SYSCTRLREG_LOCK */
+    {XMISP_I2C_W, 0x12, 0x80},
+    {XMISP_I2C_W, 0x12, 0x80},
+    {XMISP_DELAY_MS, 0x73, 0x0},
+    {XMISP_I2C_EXPECT, 0xa, 0xa0},         /* chip ID */
+    {XMISP_I2C_EXPECT, 0xb, 0x62},         /* chip ID */
+    {XMISP_SYS_W, 0x2000002c, 0x1},        /* PLL_SYSCTRLREG_LOCK */
+    {XMISP_SYS_W, 0x2000000c, 0x10110010}, /* PLLB1_CTRL */
+    {XMISP_SYS_W, 0x20000010, 0x901f0010}, /* PLLB2_CTRL */
+    {XMISP_SYS_W, 0x20000014, 0x1120000},  /* PLLB_CTRL */
+    {XMISP_SYS_W, 0x2000002c, 0x0},        /* PLL_SYSCTRLREG_LOCK */
+    {XMISP_DELAY_MS, 0x3, 0x0},
+    {XMISP_ISP_W, 0x40080010, 0x10},     /* VSTORE_BASE+0x10 */
+    {XMISP_ISP_W, 0x40080014, 0x210},    /* VSTORE_BASE+0x14 */
+    {XMISP_ISP_W, 0x40080018, 0x10},     /* VSTORE_BASE+0x18 */
+    {XMISP_ISP_W, 0x4008001c, 0x8},      /* VSTORE_BASE+0x1c */
+    {XMISP_ISP_W, 0x40080038, 0xcf},     /* VSTORE_BASE+0x38 */
+    {XMISP_ISP_W, 0x4008003c, 0x1f},     /* VSTORE_BASE+0x3c */
+    {XMISP_VI_IOW, 0x40105600, 0x0},     /* _IOW('V',0,16) */
+    {XMISP_VI_IOW, 0x400c5601, 0x5},     /* _IOW('V',1,12) */
+    {XMISP_VI_IOW, 0x400c5601, 0x9},     /* _IOW('V',1,12) */
+    {XMISP_VI_IOW, 0x40045602, 0xd},     /* _IOW('V',2,4) */
+    {XMISP_VI_IOW, 0x40045602, 0xf},     /* _IOW('V',2,4) */
+    {XMISP_ISP_W, 0x40000008, 0x0},      /* VIDOEMODE_BASE+0x8 */
+    {XMISP_ISP_W, 0x400000c0, 0x110050}, /* VIDOEMODE_BASE+0xc0 */
+    {XMISP_DELAY_MS, 0x3, 0x0},
+    {XMISP_ISP_W, 0x400000c4, 0x1}, /* VIDOEMODE_BASE+0xc4 */
+    {XMISP_I2C_W, 0x12, 0x40},
+    {XMISP_I2C_W, 0xe, 0x12},
+    {XMISP_I2C_W, 0xf, 0x0},
+    {XMISP_I2C_W, 0x10, 0x20},
+    {XMISP_I2C_W, 0x11, 0x80},
+    {XMISP_I2C_W, 0x19, 0x48},
+    {XMISP_I2C_W, 0x20, 0x80},
+    {XMISP_I2C_W, 0x20, 0x80},
+    {XMISP_I2C_W, 0x21, 0x7},
+    {XMISP_I2C_W, 0x22, 0xee},
+    {XMISP_I2C_W, 0x23, 0x2},
+    {XMISP_DELAY_MS, 0x3, 0x0},
+    {XMISP_I2C_W, 0x24, 0x8},
+    {XMISP_I2C_W, 0x25, 0xd8},
+    {XMISP_I2C_W, 0x26, 0x25},
+    {XMISP_I2C_W, 0x27, 0x10},
+    {XMISP_I2C_W, 0x28, 0x13},
+    {XMISP_I2C_W, 0x29, 0x2},
+    {XMISP_I2C_W, 0x2a, 0x1},
+    {XMISP_I2C_W, 0x2b, 0x21},
+    {XMISP_I2C_W, 0x2c, 0x4},
+    {XMISP_I2C_W, 0x2d, 0x0},
+    {XMISP_I2C_W, 0x2e, 0xbb},
+    {XMISP_I2C_W, 0x2f, 0xc0},
+    {XMISP_I2C_W, 0x41, 0x8c},
+    {XMISP_I2C_W, 0x42, 0x12},
+    {XMISP_I2C_W, 0x39, 0x90},
+    {XMISP_I2C_W, 0x1d, 0xff},
+    {XMISP_I2C_W, 0x1e, 0xbf},
+    {XMISP_I2C_W, 0x7a, 0x80},
+    {XMISP_I2C_W, 0x1f, 0x20},
+    {XMISP_I2C_W, 0x30, 0x90},
+    {XMISP_I2C_W, 0x31, 0xc},
+    {XMISP_I2C_W, 0x32, 0xff},
+    {XMISP_I2C_W, 0x33, 0xc},
+    {XMISP_I2C_W, 0x34, 0x4b},
+    {XMISP_I2C_W, 0x35, 0xa3},
+    {XMISP_I2C_W, 0x36, 0x6},
+    {XMISP_I2C_W, 0x38, 0x40},
+    {XMISP_I2C_W, 0x3a, 0x8},
+    {XMISP_I2C_W, 0x56, 0x2},
+    {XMISP_I2C_W, 0x60, 0x1},
+    {XMISP_I2C_W, 0xd, 0x50},
+    {XMISP_I2C_W, 0x57, 0x80},
+    {XMISP_I2C_W, 0x58, 0x33},
+    {XMISP_I2C_W, 0x5a, 0x4},
+    {XMISP_I2C_W, 0x5b, 0xb6},
+    {XMISP_I2C_W, 0x5c, 0x8},
+    {XMISP_I2C_W, 0x5d, 0x67},
+    {XMISP_I2C_W, 0x5e, 0x4},
+    {XMISP_I2C_W, 0x5f, 0x8},
+    {XMISP_I2C_W, 0x66, 0x28},
+    {XMISP_I2C_W, 0x67, 0xf8},
+    {XMISP_I2C_W, 0x68, 0x4},
+    {XMISP_I2C_W, 0x69, 0x74},
+    {XMISP_I2C_W, 0x6a, 0x1f},
+    {XMISP_I2C_W, 0x63, 0x82},
+    {XMISP_I2C_W, 0x6c, 0xc0},
+    {XMISP_I2C_W, 0x6e, 0x5c},
+    {XMISP_I2C_W, 0x82, 0x1},
+    {XMISP_I2C_W, 0xc, 0x0},
+    {XMISP_I2C_W, 0x46, 0xc2},
+    {XMISP_I2C_W, 0x48, 0x7e},
+    {XMISP_I2C_W, 0x62, 0x40},
+    {XMISP_I2C_W, 0x7d, 0x57},
+    {XMISP_I2C_W, 0x7e, 0x28},
+    {XMISP_I2C_W, 0x80, 0x0},
+    {XMISP_I2C_W, 0x4a, 0x5},
+    {XMISP_I2C_W, 0x49, 0x10},
+    {XMISP_I2C_W, 0x13, 0x81},
+    {XMISP_I2C_W, 0x59, 0x97},
+    {XMISP_I2C_W, 0x12, 0x0},
+    {XMISP_I2C_W, 0x47, 0x47},
+    {XMISP_I2C_W, 0x47, 0x44},
+    {XMISP_I2C_W, 0x1f, 0x21},
+    {XMISP_ISP_W, 0x4002000c, 0x0},          /* NR_2D_GMIN_REG */
+    {XMISP_ISP_W, 0x40020010, 0x0},          /* NR_2D_COEF_SEL_REG */
+    {XMISP_ISP_W, 0x40020014, 0x100},        /* NR_2D_DELTA_THD */
+    {XMISP_ISP_W, 0x40040040, 0x5050404},    /* NR_3D_ERR_PAR */
+    {XMISP_ISP_W, 0x40040044, 0x8080606},    /* NR_3D_BASE+0x44 */
+    {XMISP_ISP_W, 0x40040048, 0xc0c0a0a},    /* NR_3D_BASE+0x48 */
+    {XMISP_ISP_W, 0x4004004c, 0xe0e0e0c},    /* NR_3D_BASE+0x4c */
+    {XMISP_ISP_W, 0x40040050, 0x8060402},    /* NR_3D_BAYER_PAR */
+    {XMISP_ISP_W, 0x40040054, 0x28201810},   /* NR_3D_BASE+0x54 */
+    {XMISP_ISP_W, 0x40040058, 0x40403c30},   /* NR_3D_BASE+0x58 */
+    {XMISP_ISP_W, 0x4004005c, 0x40404040},   /* NR_3D_BASE+0x5c */
+    {XMISP_ISP_W, 0x4004014c, 0x40404040},   /* NR_3D_FLT2D_PAR */
+    {XMISP_ISP_W, 0x40040150, 0x40404040},   /* NR_3D_BASE+0x150 */
+    {XMISP_ISP_W, 0x40040154, 0x3034383c},   /* NR_3D_BASE+0x154 */
+    {XMISP_ISP_W, 0x40040158, 0x2024282c},   /* NR_3D_BASE+0x158 */
+    {XMISP_ISP_W, 0x40040004, 0xc0},         /* NR_3D_RAMP */
+    {XMISP_ISP_W, 0x40040008, 0xc0},         /* NR_3D_G1AMP */
+    {XMISP_ISP_W, 0x4004000c, 0xc0},         /* NR_3D_G2AMP */
+    {XMISP_ISP_W, 0x40040010, 0xc0},         /* NR_3D_BAMP */
+    {XMISP_ISP_W, 0x40040020, 0x3},          /* NR_3D_DIG_E1 */
+    {XMISP_ISP_W, 0x40040024, 0x3},          /* NR_3D_DIG_E2 */
+    {XMISP_ISP_W, 0x40040028, 0x2},          /* NR_3D_DIG_E3 */
+    {XMISP_ISP_W, 0x40040014, 0x2},          /* NR_3D_ERR_SFT */
+    {XMISP_ISP_W, 0x40040018, 0x2},          /* NR_3D_NR_LEVEL */
+    {XMISP_ISP_BUF, 0x26fe80, 0x0},          /* MMZ block "Isp" */
+    {XMISP_ISP_W, 0x40040030, 0x0},          /* NR_3D_YFLD_SPACE */
+    {XMISP_ISP_W, 0x40040034, 0x0},          /* NR_3D_BFLD_SPACE */
+    {XMISP_ISP_W, 0x40051048, 0x0},          /* VF_TOTAL_FRAME_NUM */
+    {XMISP_ISP_W_BUF, 0x400400a0, 0x0},      /* NR_3D_DFT_BSADDR0 */
+    {XMISP_ISP_W_BUF, 0x40051000, 0x0},      /* VF_BASE */
+    {XMISP_ISP_W_BUF, 0x400400a4, 0x0},      /* NR_3D_DFT_BSADDR1 */
+    {XMISP_ISP_W_BUF, 0x40051004, 0x0},      /* VF_BAYER_ADDR1 */
+    {XMISP_ISP_W_BUF, 0x400400a8, 0x0},      /* NR_3D_DFT_BSADDR2 */
+    {XMISP_ISP_W_BUF, 0x40051008, 0x0},      /* VF_BAYER_ADDR2 */
+    {XMISP_ISP_W_BUF, 0x400400ac, 0x0},      /* NR_3D_DFT_BSADDR3 */
+    {XMISP_ISP_W_BUF, 0x4005100c, 0x0},      /* VF_BAYER_ADDR3 */
+    {XMISP_ISP_W_BUF, 0x400400b0, 0x0},      /* NR_3D_DFT_BSADDR4 */
+    {XMISP_ISP_W_BUF, 0x40051010, 0x0},      /* VF_BAYER_ADDR4 */
+    {XMISP_ISP_W_BUF, 0x400400b4, 0x0},      /* NR_3D_DFT_BSADDR5 */
+    {XMISP_ISP_W_BUF, 0x40051014, 0x0},      /* VF_BAYER_ADDR5 */
+    {XMISP_ISP_W_BUF, 0x400400b8, 0x0},      /* NR_3D_DFT_BSADDR6 */
+    {XMISP_ISP_W_BUF, 0x40051018, 0x0},      /* VF_BAYER_ADDR6 */
+    {XMISP_ISP_W_BUF, 0x400400bc, 0x0},      /* NR_3D_DFT_BSADDR7 */
+    {XMISP_ISP_W_BUF, 0x4005101c, 0x0},      /* VF_BAYER_ADDR7 */
+    {XMISP_ISP_W_BUF, 0x40040038, 0x1c5c00}, /* NR_3D_DFT_YSADDR0 */
+    {XMISP_ISP_W_BUF, 0x4004003c, 0x237300}, /* NR_3D_DFT_ESADDR0 */
+    {XMISP_ISP_W, 0x400400d0, 0x142},        /* NR_3D_DDR_HNUM */
+    {XMISP_ISP_W, 0x40051040, 0x140},        /* VF_LINE_ADDR_INC */
+    {XMISP_ISP_W, 0x4005104c, 0x506},        /* VF_LINE_NUM_PIX */
+    {XMISP_ISP_W, 0x40040148, 0x100},        /* NR_3D_CHANGE_POINT */
+    {XMISP_ISP_W, 0x40050014, 0x1},          /* BD_PASSTHROUGH_MODE2 */
+    {XMISP_ISP_W, 0x40051050, 0x0},          /* VF_ENABLE */
+    {XMISP_ISP_W, 0x40050010, 0x0},          /* BD_PASSTHROUGH_MODE1 */
+    {XMISP_DELAY_MS, 0x3f1, 0x0},
+    {XMISP_ISP_W, 0x40040000, 0x40}, /* NR_3D_BASE */
+    {XMISP_DELAY_MS, 0x3fc, 0x0},
+    {XMISP_ISP_W, 0x40040000, 0x41}, /* NR_3D_BASE */
+    {XMISP_DELAY_MS, 0x3f2, 0x0},
+    {XMISP_ISP_W, 0x400400d0, 0x140}, /* NR_3D_DDR_HNUM */
+    {XMISP_ISP_W, 0x40023000, 0x100}, /* DDPC_BASE */
+    {XMISP_ISP_W, 0x40023004, 0x100}, /* DDPC_MIN_THD */
+    {XMISP_ISP_W, 0x40023008, 0x200}, /* DDPC_DIFF_THD */
+    {XMISP_ISP_W, 0x40052000, 0x0},   /* DEMOSAIC_BASE */
+    {XMISP_ISP_W, 0x40052004, 0x60},  /* DEMOSAIC_DHV_OFST */
+    {XMISP_ISP_W, 0x40052008, 0x30},  /* DEMOSAIC_DHV_K */
+    {XMISP_ISP_W, 0x40067000, 0x80},  /* DEMOIRE_BASE */
+    {XMISP_ISP_W, 0x40067004, 0x100}, /* DEMOIRE_KV */
+    {XMISP_ISP_W, 0x40067008, 0x50},  /* DEMOIRE_DF_THD_MAX */
+    {XMISP_ISP_W, 0x4006700c, 0x30},  /* DEMOIRE_DF_THD_MIN */
+    {XMISP_ISP_W, 0x40067010, 0x80},  /* DEMOIRE_GAIN_MIN */
+    {XMISP_ISP_W, 0x40067014, 0x40},  /* DEMOIRE_KC */
+    {XMISP_ISP_W, 0x40067018, 0x0},   /* DEMOIRE_BYPASS */
+    {XMISP_ISP_W, 0x40075020, 0x0},   /* SHARPEN_TRAN_DAT0 */
+    {XMISP_ISP_W, 0x40075024, 0x10},  /* SHARPEN_BASE+0x24 */
+    {XMISP_ISP_W, 0x40075028, 0x20},  /* SHARPEN_BASE+0x28 */
+    {XMISP_ISP_W, 0x4007502c, 0x40},  /* SHARPEN_BASE+0x2c */
+    {XMISP_ISP_W, 0x40075030, 0x60},  /* SHARPEN_BASE+0x30 */
+    {XMISP_ISP_W, 0x40075034, 0x80},  /* SHARPEN_BASE+0x34 */
+    {XMISP_ISP_W, 0x40075038, 0xa0},  /* SHARPEN_BASE+0x38 */
+    {XMISP_ISP_W, 0x4007503c, 0xa0},  /* SHARPEN_BASE+0x3c */
+    {XMISP_ISP_W, 0x40075040, 0xa0},  /* SHARPEN_BASE+0x40 */
+    {XMISP_ISP_W, 0x40075044, 0xa0},  /* SHARPEN_BASE+0x44 */
+    {XMISP_ISP_W, 0x40075048, 0xa0},  /* SHARPEN_BASE+0x48 */
+    {XMISP_ISP_W, 0x4007504c, 0xa0},  /* SHARPEN_BASE+0x4c */
+    {XMISP_ISP_W, 0x40075050, 0xa0},  /* SHARPEN_BASE+0x50 */
+    {XMISP_ISP_W, 0x40075054, 0xa0},  /* SHARPEN_BASE+0x54 */
+    {XMISP_ISP_W, 0x40075058, 0xa0},  /* SHARPEN_BASE+0x58 */
+    {XMISP_ISP_W, 0x4007505c, 0xa0},  /* SHARPEN_BASE+0x5c */
+    {XMISP_ISP_W, 0x40075060, 0xa0},  /* SHARPEN_BASE+0x60 */
+    {XMISP_ISP_W, 0x40075064, 0xa0},  /* SHARPEN_BASE+0x64 */
+    {XMISP_ISP_W, 0x40075068, 0xa0},  /* SHARPEN_BASE+0x68 */
+    {XMISP_ISP_W, 0x4007506c, 0xa0},  /* SHARPEN_BASE+0x6c */
+    {XMISP_ISP_W, 0x40075070, 0xa0},  /* SHARPEN_BASE+0x70 */
+    {XMISP_ISP_W, 0x40075074, 0xa0},  /* SHARPEN_BASE+0x74 */
+    {XMISP_ISP_W, 0x40075078, 0xa0},  /* SHARPEN_BASE+0x78 */
+    {XMISP_ISP_W, 0x4007507c, 0xa0},  /* SHARPEN_BASE+0x7c */
+    {XMISP_ISP_W, 0x40075080, 0xa0},  /* SHARPEN_BASE+0x80 */
+    {XMISP_ISP_W, 0x40075084, 0xa0},  /* SHARPEN_BASE+0x84 */
+    {XMISP_ISP_W, 0x40075088, 0x90},  /* SHARPEN_BASE+0x88 */
+    {XMISP_ISP_W, 0x4007508c, 0x80},  /* SHARPEN_BASE+0x8c */
+    {XMISP_ISP_W, 0x40075090, 0x70},  /* SHARPEN_BASE+0x90 */
+    {XMISP_ISP_W, 0x40075094, 0x60},  /* SHARPEN_BASE+0x94 */
+    {XMISP_ISP_W, 0x40075098, 0x60},  /* SHARPEN_BASE+0x98 */
+    {XMISP_ISP_W, 0x4007509c, 0x60},  /* SHARPEN_BASE+0x9c */
+    {XMISP_ISP_W, 0x400750a0, 0x60},  /* SHARPEN_BASE+0xa0 */
+    {XMISP_ISP_W, 0x40075010, 0x800}, /* SHARPEN_DMAX */
+    {XMISP_ISP_W, 0x40075018, 0x3c},  /* SHARPEN_KD */
+    {XMISP_ISP_W, 0x4007501c, 0x800}, /* SHARPEN_KD_MAX */
+    {XMISP_ISP_W, 0x40075128, 0x3},   /* SHARPEN_YMTH1 */
+    {XMISP_ISP_W, 0x4007512c, 0x8},   /* SHARPEN_YMTH2 */
+    {XMISP_ISP_W, 0x40075130, 0x4},   /* SHARPEN_KKM */
+    {XMISP_ISP_W, 0x40075134, 0x0},   /* SHARPEN_WM0 */
+    {XMISP_ISP_W, 0x40075138, 0x0},   /* SHARPEN_WM1 */
+    {XMISP_ISP_W, 0x4007513c, 0x1},   /* SHARPEN_WM2 */
+    {XMISP_ISP_W, 0x40075140, 0x3},   /* SHARPEN_WM3 */
+    {XMISP_ISP_W, 0x40075144, 0x8},   /* SHARPEN_WM4 */
+    {XMISP_ISP_W, 0x40075148, 0x10},  /* SHARPEN_WM5 */
+    {XMISP_ISP_W, 0x4007514c, 0x10},  /* SHARPEN_KM0 */
+    {XMISP_ISP_W, 0x40075150, 0x3},   /* SHARPEN_YHTH1 */
+    {XMISP_ISP_W, 0x40075154, 0x8},   /* SHARPEN_YHTH2 */
+    {XMISP_ISP_W, 0x40075158, 0x4},   /* SHARPEN_KKH */
+    {XMISP_ISP_W, 0x4007515c, 0x0},   /* SHARPEN_WH0 */
+    {XMISP_ISP_W, 0x40075160, 0x0},   /* SHARPEN_WH1 */
+    {XMISP_ISP_W, 0x40075164, 0x1},   /* SHARPEN_WH2 */
+    {XMISP_ISP_W, 0x40075168, 0x3},   /* SHARPEN_WH3 */
+    {XMISP_ISP_W, 0x4007516c, 0x8},   /* SHARPEN_WH4 */
+    {XMISP_ISP_W, 0x40075170, 0x10},  /* SHARPEN_WH5 */
+    {XMISP_ISP_W, 0x40075174, 0x10},  /* SHARPEN_KH0 */
+    {XMISP_ISP_W, 0x40075178, 0x3},   /* SHARPEN_YMDTH1 */
+    {XMISP_ISP_W, 0x4007517c, 0x8},   /* SHARPEN_YMDTH2 */
+    {XMISP_ISP_W, 0x40075180, 0x4},   /* SHARPEN_KKMD */
+    {XMISP_ISP_W, 0x40075184, 0x0},   /* SHARPEN_WMD0 */
+    {XMISP_ISP_W, 0x40075188, 0x0},   /* SHARPEN_WMD1 */
+    {XMISP_ISP_W, 0x4007518c, 0x1},   /* SHARPEN_WMD2 */
+    {XMISP_ISP_W, 0x40075190, 0x3},   /* SHARPEN_WMD3 */
+    {XMISP_ISP_W, 0x40075194, 0x8},   /* SHARPEN_WMD4 */
+    {XMISP_ISP_W, 0x40075198, 0x10},  /* SHARPEN_WMD5 */
+    {XMISP_ISP_W, 0x4007519c, 0x80},  /* SHARPEN_KMD_MAX */
+    {XMISP_ISP_W, 0x400751a0, 0x3},   /* SHARPEN_YHDTH1 */
+    {XMISP_ISP_W, 0x400751a4, 0x8},   /* SHARPEN_YHDTH2 */
+    {XMISP_ISP_W, 0x400751a8, 0x4},   /* SHARPEN_KKHD */
+    {XMISP_ISP_W, 0x400751ac, 0x0},   /* SHARPEN_WHD0 */
+    {XMISP_ISP_W, 0x400751b0, 0x0},   /* SHARPEN_WHD1 */
+    {XMISP_ISP_W, 0x400751b4, 0x1},   /* SHARPEN_WHD2 */
+    {XMISP_ISP_W, 0x400751b8, 0x3},   /* SHARPEN_WHD3 */
+    {XMISP_ISP_W, 0x400751bc, 0x8},   /* SHARPEN_WHD4 */
+    {XMISP_ISP_W, 0x400751c0, 0x10},  /* SHARPEN_WHD5 */
+    {XMISP_ISP_W, 0x400751c4, 0x80},  /* SHARPEN_KHD_MAX */
+    {XMISP_ISP_W, 0x400751e8, 0xff},  /* SHARPEN_KCMIN */
+    {XMISP_ISP_W, 0x40075008, 0x10},  /* SHARPEN_KH1 */
+    {XMISP_ISP_W, 0x4007500c, 0x6},   /* SHARPEN_KL1 */
+    {XMISP_ISP_W, 0x40075004, 0x1},   /* SHARPEN_H00_SEL */
+    {XMISP_ISP_W, 0x40075130, 0x0},   /* SHARPEN_KKM */
+    {XMISP_ISP_W, 0x40075158, 0x0},   /* SHARPEN_KKH */
+    {XMISP_ISP_W, 0x40075180, 0x0},   /* SHARPEN_KKMD */
+    {XMISP_ISP_W, 0x400751a8, 0x0},   /* SHARPEN_KKHD */
+    {XMISP_ISP_W, 0x40075204, 0x1},   /* SHARPEN_ENABLE */
+    {XMISP_ISP_W, 0x40075208, 0x1},   /* SHARPEN_CBCR_ENABLE */
+    {XMISP_ISP_W, 0x40062040, 0x0},   /* GAMMA60_LINE0_DAT0 */
+    {XMISP_ISP_W, 0x40062044, 0x36},  /* GAMMA60_BASE+0x44 */
+    {XMISP_ISP_W, 0x40062048, 0x6a},  /* GAMMA60_BASE+0x48 */
+    {XMISP_ISP_W, 0x4006204c, 0x9e},  /* GAMMA60_BASE+0x4c */
+    {XMISP_ISP_W, 0x40062050, 0xd1},  /* GAMMA60_BASE+0x50 */
+    {XMISP_ISP_W, 0x40062054, 0x103}, /* GAMMA60_BASE+0x54 */
+    {XMISP_ISP_W, 0x40062058, 0x134}, /* GAMMA60_BASE+0x58 */
+    {XMISP_ISP_W, 0x4006205c, 0x164}, /* GAMMA60_BASE+0x5c */
+    {XMISP_ISP_W, 0x40062060, 0x193}, /* GAMMA60_BASE+0x60 */
+    {XMISP_ISP_W, 0x40062064, 0x1c2}, /* GAMMA60_BASE+0x64 */
+    {XMISP_ISP_W, 0x40062068, 0x1ef}, /* GAMMA60_BASE+0x68 */
+    {XMISP_ISP_W, 0x4006206c, 0x21c}, /* GAMMA60_BASE+0x6c */
+    {XMISP_ISP_W, 0x40062070, 0x248}, /* GAMMA60_BASE+0x70 */
+    {XMISP_ISP_W, 0x40062074, 0x274}, /* GAMMA60_BASE+0x74 */
+    {XMISP_ISP_W, 0x40062078, 0x29e}, /* GAMMA60_BASE+0x78 */
+    {XMISP_ISP_W, 0x4006207c, 0x2c9}, /* GAMMA60_BASE+0x7c */
+    {XMISP_ISP_W, 0x40062080, 0x2f2}, /* GAMMA60_BASE+0x80 */
+    {XMISP_ISP_W, 0x40062084, 0x31b}, /* GAMMA60_BASE+0x84 */
+    {XMISP_ISP_W, 0x40062088, 0x343}, /* GAMMA60_BASE+0x88 */
+    {XMISP_ISP_W, 0x4006208c, 0x36a}, /* GAMMA60_BASE+0x8c */
+    {XMISP_ISP_W, 0x40062090, 0x391}, /* GAMMA60_BASE+0x90 */
+    {XMISP_ISP_W, 0x40062094, 0x3b7}, /* GAMMA60_BASE+0x94 */
+    {XMISP_ISP_W, 0x40062098, 0x3dd}, /* GAMMA60_BASE+0x98 */
+    {XMISP_ISP_W, 0x4006209c, 0x402}, /* GAMMA60_BASE+0x9c */
+    {XMISP_ISP_W, 0x400620a0, 0x426}, /* GAMMA60_BASE+0xa0 */
+    {XMISP_ISP_W, 0x400620a4, 0x44a}, /* GAMMA60_BASE+0xa4 */
+    {XMISP_ISP_W, 0x400620a8, 0x46d}, /* GAMMA60_BASE+0xa8 */
+    {XMISP_ISP_W, 0x400620ac, 0x490}, /* GAMMA60_BASE+0xac */
+    {XMISP_ISP_W, 0x400620b0, 0x4b3}, /* GAMMA60_BASE+0xb0 */
+    {XMISP_ISP_W, 0x400620b4, 0x4d4}, /* GAMMA60_BASE+0xb4 */
+    {XMISP_ISP_W, 0x400620b8, 0x4f6}, /* GAMMA60_BASE+0xb8 */
+    {XMISP_ISP_W, 0x400620bc, 0x517}, /* GAMMA60_BASE+0xbc */
+    {XMISP_ISP_W, 0x400620c0, 0x537}, /* GAMMA60_BASE+0xc0 */
+    {XMISP_ISP_W, 0x400620c4, 0x576}, /* GAMMA60_BASE+0xc4 */
+    {XMISP_ISP_W, 0x400620c8, 0x5b4}, /* GAMMA60_BASE+0xc8 */
+    {XMISP_ISP_W, 0x400620cc, 0x5f0}, /* GAMMA60_BASE+0xcc */
+    {XMISP_ISP_W, 0x400620d0, 0x62a}, /* GAMMA60_BASE+0xd0 */
+    {XMISP_ISP_W, 0x400620d4, 0x663}, /* GAMMA60_BASE+0xd4 */
+    {XMISP_ISP_W, 0x400620d8, 0x69a}, /* GAMMA60_BASE+0xd8 */
+    {XMISP_ISP_W, 0x400620dc, 0x6d0}, /* GAMMA60_BASE+0xdc */
+    {XMISP_ISP_W, 0x400620e0, 0x704}, /* GAMMA60_BASE+0xe0 */
+    {XMISP_ISP_W, 0x400620e4, 0x738}, /* GAMMA60_BASE+0xe4 */
+    {XMISP_ISP_W, 0x400620e8, 0x769}, /* GAMMA60_BASE+0xe8 */
+    {XMISP_ISP_W, 0x400620ec, 0x79a}, /* GAMMA60_BASE+0xec */
+    {XMISP_ISP_W, 0x400620f0, 0x7c9}, /* GAMMA60_BASE+0xf0 */
+    {XMISP_ISP_W, 0x400620f4, 0x7f8}, /* GAMMA60_BASE+0xf4 */
+    {XMISP_ISP_W, 0x400620f8, 0x825}, /* GAMMA60_BASE+0xf8 */
+    {XMISP_ISP_W, 0x400620fc, 0x851}, /* GAMMA60_BASE+0xfc */
+    {XMISP_ISP_W, 0x40062100, 0x87c}, /* GAMMA60_BASE+0x100 */
+    {XMISP_ISP_W, 0x40062104, 0x91f}, /* GAMMA60_BASE+0x104 */
+    {XMISP_ISP_W, 0x40062108, 0x9b3}, /* GAMMA60_BASE+0x108 */
+    {XMISP_DELAY_MS, 0x14, 0x0},
+    {XMISP_ISP_W, 0x4006210c, 0xa3c},      /* GAMMA60_BASE+0x10c */
+    {XMISP_ISP_W, 0x40062110, 0xaba},      /* GAMMA60_BASE+0x110 */
+    {XMISP_ISP_W, 0x40062114, 0xb2e},      /* GAMMA60_BASE+0x114 */
+    {XMISP_ISP_W, 0x40062118, 0xb9a},      /* GAMMA60_BASE+0x118 */
+    {XMISP_ISP_W, 0x4006211c, 0xbfe},      /* GAMMA60_BASE+0x11c */
+    {XMISP_ISP_W, 0x40062120, 0xc5c},      /* GAMMA60_BASE+0x120 */
+    {XMISP_ISP_W, 0x40062124, 0xd9a},      /* GAMMA60_BASE+0x124 */
+    {XMISP_ISP_W, 0x40062128, 0xe94},      /* GAMMA60_BASE+0x128 */
+    {XMISP_ISP_W, 0x4006212c, 0xf5d},      /* GAMMA60_BASE+0x12c */
+    {XMISP_ISP_W, 0x40062130, 0xfff},      /* GAMMA60_BASE+0x130 */
+    {XMISP_ISP_W, 0x40062000, 0xffffffff}, /* GAMMA60_BASE */
+    {XMISP_ISP_W, 0x40003000, 0x0},        /* SDPC_BASE */
+    {XMISP_ISP_W, 0x40076000, 0x100},      /* YC_GAIN_BASE */
+    {XMISP_ISP_W, 0x40071018, 0x0},        /* CC_HUE_OFST */
+    {XMISP_ISP_W, 0x40071000, 0x1},        /* CC_BASE */
+    {XMISP_ISP_W, 0x40067018, 0x0},        /* DEMOIRE_BYPASS */
+    {XMISP_ISP_W, 0x40067000, 0x0},        /* DEMOIRE_BASE */
+    {XMISP_ISP_W, 0x4006700c, 0x0},        /* DEMOIRE_DF_THD_MIN */
+    {XMISP_ISP_W, 0x40067010, 0x0},        /* DEMOIRE_GAIN_MIN */
+    {XMISP_ISP_W, 0x40067004, 0x124},      /* DEMOIRE_KV */
+    {XMISP_ISP_W, 0x40067008, 0xff},       /* DEMOIRE_DF_THD_MAX */
+    {XMISP_ISP_W, 0x40067014, 0x4},        /* DEMOIRE_KC */
+    {XMISP_ISP_W, 0x40071200, 0x0},        /* CC_HH_H1_SATRT */
+    {XMISP_ISP_W, 0x40071204, 0x100},      /* CC_HH_H1_END */
+    {XMISP_ISP_W, 0x40071208, 0x55},       /* CC_HH_H1_MAX1 */
+    {XMISP_ISP_W, 0x4007120c, 0xab},       /* CC_HH_H1_MAX2 */
+    {XMISP_ISP_W, 0x40071214, 0x3},        /* CC_HH_H1_K1 */
+    {XMISP_ISP_W, 0x40071218, 0x3},        /* CC_HH_H1_K2 */
+    {XMISP_ISP_W, 0x4007121c, 0x1aa},      /* CC_HH_H2_SATRT */
+    {XMISP_ISP_W, 0x40071220, 0x2aa},      /* CC_HH_H2_END */
+    {XMISP_ISP_W, 0x40071224, 0x1ff},      /* CC_HH_H2_MAX1 */
+    {XMISP_ISP_W, 0x40071228, 0x255},      /* CC_HH_H2_MAX2 */
+    {XMISP_ISP_W, 0x40071230, 0x3},        /* CC_HH_H2_K1 */
+    {XMISP_ISP_W, 0x40071234, 0x3},        /* CC_HH_H2_K2 */
+    {XMISP_ISP_W, 0x40071240, 0x2ab},      /* CC_HH_H3_SATRT */
+    {XMISP_ISP_W, 0x40071244, 0x3ab},      /* CC_HH_H3_END */
+    {XMISP_ISP_W, 0x40071248, 0x300},      /* CC_HH_H3_MAX1 */
+    {XMISP_ISP_W, 0x4007124c, 0x356},      /* CC_HH_H3_MAX2 */
+    {XMISP_ISP_W, 0x40071254, 0x3},        /* CC_HH_H3_K1 */
+    {XMISP_ISP_W, 0x40071258, 0x3},        /* CC_HH_H3_K2 */
+    {XMISP_ISP_W, 0x4007125c, 0x400},      /* CC_HH_H4_SATRT */
+    {XMISP_ISP_W, 0x40071260, 0x500},      /* CC_HH_H4_END */
+    {XMISP_ISP_W, 0x40071264, 0x455},      /* CC_HH_H4_MAX1 */
+    {XMISP_ISP_W, 0x40071268, 0x4ab},      /* CC_HH_H4_MAX2 */
+    {XMISP_ISP_W, 0x40071270, 0x3},        /* CC_HH_H4_K1 */
+    {XMISP_ISP_W, 0x40071274, 0x3},        /* CC_HH_H4_K2 */
+    {XMISP_ISP_W, 0x40071280, 0x555},      /* CC_HH_H5_SATRT */
+    {XMISP_ISP_W, 0x40071284, 0x655},      /* CC_HH_H5_END */
+    {XMISP_ISP_W, 0x40071288, 0x5aa},      /* CC_HH_H5_MAX1 */
+    {XMISP_ISP_W, 0x4007128c, 0x600},      /* CC_HH_H5_MAX2 */
+    {XMISP_ISP_W, 0x40071294, 0x3},        /* CC_HH_H5_K1 */
+    {XMISP_ISP_W, 0x40071298, 0x3},        /* CC_HH_H5_K2 */
+    {XMISP_ISP_W, 0x4007129c, 0x6e3},      /* CC_HH_H6_SATRT */
+    {XMISP_ISP_W, 0x400712a0, 0x7e3},      /* CC_HH_H6_END */
+    {XMISP_ISP_W, 0x400712a4, 0x738},      /* CC_HH_H6_MAX1 */
+    {XMISP_ISP_W, 0x400712a8, 0x78e},      /* CC_HH_H6_MAX2 */
+    {XMISP_ISP_W, 0x400712b0, 0x3},        /* CC_HH_H6_K1 */
+    {XMISP_ISP_W, 0x400712b4, 0x3},        /* CC_HH_H6_K2 */
+    {XMISP_ISP_W, 0x40071210, 0x0},        /* CC_HH_H1_DMAX */
+    {XMISP_ISP_W, 0x4007122c, 0x0},        /* CC_HH_H2_DMAX */
+    {XMISP_ISP_W, 0x40071250, 0x0},        /* CC_HH_H3_DMAX */
+    {XMISP_ISP_W, 0x4007126c, 0x0},        /* CC_HH_H4_DMAX */
+    {XMISP_ISP_W, 0x40071290, 0x0},        /* CC_HH_H5_DMAX */
+    {XMISP_ISP_W, 0x400712ac, 0x0},        /* CC_HH_H6_DMAX */
+    {XMISP_ISP_W, 0x400710e4, 0x80},       /* CC_HS_TRAN_DAT0 */
+    {XMISP_ISP_W, 0x400710e8, 0x80},       /* CC_HS_TRAN_DAT1 */
+    {XMISP_ISP_W, 0x400710ec, 0x80},       /* CC_BASE+0xec */
+    {XMISP_ISP_W, 0x400710f0, 0x80},       /* CC_BASE+0xf0 */
+    {XMISP_ISP_W, 0x400710f4, 0x80},       /* CC_BASE+0xf4 */
+    {XMISP_ISP_W, 0x400710f8, 0x80},       /* CC_BASE+0xf8 */
+    {XMISP_ISP_W, 0x400710fc, 0x80},       /* CC_BASE+0xfc */
+    {XMISP_ISP_W, 0x40071100, 0x80},       /* CC_BASE+0x100 */
+    {XMISP_ISP_W, 0x40071104, 0x80},       /* CC_BASE+0x104 */
+    {XMISP_ISP_W, 0x40071108, 0x80},       /* CC_BASE+0x108 */
+    {XMISP_ISP_W, 0x4007110c, 0x80},       /* CC_BASE+0x10c */
+    {XMISP_ISP_W, 0x40071110, 0x80},       /* CC_BASE+0x110 */
+    {XMISP_ISP_W, 0x40071114, 0x80},       /* CC_BASE+0x114 */
+    {XMISP_ISP_W, 0x40071118, 0x80},       /* CC_BASE+0x118 */
+    {XMISP_ISP_W, 0x4007111c, 0x80},       /* CC_BASE+0x11c */
+    {XMISP_ISP_W, 0x40071120, 0x80},       /* CC_BASE+0x120 */
+    {XMISP_ISP_W, 0x40071124, 0x80},       /* CC_BASE+0x124 */
+    {XMISP_ISP_W, 0x40071128, 0x80},       /* CC_BASE+0x128 */
+    {XMISP_ISP_W, 0x4007112c, 0x80},       /* CC_BASE+0x12c */
+    {XMISP_ISP_W, 0x40071130, 0x80},       /* CC_BASE+0x130 */
+    {XMISP_ISP_W, 0x40071134, 0x80},       /* CC_BASE+0x134 */
+    {XMISP_ISP_W, 0x40071138, 0x80},       /* CC_BASE+0x138 */
+    {XMISP_ISP_W, 0x4007113c, 0x80},       /* CC_BASE+0x13c */
+    {XMISP_ISP_W, 0x40071140, 0x80},       /* CC_BASE+0x140 */
+    {XMISP_ISP_W, 0x40071144, 0x80},       /* CC_BASE+0x144 */
+    {XMISP_ISP_W, 0x40071148, 0x80},       /* CC_BASE+0x148 */
+    {XMISP_ISP_W, 0x4007114c, 0x80},       /* CC_BASE+0x14c */
+    {XMISP_ISP_W, 0x40071150, 0x80},       /* CC_BASE+0x150 */
+    {XMISP_ISP_W, 0x40071154, 0x80},       /* CC_BASE+0x154 */
+    {XMISP_ISP_W, 0x40071158, 0x80},       /* CC_BASE+0x158 */
+    {XMISP_ISP_W, 0x4007115c, 0x80},       /* CC_BASE+0x15c */
+    {XMISP_ISP_W, 0x40071160, 0x80},       /* CC_BASE+0x160 */
+    {XMISP_ISP_W, 0x40071164, 0x88},       /* CC_BASE+0x164 */
+    {XMISP_ISP_W, 0x40071168, 0x94},       /* CC_BASE+0x168 */
+    {XMISP_ISP_W, 0x4007116c, 0xa0},       /* CC_BASE+0x16c */
+    {XMISP_ISP_W, 0x40071170, 0xa0},       /* CC_BASE+0x170 */
+    {XMISP_ISP_W, 0x40071174, 0xa0},       /* CC_BASE+0x174 */
+    {XMISP_ISP_W, 0x40071178, 0x94},       /* CC_BASE+0x178 */
+    {XMISP_ISP_W, 0x4007117c, 0x88},       /* CC_BASE+0x17c */
+    {XMISP_ISP_W, 0x40071180, 0x80},       /* CC_BASE+0x180 */
+    {XMISP_ISP_W, 0x40071184, 0x80},       /* CC_BASE+0x184 */
+    {XMISP_ISP_W, 0x40071188, 0x80},       /* CC_BASE+0x188 */
+    {XMISP_ISP_W, 0x4007118c, 0x80},       /* CC_BASE+0x18c */
+    {XMISP_ISP_W, 0x40071190, 0x80},       /* CC_BASE+0x190 */
+    {XMISP_ISP_W, 0x40071194, 0x80},       /* CC_BASE+0x194 */
+    {XMISP_ISP_W, 0x40071198, 0x80},       /* CC_BASE+0x198 */
+    {XMISP_ISP_W, 0x4007119c, 0x80},       /* CC_BASE+0x19c */
+    {XMISP_ISP_W, 0x400711a0, 0x80},       /* CC_BASE+0x1a0 */
+    {XMISP_ISP_W, 0x400711a4, 0x80},       /* CC_BASE+0x1a4 */
+    {XMISP_ISP_W, 0x400711a8, 0x80},       /* CC_BASE+0x1a8 */
+    {XMISP_ISP_W, 0x400711ac, 0x80},       /* CC_BASE+0x1ac */
+    {XMISP_ISP_W, 0x400711b0, 0x80},       /* CC_BASE+0x1b0 */
+    {XMISP_ISP_W, 0x400711b4, 0x80},       /* CC_BASE+0x1b4 */
+    {XMISP_ISP_W, 0x400711b8, 0x80},       /* CC_BASE+0x1b8 */
+    {XMISP_ISP_W, 0x400711bc, 0x80},       /* CC_BASE+0x1bc */
+    {XMISP_ISP_W, 0x400711c0, 0x80},       /* CC_BASE+0x1c0 */
+    {XMISP_ISP_W, 0x400711c4, 0x80},       /* CC_BASE+0x1c4 */
+    {XMISP_ISP_W, 0x400711c8, 0x80},       /* CC_BASE+0x1c8 */
+    {XMISP_ISP_W, 0x400711cc, 0x80},       /* CC_BASE+0x1cc */
+    {XMISP_ISP_W, 0x400711d0, 0x80},       /* CC_BASE+0x1d0 */
+    {XMISP_ISP_W, 0x400711d4, 0x80},       /* CC_BASE+0x1d4 */
+    {XMISP_ISP_W, 0x400711d8, 0x80},       /* CC_BASE+0x1d8 */
+    {XMISP_ISP_W, 0x400711dc, 0x80},       /* CC_BASE+0x1dc */
+    {XMISP_ISP_W, 0x400711e0, 0x80},       /* CC_BASE+0x1e0 */
+    {XMISP_ISP_W, 0x400711e4, 0x80},       /* CC_BASE+0x1e4 */
+    {XMISP_ISP_W, 0x40071000, 0x1},        /* CC_BASE */
+    {XMISP_ISP_W, 0x40033020, 0x4},        /* AE_WINDOW_HSTART */
+    {XMISP_ISP_W, 0x40033024, 0xb9},
+    {XMISP_ISP_W, 0x40033028, 0x16e},
+    {XMISP_ISP_W, 0x4003302c, 0x223},
+    {XMISP_ISP_W, 0x40033030, 0x2d8},
+    {XMISP_ISP_W, 0x40033034, 0x38d},
+    {XMISP_ISP_W, 0x40033038, 0x442},
+    {XMISP_ISP_W, 0x4003303c, 0x4f7},
+    {XMISP_ISP_W, 0x40033000, 0x4}, /* AE_WINDOW_VSTART */
+    {XMISP_ISP_W, 0x40033004, 0x6a},
+    {XMISP_ISP_W, 0x40033008, 0xd0},
+    {XMISP_ISP_W, 0x4003300c, 0x136},
+    {XMISP_ISP_W, 0x40033010, 0x19c},
+    {XMISP_ISP_W, 0x40033014, 0x202},
+    {XMISP_ISP_W, 0x40033018, 0x268},
+    {XMISP_ISP_W, 0x4003301c, 0x2ce},
+    {XMISP_DELAY_MS, 0x14, 0x0},
+    {XMISP_I2C_W, 0x20, 0x80},
+    {XMISP_I2C_W, 0x21, 0x7},
+    {XMISP_ISP_W, 0x40012040, 0x0}, /* AWB_GAMMA30_LINE0_DAT0 */
+    {XMISP_ISP_W, 0x40012044, 0x6a},
+    {XMISP_ISP_W, 0x40012048, 0xd1},
+    {XMISP_ISP_W, 0x4001204c, 0x134},
+    {XMISP_ISP_W, 0x40012050, 0x193},
+    {XMISP_ISP_W, 0x40012054, 0x1ef},
+    {XMISP_ISP_W, 0x40012058, 0x248},
+    {XMISP_ISP_W, 0x4001205c, 0x29e},
+    {XMISP_ISP_W, 0x40012060, 0x2f2},
+    {XMISP_ISP_W, 0x40012064, 0x343},
+    {XMISP_ISP_W, 0x40012068, 0x391},
+    {XMISP_ISP_W, 0x4001206c, 0x3dd},
+    {XMISP_ISP_W, 0x40012070, 0x426},
+    {XMISP_ISP_W, 0x40012074, 0x46d},
+    {XMISP_ISP_W, 0x40012078, 0x4b3},
+    {XMISP_ISP_W, 0x4001207c, 0x4f6},
+    {XMISP_ISP_W, 0x40012080, 0x537},
+    {XMISP_ISP_W, 0x40012084, 0x5b4},
+    {XMISP_ISP_W, 0x40012088, 0x62a},
+    {XMISP_ISP_W, 0x4001208c, 0x69a},
+    {XMISP_ISP_W, 0x40012090, 0x704},
+    {XMISP_ISP_W, 0x40012094, 0x769},
+    {XMISP_ISP_W, 0x40012098, 0x7c9},
+    {XMISP_ISP_W, 0x4001209c, 0x825},
+    {XMISP_ISP_W, 0x400120a0, 0x87c},
+    {XMISP_ISP_W, 0x400120a4, 0x9b3},
+    {XMISP_ISP_W, 0x400120a8, 0xaba},
+    {XMISP_ISP_W, 0x400120ac, 0xb9a},
+    {XMISP_ISP_W, 0x400120b0, 0xc5c},
+    {XMISP_ISP_W, 0x400120b4, 0xe94},
+    {XMISP_ISP_W, 0x400120b8, 0xfff},
+    {XMISP_ISP_W, 0x40012000, 0xffffffff}, /* AWB_GAMMA30_BUF_SW */
+    {XMISP_ISP_W, 0x40010024, 0x1},        /* AWB_BACKGAIN_LIMITMIN */
+    {XMISP_ISP_W, 0x40010020, 0xfff},      /* AWB_BACKGAIN_LIMITMAX */
+    {XMISP_ISP_W, 0x4001500c, 0xfff},      /* AWB_RGBMAX_REG */
+    {XMISP_ISP_W, 0x4001300c, 0x1d4},      /* AWB_RGB2YC_COEF_CB1 */
+    {XMISP_ISP_W, 0x40013010, 0x1aa},      /* AWB_RGB2YC_COEF_CB2 */
+    {XMISP_ISP_W, 0x40013014, 0x82},       /* AWB_RGB2YC_COEF_CB3 */
+    {XMISP_ISP_W, 0x40013018, 0x82},       /* AWB_RGB2YC_COEF_CR1 */
+    {XMISP_ISP_W, 0x4001301c, 0x193},      /* AWB_RGB2YC_COEF_CR2 */
+    {XMISP_ISP_W, 0x40013020, 0x1eb},      /* AWB_RGB2YC_COEF_CR3 */
+    {XMISP_ISP_W, 0x40014050, 0xff01},     /* AWB_FACT_RGBTHD */
+    {XMISP_ISP_W, 0x40014054, 0xdc40},     /* AWB_FACT_YTHD */
+    {XMISP_ISP_W, 0x40013028, 0x80},       /* AWB_RGB2YC_OFST_CB */
+    {XMISP_ISP_W, 0x4001302c, 0x80},       /* AWB_RGB2YC_OFST_CR */
+    {XMISP_ISP_W, 0x40011040, 0x0},        /* AWB_CSM_R_OFST_REG0 */
+    {XMISP_ISP_W, 0x40011044, 0x0},        /* AWB_CSM_R1_COEF_REG0 */
+    {XMISP_ISP_W, 0x40011048, 0x0},        /* AWB_CSM_R2_COEF_REG0 */
+    {XMISP_ISP_W, 0x4001104c, 0x0},        /* AWB_CSM_R3_COEF_REG0 */
+    {XMISP_ISP_W, 0x40011050, 0x0},        /* AWB_CSM_G_OFST_REG0 */
+    {XMISP_ISP_W, 0x40011054, 0x0},        /* AWB_CSM_G1_COEF_REG0 */
+    {XMISP_ISP_W, 0x40011058, 0x0},        /* AWB_CSM_G2_COEF_REG0 */
+    {XMISP_ISP_W, 0x4001105c, 0x0},        /* AWB_CSM_G3_COEF_REG0 */
+    {XMISP_ISP_W, 0x40011060, 0x0},        /* AWB_CSM_B_OFST_REG0 */
+    {XMISP_ISP_W, 0x40011064, 0x0},        /* AWB_CSM_B1_COEF_REG0 */
+    {XMISP_ISP_W, 0x40011068, 0x0},        /* AWB_CSM_B2_COEF_REG0 */
+    {XMISP_ISP_W, 0x4001106c, 0x0},        /* AWB_CSM_B3_COEF_REG0 */
+    {XMISP_ISP_W, 0x40011044, 0x100},      /* AWB_CSM_R1_COEF_REG0 */
+    {XMISP_ISP_W, 0x40011058, 0x100},      /* AWB_CSM_G2_COEF_REG0 */
+    {XMISP_ISP_W, 0x4001106c, 0x100},      /* AWB_CSM_B3_COEF_REG0 */
+    {XMISP_ISP_W, 0x40011000, 0xffffffff}, /* AWB_CSM_BUF_SW */
+    {XMISP_ISP_W, 0x40014040, 0x807f7f},   /* AWB_FACT_LH */
+    {XMISP_ISP_W, 0x40014044, 0x7f80},     /* AWB_FACT_LV */
+    {XMISP_ISP_W, 0x40014048, 0xda26},     /* AWB_FACT_L45 */
+    {XMISP_ISP_W, 0x4001404c, 0xda26},     /* AWB_FACT_L135 */
+    {XMISP_ISP_W, 0x40014058, 0xdbdb},     /* AWB_FACT_KCBCR1 */
+    {XMISP_ISP_W, 0x4001405c, 0xdbdb},     /* AWB_FACT_KCBCR2 */
+    {XMISP_ISP_W, 0x40014060, 0xdbdb},     /* AWB_FACT_KCBCR3 */
+    {XMISP_ISP_W, 0x40014064, 0xdbdb},     /* AWB_FACT_KCBCR4 */
+    {XMISP_ISP_W, 0x40014000, 0x20},       /* AWB_WDW_VBEGIN */
+    {XMISP_ISP_W, 0x40014004, 0x2b6},      /* AWB_WDW_VEND */
+    {XMISP_ISP_W, 0x40014008, 0x20},       /* AWB_WDW_HBEGIN */
+    {XMISP_ISP_W, 0x4001400c, 0x4e0},      /* AWB_WDW_HEND */
+    {XMISP_ISP_W, 0x40021000, 0x50},       /* AF_BASE */
+    {XMISP_ISP_W, 0x40021004, 0x260},      /* AF_WDW0_VEND */
+    {XMISP_ISP_W, 0x40021008, 0xc0},       /* AF_WDW0_HBEGIN */
+    {XMISP_ISP_W, 0x4002100c, 0x440},      /* AF_WDW0_HEND */
+    {XMISP_DELAY_MS, 0xd, 0x0},
+    {XMISP_ISP_W, 0x40004000, 0x45},       /* BLACKLEVEL_BASE */
+    {XMISP_ISP_W, 0x40004004, 0x45},       /* BLACKLEVEL_OFFSET_G */
+    {XMISP_ISP_W, 0x40004008, 0x45},       /* BLACKLEVEL_OFFSET_B */
+    {XMISP_ISP_W, 0x40076004, 0x250},      /* CB_GAIN */
+    {XMISP_ISP_W, 0x40076008, 0x250},      /* CR_GAIN */
+    {XMISP_ISP_W, 0x40061040, 0x0},        /* CSM_R_OFST_REG0 */
+    {XMISP_ISP_W, 0x40061044, 0x100},      /* CSM_R1_COEF_REG0 */
+    {XMISP_ISP_W, 0x40061048, 0x0},        /* CSM_R2_COEF_REG0 */
+    {XMISP_ISP_W, 0x4006104c, 0x0},        /* CSM_R3_COEF_REG0 */
+    {XMISP_ISP_W, 0x40061050, 0x0},        /* CSM_G_OFST_REG0 */
+    {XMISP_ISP_W, 0x40061054, 0x0},        /* CSM_G1_COEF_REG0 */
+    {XMISP_ISP_W, 0x40061058, 0x100},      /* CSM_G2_COEF_REG0 */
+    {XMISP_ISP_W, 0x4006105c, 0x0},        /* CSM_G3_COEF_REG0 */
+    {XMISP_ISP_W, 0x40061060, 0x0},        /* CSM_B_OFST_REG0 */
+    {XMISP_ISP_W, 0x40061064, 0x0},        /* CSM_B1_COEF_REG0 */
+    {XMISP_ISP_W, 0x40061068, 0x0},        /* CSM_B2_COEF_REG0 */
+    {XMISP_ISP_W, 0x4006106c, 0x100},      /* CSM_B3_COEF_REG0 */
+    {XMISP_ISP_W, 0x40061000, 0xffffffff}, /* CSM_BASE */
+    {XMISP_ISP_W, 0x40075174, 0x22},       /* SHARPEN_KH0 */
+    {XMISP_ISP_W, 0x4007514c, 0x28},       /* SHARPEN_KM0 */
+    {XMISP_ISP_W, 0x40075018, 0x3a},       /* SHARPEN_KD */
+    {XMISP_ISP_W, 0x40075208, 0x1},        /* SHARPEN_CBCR_ENABLE */
+    {XMISP_ISP_W, 0x40075204, 0x1},        /* SHARPEN_ENABLE */
+    {XMISP_ISP_W, 0x40020000, 0x0},        /* NR_2D_BASE */
+    {XMISP_ISP_W, 0x40020004, 0x0},        /* NR_2D_THDH_REG */
+    {XMISP_ISP_W, 0x40020014, 0x22},       /* NR_2D_DELTA_THD */
+    {XMISP_ISP_W, 0x40020008, 0x100},      /* NR_2D_COEF_REG */
+    {XMISP_ISP_W, 0x40020018, 0x1},        /* NR_2D_FLT_EN */
+    {XMISP_ISP_W, 0x40040014, 0x1},        /* NR_3D_ERR_SFT */
+    {XMISP_ISP_W, 0x40040018, 0x1},        /* NR_3D_NR_LEVEL */
+    {XMISP_ISP_W, 0x4004014c, 0x40404040}, /* NR_3D_FLT2D_PAR */
+    {XMISP_ISP_W, 0x40040150, 0x40404040}, /* NR_3D_BASE+0x150 */
+    {XMISP_ISP_W, 0x40040154, 0x3034383c}, /* NR_3D_BASE+0x154 */
+    {XMISP_ISP_W, 0x40040158, 0x2024282c}, /* NR_3D_BASE+0x158 */
+    {XMISP_ISP_W, 0x40040000, 0x45},       /* NR_3D_BASE */
+    {XMISP_ISP_W, 0x400400d8, 0x1},        /* NR_3D_YCTRL_ERR70 */
+    {XMISP_ISP_W, 0x40040004, 0x100},      /* NR_3D_RAMP */
+    {XMISP_ISP_W, 0x40040008, 0x100},      /* NR_3D_G1AMP */
+    {XMISP_ISP_W, 0x4004000c, 0x100},      /* NR_3D_G2AMP */
+    {XMISP_ISP_W, 0x40040010, 0x100},      /* NR_3D_BAMP */
+    {XMISP_ISP_W, 0x40040050, 0x18181818}, /* NR_3D_BAYER_PAR */
+    {XMISP_ISP_W, 0x40040054, 0x28201818}, /* NR_3D_BASE+0x54 */
+    {XMISP_ISP_W, 0x40023008, 0x11a},      /* DDPC_DIFF_THD */
+    {XMISP_ISP_W, 0x40072040, 0x0},        /* YGAMMA_LINE0_DAT0 */
+    {XMISP_ISP_W, 0x40072044, 0x40},       /* YGAMMA_BASE+0x44 */
+    {XMISP_ISP_W, 0x40072048, 0x80},       /* YGAMMA_BASE+0x48 */
+    {XMISP_ISP_W, 0x4007204c, 0xc0},       /* YGAMMA_BASE+0x4c */
+    {XMISP_ISP_W, 0x40072050, 0x100},      /* YGAMMA_BASE+0x50 */
+    {XMISP_ISP_W, 0x40072054, 0x140},      /* YGAMMA_BASE+0x54 */
+    {XMISP_ISP_W, 0x40072058, 0x180},      /* YGAMMA_BASE+0x58 */
+    {XMISP_ISP_W, 0x4007205c, 0x1c0},      /* YGAMMA_BASE+0x5c */
+    {XMISP_ISP_W, 0x40072060, 0x200},      /* YGAMMA_BASE+0x60 */
+    {XMISP_ISP_W, 0x40072064, 0x240},      /* YGAMMA_BASE+0x64 */
+    {XMISP_ISP_W, 0x40072068, 0x280},      /* YGAMMA_BASE+0x68 */
+    {XMISP_ISP_W, 0x4007206c, 0x2c0},      /* YGAMMA_BASE+0x6c */
+    {XMISP_ISP_W, 0x40072070, 0x300},      /* YGAMMA_BASE+0x70 */
+    {XMISP_ISP_W, 0x40072074, 0x340},      /* YGAMMA_BASE+0x74 */
+    {XMISP_ISP_W, 0x40072078, 0x380},      /* YGAMMA_BASE+0x78 */
+    {XMISP_ISP_W, 0x4007207c, 0x3c0},      /* YGAMMA_BASE+0x7c */
+    {XMISP_ISP_W, 0x40072080, 0x400},      /* YGAMMA_BASE+0x80 */
+    {XMISP_ISP_W, 0x40072084, 0x440},      /* YGAMMA_BASE+0x84 */
+    {XMISP_ISP_W, 0x40072088, 0x480},      /* YGAMMA_BASE+0x88 */
+    {XMISP_ISP_W, 0x4007208c, 0x4c0},      /* YGAMMA_BASE+0x8c */
+    {XMISP_ISP_W, 0x40072090, 0x500},      /* YGAMMA_BASE+0x90 */
+    {XMISP_ISP_W, 0x40072094, 0x540},      /* YGAMMA_BASE+0x94 */
+    {XMISP_ISP_W, 0x40072098, 0x580},      /* YGAMMA_BASE+0x98 */
+    {XMISP_ISP_W, 0x4007209c, 0x5c0},      /* YGAMMA_BASE+0x9c */
+    {XMISP_ISP_W, 0x400720a0, 0x600},      /* YGAMMA_BASE+0xa0 */
+    {XMISP_ISP_W, 0x400720a4, 0x640},      /* YGAMMA_BASE+0xa4 */
+    {XMISP_ISP_W, 0x400720a8, 0x680},      /* YGAMMA_BASE+0xa8 */
+    {XMISP_ISP_W, 0x400720ac, 0x6c0},      /* YGAMMA_BASE+0xac */
+    {XMISP_ISP_W, 0x400720b0, 0x700},      /* YGAMMA_BASE+0xb0 */
+    {XMISP_ISP_W, 0x400720b4, 0x740},      /* YGAMMA_BASE+0xb4 */
+    {XMISP_ISP_W, 0x400720b8, 0x780},      /* YGAMMA_BASE+0xb8 */
+    {XMISP_ISP_W, 0x400720bc, 0x7c0},      /* YGAMMA_BASE+0xbc */
+    {XMISP_ISP_W, 0x400720c0, 0x800},      /* YGAMMA_BASE+0xc0 */
+    {XMISP_ISP_W, 0x400720c4, 0x840},      /* YGAMMA_BASE+0xc4 */
+    {XMISP_ISP_W, 0x400720c8, 0x880},      /* YGAMMA_BASE+0xc8 */
+    {XMISP_ISP_W, 0x400720cc, 0x8c0},      /* YGAMMA_BASE+0xcc */
+    {XMISP_ISP_W, 0x400720d0, 0x900},      /* YGAMMA_BASE+0xd0 */
+    {XMISP_ISP_W, 0x400720d4, 0x940},      /* YGAMMA_BASE+0xd4 */
+    {XMISP_ISP_W, 0x400720d8, 0x980},      /* YGAMMA_BASE+0xd8 */
+    {XMISP_ISP_W, 0x400720dc, 0x9c0},      /* YGAMMA_BASE+0xdc */
+    {XMISP_ISP_W, 0x400720e0, 0xa00},      /* YGAMMA_BASE+0xe0 */
+    {XMISP_ISP_W, 0x400720e4, 0xa40},      /* YGAMMA_BASE+0xe4 */
+    {XMISP_ISP_W, 0x400720e8, 0xa80},      /* YGAMMA_BASE+0xe8 */
+    {XMISP_ISP_W, 0x400720ec, 0xac0},      /* YGAMMA_BASE+0xec */
+    {XMISP_ISP_W, 0x400720f0, 0xb00},      /* YGAMMA_BASE+0xf0 */
+    {XMISP_ISP_W, 0x400720f4, 0xb40},      /* YGAMMA_BASE+0xf4 */
+    {XMISP_ISP_W, 0x400720f8, 0xb80},      /* YGAMMA_BASE+0xf8 */
+    {XMISP_ISP_W, 0x400720fc, 0xbc0},      /* YGAMMA_BASE+0xfc */
+    {XMISP_ISP_W, 0x40072100, 0xc00},      /* YGAMMA_BASE+0x100 */
+    {XMISP_ISP_W, 0x40072104, 0xc40},      /* YGAMMA_BASE+0x104 */
+    {XMISP_ISP_W, 0x40072108, 0xc80},      /* YGAMMA_BASE+0x108 */
+    {XMISP_ISP_W, 0x4007210c, 0xcc0},      /* YGAMMA_BASE+0x10c */
+    {XMISP_ISP_W, 0x40072110, 0xd00},      /* YGAMMA_BASE+0x110 */
+    {XMISP_ISP_W, 0x40072114, 0xd40},      /* YGAMMA_BASE+0x114 */
+    {XMISP_ISP_W, 0x40072118, 0xd80},      /* YGAMMA_BASE+0x118 */
+    {XMISP_ISP_W, 0x4007211c, 0xdc0},      /* YGAMMA_BASE+0x11c */
+    {XMISP_ISP_W, 0x40072120, 0xe00},      /* YGAMMA_BASE+0x120 */
+    {XMISP_ISP_W, 0x40072124, 0xe40},      /* YGAMMA_BASE+0x124 */
+    {XMISP_ISP_W, 0x40072128, 0xe80},      /* YGAMMA_BASE+0x128 */
+    {XMISP_ISP_W, 0x4007212c, 0xec0},      /* YGAMMA_BASE+0x12c */
+    {XMISP_ISP_W, 0x40072130, 0xf00},      /* YGAMMA_BASE+0x130 */
+    {XMISP_ISP_W, 0x40072134, 0xf40},      /* YGAMMA_BASE+0x134 */
+    {XMISP_ISP_W, 0x40072138, 0xf80},      /* YGAMMA_BASE+0x138 */
+    {XMISP_ISP_W, 0x4007213c, 0xfc0},      /* YGAMMA_BASE+0x13c */
+    {XMISP_ISP_W, 0x40072140, 0xfff},      /* YGAMMA_BASE+0x140 */
+    {XMISP_ISP_W, 0x40072000, 0xffffffff}, /* YGAMMA_BASE */
+    {XMISP_ISP_W, 0x40040148, 0x258},      /* NR_3D_CHANGE_POINT */
+    {XMISP_DELAY_MS, 0xa, 0x0},
+    {XMISP_END, 0, 0},
+};

@@ -17,3 +17,4 @@ libraries/libxmisp/test/ae_test
 libraries/libxmisp/test/awb_test
 tools/xm-isp-tune/ispreg
 libraries/libxmisp/test/tune_test
+libraries/libxmisp/test/script_test
