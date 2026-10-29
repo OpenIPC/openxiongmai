@@ -61,6 +61,14 @@ Tested on the lab XM510 with a JX-H62 under majestic:
   | 5000 K | 1.00, 1.07 | +1% / +9% | 0.25, 2.07 (cyan) |
   | 6000 K | 1.00, 1.10 | +1% / +10% | 0.24, 2.00 (cyan) |
 
+  Started in the dark and then lit by the bulbs at 4000 K, it lands on grey
+  (R/G 1.01 and 0.98, B/G 1.05 and 1.09, two runs). Before the AWB search
+  and the 0xa0 luma floor it settled on the room's warm surfaces both times
+  (R/G 0.41, B/G 1.84). Under the 200 W lamp alone no version finds the
+  chart's grey: most bright near-grey pixels there want R 1.85 / B 2.0
+  (about 2400 of them, against about 500 at the chart's neutral, R 1.48 /
+  B 2.42), and greys come out R/G 1.12–1.17, B/G 0.74–0.76 (0.88 before).
+
   The red gain follows the light to within 2%. The blue gain sits 5–10% high,
   so greys come out slightly cool; the bluish-white surfaces in the room are
   the likely pull. Under these bulbs the daylight colour matrix scores mean

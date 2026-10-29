@@ -106,15 +106,18 @@ static const struct xmisp_ae_cfg ae_xm510 = {
 #define AWB_GAIN_MAX 0xfff
 
 /* The grey window, Cb ± Cr within ±38 (the vendor's) while far off, ±8
- * once near. Luma at least 0x80: dimmer pixels in a room of wood and beige
- * pass as grey under far too blue gains (lab colour checker, daylight:
- * 0x80 lands within 5% of the chart's grey, the vendor's 0x40 nowhere
- * near). Too few bright grey pixels, as in the first frames before AE has
- * the picture bright, or in a dark scene, and AWB holds its gains: falling
- * back to 0x40 there settles in exactly that trap. */
+ * once near. Luma at least 0xa0: dimmer pixels in a room of wood and beige
+ * pass as grey under far too blue gains. Lab colour checker, daylight:
+ * 0x80 to 0xc8 land within 5% of the chart's grey, the vendor's 0x40
+ * nowhere near. Under 4000 K bulbs, in the narrow window, 0x80 gave the
+ * real grey and the warm surfaces nearly equal counts (4164 to 3869) and
+ * 0xa0 a single peak (2143 to 40), which the AWB search finds. Too few
+ * bright grey pixels, as in the first frames before AE has the picture
+ * bright, or in a dark scene, and AWB holds its gains: falling back to
+ * 0x40 there settles in the trap. */
 #define AWB_WINDOW_WIDE 0xda26
 #define AWB_WINDOW_NARROW 0xf808
-#define AWB_LUMA 0xdc80
+#define AWB_LUMA 0xdca0
 
 /* Noise reduction and sharpening by gain. The vendor daemon moves these
  * with gain (traced under the lab's dimmable bulbs); the values here are
@@ -182,6 +185,7 @@ struct xmisp {
   int awb_on;
   uint32_t front_g; /* the script's G gain, which AWB keeps */
   int awb_dirty;    /* a gain write failed part way */
+  float cand_r[XMISP_AWB_CHANNELS - 1], cand_b[XMISP_AWB_CHANNELS - 1];
   uint32_t window, ythd;
   uint32_t nr_low[NR_REGS]; /* the script's, read at start */
   int color_on;             /* the sensor's colour matrix is set */
@@ -444,12 +448,33 @@ static uint32_t gain_reg(float gain, uint32_t one) {
   return v > AWB_GAIN_MAX ? AWB_GAIN_MAX : (uint32_t)v;
 }
 
-/* The statistics' candidate gains, all four channels, and the picture's. */
+/* One statistics channel's candidate gains. */
+static int awb_channel(struct xmisp *s, unsigned ch, float r, float b) {
+  if (isp_w(s, AWB_BACK_R + ch * 4, gain_reg(r, AWB_GAIN_ONE)) < 0 ||
+      isp_w(s, AWB_BACK_B + ch * 4, gain_reg(b, AWB_GAIN_ONE)) < 0)
+    return fail(s, "AWB gains: %s", strerror(errno));
+  return 0;
+}
+
+/* Channels 1-3: the AWB's search candidates, or the gains set. */
+static int awb_candidates(struct xmisp *s) {
+  float r[XMISP_AWB_CHANNELS - 1], b[XMISP_AWB_CHANNELS - 1];
+  xmisp_awb_candidates(&s->awb, r, b);
+  for (unsigned k = 0; k < XMISP_AWB_CHANNELS - 1; k++) {
+    if (r[k] == s->cand_r[k] && b[k] == s->cand_b[k])
+      continue;
+    if (awb_channel(s, k + 1, r[k], b[k]) < 0)
+      return -1;
+    s->cand_r[k] = r[k];
+    s->cand_b[k] = b[k];
+  }
+  return 0;
+}
+
+/* The gains set: statistics channel 0 and the picture's. */
 static int awb_set(struct xmisp *s, float r, float b) {
-  for (unsigned i = 0; i < 4; i++)
-    if (isp_w(s, AWB_BACK_R + i * 4, gain_reg(r, AWB_GAIN_ONE)) < 0 ||
-        isp_w(s, AWB_BACK_B + i * 4, gain_reg(b, AWB_GAIN_ONE)) < 0)
-      return fail(s, "AWB gains: %s", strerror(errno));
+  if (awb_channel(s, 0, r, b) < 0)
+    return -1;
   if (isp_w(s, AWB_FRONT, gain_reg(r, s->front_g)) < 0 ||
       isp_w(s, AWB_FRONT + 8, gain_reg(b, s->front_g)) < 0)
     return fail(s, "AWB gains: %s", strerror(errno));
@@ -498,24 +523,37 @@ static int awb_start(struct xmisp *s) {
   s->front_g = g;
   xmisp_awb_init(&s->awb, &cfg, (float)r / (float)g, (float)b / (float)g);
   s->window = s->ythd = 0;
-  if (awb_set(s, s->awb.r, s->awb.b) < 0 ||
+  for (unsigned k = 0; k < XMISP_AWB_CHANNELS - 1; k++)
+    s->cand_r[k] = s->cand_b[k] = -1.0f; /* written by the first call */
+  if (awb_set(s, s->awb.r, s->awb.b) < 0 || awb_candidates(s) < 0 ||
       awb_gate(s, AWB_WINDOW_WIDE, AWB_LUMA) < 0)
     return -1;
   s->awb_on = 1;
   return 0;
 }
 
-static int awb_measure(struct xmisp *s) {
-  int32_t sum[3] = {0, 0, 0};
-  for (unsigned i = 0; i < 12; i++) {
-    uint32_t v;
-    if (isp_r(s, AWB_STAT + i * 4, &v) < 0)
-      return fail(s, "AWB statistics: %s", strerror(errno));
-    sum[i % 3] += (int32_t)v;
+/* All four channels: each four regions of {count, Cb sum, Cr sum}. */
+static int awb_measure(struct xmisp *s, struct xmisp_awb_meas *m) {
+  /* Channels 1-3 only when a search round takes their counts: 36 reads a
+   * frame otherwise wasted. */
+  const unsigned n = s->awb.searching && !s->awb.wait ? 1 + s->awb.n_cand : 1;
+  for (unsigned ch = n; ch < XMISP_AWB_CHANNELS; ch++)
+    m[ch] = (struct xmisp_awb_meas){0, 0, 0};
+  for (unsigned ch = 0; ch < n; ch++) {
+    int32_t sum[3] = {0, 0, 0};
+    for (unsigned i = 0; i < 12; i++) {
+      uint32_t v;
+      if (isp_r(s, AWB_STAT + ch * 0x40 + i * 4, &v) < 0)
+        return fail(s, "AWB statistics: %s", strerror(errno));
+      sum[i % 3] += (int32_t)v;
+    }
+    m[ch].points = sum[0] > 0 ? (uint32_t)sum[0] : 0;
+    m[ch].cb = m[ch].points ? (float)sum[1] / (float)m[ch].points : 0;
+    m[ch].cr = m[ch].points ? (float)sum[2] / (float)m[ch].points : 0;
   }
-  s->grey = sum[0] > 0 ? (uint32_t)sum[0] : 0;
-  s->cb = s->grey ? (float)sum[1] / (float)s->grey : 0;
-  s->cr = s->grey ? (float)sum[2] / (float)s->grey : 0;
+  s->grey = m[0].points;
+  s->cb = m[0].cb;
+  s->cr = m[0].cr;
   return 0;
 }
 
@@ -529,10 +567,13 @@ static int awb_frame(struct xmisp *s) {
       return -1;
     s->awb_dirty = 0;
   }
-  if (awb_measure(s) < 0)
+  struct xmisp_awb_meas m[XMISP_AWB_CHANNELS];
+  if (awb_measure(s, m) < 0)
     return -1;
   float r, b;
-  const int change = xmisp_awb_update(&s->awb, s->grey, s->cb, s->cr, &r, &b);
+  const int change = xmisp_awb_update(&s->awb, m, &r, &b);
+  if (awb_candidates(s) < 0)
+    return -1;
   if (awb_gate(s,
                s->awb.window == XMISP_AWB_NARROW ? AWB_WINDOW_NARROW
                                                  : AWB_WINDOW_WIDE,
@@ -573,7 +614,6 @@ int xmisp_frame(struct xmisp *s) {
   } else {
     ae = ae > 0 || nr > 0;
   }
-  memcpy(err, s->err, sizeof(err));
   memcpy(err, s->err, sizeof(err));
   const int awb = awb_frame(s);
   if (ae < 0 && awb < 0) {
