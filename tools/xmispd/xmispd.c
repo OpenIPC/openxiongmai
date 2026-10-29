@@ -69,8 +69,9 @@ int main(void) {
     xmisp_close(isp);
     return 1;
   }
-  debug("%s up: open ISP, auto-exposure, fixed white balance",
-        xmisp_script(isp)->name);
+  debug("%s up: open ISP, %s, fixed white balance", xmisp_script(isp)->name,
+        xmisp_ae_enabled(isp) ? "auto-exposure"
+                              : "fixed exposure (no driver for the sensor)");
   const int verbose = getenv("XMISPD_VERBOSE") != NULL;
 
   const int fd = xmisp_fd(isp);
@@ -83,15 +84,20 @@ int main(void) {
   debug("ispMsgReceive start!");
 
   unsigned long frames = 0;
+  int failing = 0; /* AE errors are logged when they start and stop */
   for (;;) {
     siginfo_t si;
     const int sig = sigwaitinfo(&set, &si);
     if (sig == SIGIO) {
       frames++;
       const int r = xmisp_frame(isp);
-      if (r < 0)
-        error("exposure: %s", strerror(errno));
-      else if (r > 0 && verbose) {
+      if (r < 0 && !failing)
+        error("auto-exposure: %s; logged again when it recovers",
+              xmisp_error(isp));
+      else if (r >= 0 && failing)
+        debug("auto-exposure recovered after frame %lu", frames - 1);
+      failing = r < 0;
+      if (r > 0 && verbose) {
         float mean, gain;
         uint32_t lines;
         xmisp_exposure(isp, &mean, &lines, &gain);

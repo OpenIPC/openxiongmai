@@ -265,18 +265,21 @@ static int run(struct xmisp *s, const struct xmisp_op *op) {
 }
 
 /* AE from the exposure the fixed state left, if the script's sensor has a
- * driver. */
-static void ae_start(struct xmisp *s) {
+ * driver; a driver that can't read the sensor fails the start. */
+static int ae_start(struct xmisp *s) {
   const struct xmisp_sensor *sn = s->script->sensor;
   s->ae_on = 0;
-  if (!sn || sn->get_exposure(s, &s->lines, &s->gain) < 0)
-    return;
+  if (!sn)
+    return 0;
+  if (sn->get_exposure(s, &s->lines, &s->gain) < 0)
+    return fail(s, "sensor exposure read: %s", strerror(errno));
   struct xmisp_ae_cfg cfg = ae_xm510;
   cfg.lines_min = sn->lines_min;
   cfg.lines_max = sn->lines_max;
   cfg.gain_max = sn->gain_max;
   xmisp_ae_init(&s->ae, &cfg, s->lines, s->gain);
   s->ae_on = 1;
+  return 0;
 }
 
 /* The mean luma of the last frame, from the AE statistics. */
@@ -284,7 +287,7 @@ static int ae_mean(struct xmisp *s, float *mean) {
   uint32_t v, pixels = 0, sum = 0;
   for (unsigned i = 0; i < AE_HIST_BINS; i++) {
     if (isp_r(s, AE_HIST + i * 4, &v) < 0)
-      return -1;
+      return fail(s, "AE statistics: %s", strerror(errno));
     pixels += v;
   }
   for (unsigned row = 0; row < AE_ZONE_ROWS; row++)
@@ -292,29 +295,39 @@ static int ae_mean(struct xmisp *s, float *mean) {
       const uint32_t a =
           AE_ZONES + (row / 2) * 0x40 + (row % 2) * 0x1c + col * 4;
       if (isp_r(s, a, &v) < 0)
-        return -1;
+        return fail(s, "AE statistics: %s", strerror(errno));
       sum += v;
     }
   if (!pixels)
-    return -1;
+    return fail(s, "AE statistics: no pixels counted");
   *mean = (float)sum / (float)pixels;
   return 0;
 }
 
 int xmisp_frame(struct xmisp *s) {
-  if (!s->ae_on || ae_mean(s, &s->mean) < 0)
+  if (!s->ae_on)
     return 0;
+  if (ae_mean(s, &s->mean) < 0)
+    return -1;
   uint32_t lines;
   float gain;
   if (!xmisp_ae_update(&s->ae, s->mean, &lines, &gain))
     return 0;
-  if (s->script->sensor->set_exposure(s, lines, &gain) < 0)
+  const struct xmisp_sensor *sn = s->script->sensor;
+  if (sn->set_exposure(s, lines, &gain) < 0) {
+    fail(s, "sensor exposure write: %s", strerror(errno));
+    /* Part of it may have landed: AE goes on from what the sensor has. */
+    if (sn->get_exposure(s, &s->lines, &s->gain) == 0)
+      xmisp_ae_applied(&s->ae, s->lines, s->gain);
     return -1;
+  }
   s->lines = lines;
   s->gain = gain;
   xmisp_ae_applied(&s->ae, lines, gain);
   return 1;
 }
+
+int xmisp_ae_enabled(const struct xmisp *s) { return s->ae_on; }
 
 void xmisp_exposure(const struct xmisp *s, float *mean, uint32_t *lines,
                     float *gain) {
@@ -343,10 +356,10 @@ int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
     }
     if (r == 0)
       r = run(s, s->script->fixed);
-    if (r == 0) {
-      ae_start(s);
+    if (r == 0)
+      r = ae_start(s);
+    if (r == 0)
       return 0;
-    }
     /* A start that failed part way may have 3D-NR on already. */
     nr3d_off(s);
     s->script = NULL;

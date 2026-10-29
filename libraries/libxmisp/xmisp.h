@@ -29,8 +29,12 @@ const struct xmisp_script *xmisp_script(const struct xmisp *isp);
 int xmisp_fd(const struct xmisp *isp);
 
 /* Once a frame, at its start (SIGIO): reads the AE statistics and moves the
- * exposure. 1 if it changed, 0 if not, -1 if the sensor refused it. */
+ * exposure. 1 if it changed, 0 if not (or AE is off), -1 if the statistics
+ * or the sensor failed, with xmisp_error() saying which. */
 int xmisp_frame(struct xmisp *isp);
+
+/* 1 if AE runs: the script's sensor has a driver. */
+int xmisp_ae_enabled(const struct xmisp *isp);
 
 /* The last frame's mean luma (8-bit, linear) and the exposure set. */
 void xmisp_exposure(const struct xmisp *isp, float *mean, uint32_t *lines,

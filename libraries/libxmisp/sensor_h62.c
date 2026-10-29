@@ -19,15 +19,20 @@
 #define COARSE_MAX 6
 
 static float gain_of(uint32_t reg) {
-  return (float)(1u << ((reg >> 4) & 7)) * (1.0f + (float)(reg & 15) / 16.0f);
+  unsigned coarse = (reg >> 4) & 7;
+  if (coarse > COARSE_MAX)
+    coarse = COARSE_MAX; /* 0x7x measured as 0x6x */
+  return (float)(1u << coarse) * (1.0f + (float)(reg & 15) / 16.0f);
 }
 
-/* The largest step not above the gain asked for. */
+/* The step nearest the gain asked for. */
 static uint32_t reg_of(float gain) {
   unsigned coarse = 0;
   while (coarse < COARSE_MAX && gain >= (float)(2u << coarse))
     coarse++;
-  int fine = (int)floorf((gain / (float)(1u << coarse) - 1.0f) * 16.0f);
+  int fine = (int)roundf((gain / (float)(1u << coarse) - 1.0f) * 16.0f);
+  if (fine > 15 && coarse < COARSE_MAX)
+    return (coarse + 1) << 4; /* rounds up into the next doubling */
   fine = fine < 0 ? 0 : fine > 15 ? 15 : fine;
   return coarse << 4 | (uint32_t)fine;
 }

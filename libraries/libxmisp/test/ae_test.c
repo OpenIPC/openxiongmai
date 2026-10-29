@@ -2,7 +2,8 @@
 /*
  * Host test of the AE layer on a simulated sensor: the mean is
  * scene x lines x gain, measured cfg.interval frames after a change, with
- * gain in 1/16 steps. Build and run: make -C libraries/libxmisp test
+ * gain in 1/16 steps (the nearest is taken). Build and run: make -C
+ * libraries/libxmisp test
  */
 #include <math.h>
 #include <stdio.h>
@@ -19,6 +20,7 @@ static const struct xmisp_ae_cfg cfg = {
 };
 
 static int failures;
+static int writes_same; /* proposals that rounded to the setting there was */
 
 static void check(int ok, const char *what, double scene) {
   if (!ok) {
@@ -42,18 +44,22 @@ static int run(struct xmisp_ae *ae, double scene, int frames, uint32_t *lines,
     uint32_t l;
     float g;
     if (xmisp_ae_update(ae, (float)*mean, &l, &g)) {
-      g = floorf(g * 16.0f) / 16.0f;
+      g = roundf(g * 16.0f) / 16.0f;
       xmisp_ae_applied(ae, l, g);
+      if (l != *lines || g != *gain)
+        last = f;
+      else
+        writes_same++;
       *lines = l;
       *gain = g;
-      last = f;
     }
   }
   return last < frames - 100 ? last : -1;
 }
 
 int main(void) {
-  const double scenes[] = {0.0005, 0.005, 0.05, 0.5, 5.0};
+  /* 25 and 30 want 1.5 and 1.25 lines: between the steps there are. */
+  const double scenes[] = {0.0005, 0.005, 0.05, 0.5, 5.0, 25.0, 30.0};
   for (unsigned i = 0; i < sizeof(scenes) / sizeof(scenes[0]); i++) {
     const double scene = scenes[i];
     const uint32_t starts[] = {1, 100, 746};
@@ -80,7 +86,11 @@ int main(void) {
       else
         check(fabs(mean / cfg.target - 1.0) <= cfg.tolerance + 0.07,
               "mean off target", scene);
-      check(gain == 1.0f || lines == cfg.lines_max, "gain before lines", scene);
+      /* Gain only at the most lines, or for the fraction of a line. */
+      check(lines == cfg.lines_max || gain <= 1.0f + 1.0f / lines + 1.0f / 16,
+            "gain before lines", scene);
+      check(writes_same < 3, "rewrites the setting it has", scene);
+      writes_same = 0;
     }
   }
   printf(failures ? "%d failed\n" : "ok\n", failures);

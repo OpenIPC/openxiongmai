@@ -15,9 +15,12 @@ XM510 only so far:
 
 - **`ae.c`: auto-exposure, independent of the SoC and the sensor.** It
   takes a frame's mean luma and aims lines × gain at target / mean, by the
-  square root of that ratio a step (at most ×8). It uses lines before gain,
-  and waits `interval` frames after each change for it to show in the
-  statistics. `make test` runs it on the host against a simulated sensor:
+  square root of that ratio a step (at most ×8). It uses whole lines before
+  gain; the fraction of a line goes to gain, so a bright scene wanting 1.5
+  lines gets 1 line at 1.5×. A proposal that rounds to the exposure already
+  set isn't written. Its state changes only with what the sensor took,
+  which after a failed write is what it reads back. After each change it
+  waits `interval` frames for the change to show in the statistics. `make test` runs it on the host against a simulated sensor:
   convergence from far off either way, steadiness, and the limits.
 - **`sensor_*.c`: what a sensor's 3A needs.** That's the exposure range,
   the gain ceiling, and reading and setting exposure and gain in its
@@ -62,7 +65,7 @@ Generated scripts are clang-format (LLVM) output, so run clang-format after
 
 ```sh
 extract.py trace.bin h62_720p "JX-H62 720p25" --fixed 500-510 \
-    -m libraries/isp/include/xm/xm510_isp.h > h62_720p.c
+    --sensor h62 -m libraries/isp/include/xm/xm510_isp.h > h62_720p.c
 ```
 
 | Script | Sensor | Mode | Trace |

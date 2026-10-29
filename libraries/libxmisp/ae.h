@@ -20,6 +20,8 @@ struct xmisp_ae_cfg {
 
 struct xmisp_ae {
   struct xmisp_ae_cfg cfg;
+  uint32_t lines; /* the exposure the sensor has */
+  float gain;
   float total; /* lines x gain */
   unsigned wait;
 };
@@ -28,7 +30,8 @@ void xmisp_ae_init(struct xmisp_ae *ae, const struct xmisp_ae_cfg *cfg,
                    uint32_t lines, float gain);
 
 /* One frame's mean luma. 1 if the exposure should change, with *lines and
- * *gain set; then tell xmisp_ae_applied() what the sensor took. */
+ * *gain set; nothing changes until xmisp_ae_applied() says what the sensor
+ * took (after a failed write, what it reads back). */
 int xmisp_ae_update(struct xmisp_ae *ae, float mean, uint32_t *lines,
                     float *gain);
 
