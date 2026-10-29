@@ -49,6 +49,31 @@ struct vpss_rec {
 
 static volatile int running = 1;
 
+/* a 96x32 2-bit card at (16, 16) on each stream: red, green and white
+ * bands, then a transparent quarter */
+static void osd_card(int n) {
+  static uint8_t bmp[32 * 96 / 4];
+  static const uint8_t band[4] = {1, 2, 3, 0};
+  struct xmv200_osd o = {
+      .format = XMV200_OSD_2BIT,
+      .x = 16,
+      .y = 16,
+      .width = 96,
+      .height = 32,
+      .color = {0, xmv200_osd_color(255, 0, 0, 255),
+                xmv200_osd_color(0, 255, 0, 255),
+                xmv200_osd_color(255, 255, 255, 255)},
+  };
+
+  for (int y = 0; y < 32; y++)
+    for (int x = 0; x < 96; x++)
+      bmp[y * 24 + x / 4] |= band[x / 24] << (6 - 2 * (x % 4));
+  for (int s = 0; s < n; s++)
+    if (xmv200_osd_create(s, &o) || xmv200_osd_bitmap(s, bmp, sizeof(bmp)) ||
+        xmv200_osd_attach(s, s))
+      fprintf(stderr, "osd %d: failed\n", s);
+}
+
 /* isp.ko's frame wait, as the vendor ISP thread runs it */
 static void *isp_frames(void *p) {
   int fd = open("/dev/isp", O_RDWR);
@@ -181,6 +206,8 @@ int main(int argc, char **argv) {
       fprintf(stderr, "board %s: start failed\n", argv[2]);
       return 1;
     }
+    if (argc > 4 && !strcmp(argv[4], "osd"))
+      osd_card(info.n_streams);
     for (int s = 0; s < info.n_streams; s++) {
       char path[32];
 
@@ -236,7 +263,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   fprintf(stderr,
-          "usage: %s probe | run <board|layout file> [frames] | layout <board>"
+          "usage: %s probe | run <board|layout file> [frames [osd]] | layout <board>"
           " | replay | encode [n]\n",
           argv[0]);
   return 1;

@@ -297,6 +297,7 @@ The sensor's mode comes from the tuning libxmv200 has for that sensor on the run
 - **Chips** (`chip.c`): what differs between the families, for the same steps: the kernel modules' struct versions, where VI's blocks are, clocks through `/dev/mem` or `sys.ko`, and the VB and VENC configuration.
 - **ISP** (`isp.c`): `isp.ko`'s common setup and its shared parameter page. Then, per channel, the sensor mode's program: `isp.ko`'s parameter blocks and the sensor's register runs in order, with the buffer, window and channel steps between them. Those steps are built from the channel's place in the layout.
 - **H.265** (`venc.c`): `xmv200_frame_get` takes the pictures queued for VENC. `xmv200_venc_encode` encodes them on `hevc.ko`'s engine, one job per picture. The parameter sets and slice headers are the library's; the engine writes only the slice data. Each family's engine is a profile (v3 for the XM530V200, v1 for the XM535s, x533 for the XM533).
+- **OSD** (`osd.c`): `xmv200_osd_create`, `_bitmap` and `_attach` put a bitmap on a stream: ARGB1555, ARGB8888, or 1 or 2 bits a pixel with up to four AYUV colours (`xmv200_osd_color`), drawn at 1x or 2x. `rgn.ko` (or `open_rgn`) has the OSD engine blend it into each of the stream's pictures before they are encoded. `_set` moves or recolours one, and `_detach` and `_destroy` remove it. A stream takes 8 (4 on the XM535).
 - **AE/AWB** (`ae.c`): `xmv200_ae_frame` samples the frames of the streams the sensors are in, one band per sensor. It steers the sensor's exposure and analog gain, `isp.ko`'s digital gain, and gray-world white balance through `isp.ko`'s R/B gains.
 
 Known boards (`xmv200_board_layout()`, or `xmv200-test layout <board>` for the text form):
@@ -337,6 +338,7 @@ The XM533 and XM535 boards need the vendor's memory split: `mem=` as in the vend
 make -C tools/xmv200-test CROSS_COMPILE=arm-openipc-linux-musleabi-
 xmv200-test run x6c-weq 100       # on the camera, vendor modules loaded: /tmp/stream<n>.h265, one per stream
 xmv200-test run /etc/board.conf   # a layout file
+xmv200-test run x6c-weq 100 osd   # with a 2-bit test card (red, green, white, clear) at (16, 16) on each stream
 ```
 
 ## CI

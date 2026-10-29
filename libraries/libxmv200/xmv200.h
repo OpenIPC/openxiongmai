@@ -146,6 +146,48 @@ void xmv200_ae_frame(const struct xmv200_frame *f);
 int xmv200_venc_encode(struct xmv200_venc *v, const struct xmv200_frame *f,
                        uint8_t *out, int cap);
 
+/*
+ * Overlays: bitmaps the OSD engine (rgn.ko) blends into every picture of
+ * the streams they are attached to, before they are encoded. Handles 0..
+ * XMV200_OSD_MAX - 1; a stream takes up to 8 (4 on the XM535). Made after
+ * xmv200_layout_start, which clears them.
+ *
+ * Bitmaps, row after row, rows of width pixels:
+ *   ARGB1555  2 bytes a pixel, little endian (alpha bit set: alpha, clear:
+ *             transparent)
+ *   ARGB8888  4 bytes a pixel, 0xAARRGGBB little endian
+ *   1BIT      8 pixels a byte, the first in the top bit: color[0] or [1]
+ *   2BIT      4 pixels a byte, the first in the top two bits: color[0..3]
+ * The bit formats' colours are 0xAAYYUUVV (xmv200_osd_color); alpha 0 is
+ * transparent. x and y are rounded down to even.
+ */
+#define XMV200_OSD_MAX 256
+
+enum xmv200_osd_format {
+  XMV200_OSD_ARGB1555,
+  XMV200_OSD_ARGB8888,
+  XMV200_OSD_1BIT,
+  XMV200_OSD_2BIT,
+};
+
+struct xmv200_osd {
+  enum xmv200_osd_format format;
+  uint32_t x, y, width, height; /* the bitmap's size */
+  uint32_t color[4];            /* 1BIT, 2BIT */
+  uint32_t alpha;               /* ARGB1555: the alpha of opaque pixels */
+  uint32_t scale_x, scale_y;    /* 1 (or 0) or 2: each pixel drawn twice */
+};
+
+int xmv200_osd_create(int handle, const struct xmv200_osd *o);
+/* moves or recolours it: the same format, at most its size */
+int xmv200_osd_set(int handle, const struct xmv200_osd *o);
+int xmv200_osd_bitmap(int handle, const void *data, uint32_t len);
+int xmv200_osd_attach(int handle, int stream);
+int xmv200_osd_detach(int handle, int stream);
+/* detached first */
+int xmv200_osd_destroy(int handle);
+uint32_t xmv200_osd_color(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+
 #ifdef __cplusplus
 }
 #endif
