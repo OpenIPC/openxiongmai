@@ -278,9 +278,14 @@ jobs:
           make -C drivers/xm_v200_venc KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
+      - name: Build xm_v200_rgn
+        run: |
+          make -C drivers/xm_v200_rgn KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
       - name: Verify modules
         run: |
-          modules="drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/open_h264.ko drivers/xm_mmz/open_mmz.ko drivers/xm_hevc/open_hevc.ko drivers/xm_v200_i2c/open_i2c.ko drivers/xm_v200_sys/open_sys.ko drivers/xm_v200_vb/open_vb.ko drivers/xm_v200_venc/open_venc.ko"
+          modules="drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/open_h264.ko drivers/xm_mmz/open_mmz.ko drivers/xm_hevc/open_hevc.ko drivers/xm_v200_i2c/open_i2c.ko drivers/xm_v200_sys/open_sys.ko drivers/xm_v200_vb/open_vb.ko drivers/xm_v200_venc/open_venc.ko drivers/xm_v200_rgn/open_rgn.ko"
           [ "${{ matrix.soc }}" = xm530 ] && modules="$modules drivers/xm_vi/open_vi.ko"
           for ko in $modules; do
             [ -f "$ko" ] || { echo "MISSING: $ko" >&2; exit 1; }
