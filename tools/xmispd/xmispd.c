@@ -167,10 +167,10 @@ int main(void) {
         uint32_t grey;
         float cb, cr, wr, wb;
         xmisp_white_balance(isp, &grey, &cb, &cr, &wr, &wb);
-        debug("frame %lu: mean %.1f -> %u lines, gain %.2f; %u grey, Cb %.1f "
-              "Cr %.1f -> R %.2f B %.2f",
-              frames, mean, (unsigned)lines, gain, (unsigned)grey, cb, cr, wr,
-              wb);
+        debug("frame %lu: mean %.1f -> %u lines, gain %.2f, NR %.2f; %u grey, "
+              "Cb %.1f Cr %.1f -> R %.2f B %.2f",
+              frames, mean, (unsigned)lines, gain, xmisp_nr_strength(isp),
+              (unsigned)grey, cb, cr, wr, wb);
       }
     } else if (sig == SIGHUP) {
       antiflicker(isp);

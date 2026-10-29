@@ -11,7 +11,8 @@ XM510 only so far:
 - `xmisp_frame()`, once a frame, runs auto-exposure (M2) and auto white
   balance (M3);
 - the colour matrix is the sensor's own calibration, with Cb/Cr gain 1
-  (M4).
+  (M4);
+- noise reduction and sharpening follow the gain (M4).
 
 ## Layers
 
@@ -38,6 +39,9 @@ XM510 only so far:
   wide while the gains are far off and narrows once near, so only grey
   pixels count. With too few grey pixels the gains hold. `make test` also
   runs it on the host.
+- **`tune.c`: tuning by gain, independent of the SoC.** It gives a strength
+  from 0 to 1, log-linear in gain between two gains, in steps, and
+  interpolates register values by it. `make test` runs it on the host.
 - **`sensor_*.c`: what a sensor's 3A needs.** That's the exposure range,
   the gain ceiling, the white balance gain range, its colour matrix, and
   reading and setting exposure and gain in its register encoding.
@@ -138,3 +142,32 @@ These were measured on the lab XM510 with `xmispd` holding the rest fixed:
   `0x100`. It's one illuminant's: a warm-light calibration to interpolate
   by colour temperature, and easing it at high gain, where it amplifies
   noise, are still to do.
+
+## Noise reduction and sharpening (XM510)
+
+The vendor daemon moves eight registers with gain (traced under the lab's
+dimmable bulbs): 2D NR `BASE`, `THDH`, `COEF`, `DELTA_THD` (`0x40020000`..),
+3D NR `YCTRL_ERR70` (`0x400400d8`) and sharpening `KD`, `KM0`, `KH0`
+(`0x40075018`, `0x4007514c`, `0x40075174`). One at a time, at 16× gain, with
+the daemon frozen:
+- **2D NR:** `BASE` and `THDH` set its strength. `COEF` and `DELTA` alone
+  change nothing.
+- **3D NR:** bits 3:0 of `YCTRL_ERR70` are a strength, 0 off. 6 halves the
+  noise; 10 and up cost detail for little more.
+- **Sharpening:** it amplifies the noise, and halving it halves the noise.
+
+`libxmisp` keeps the script's values up to 4× gain and moves to a high-gain
+set by 16×, log-linear in eighths. The high set was chosen by measurement:
+noise in the chart's grey patches against the detail of the chair's mesh,
+with the noise subtracted from the detail.
+
+| Gain | Strength | Temporal noise | Mesh detail |
+|---|---|---|---|
+| 3× | 0 | 2.1 (unchanged) | 26.5 (unchanged) |
+| 8.5× | 0.5 | 1.9 (was 5.0) | 19.8 (was 25.7) |
+| 16× | 1 | 1.5 (was 12.6) | 2.3 |
+
+At 3× the high set would over-smooth (detail 26 to 15), which is why the
+strength stays 0 there. Chroma noise at 16× is still 4.8: the colour matrix
+and the saturation should ease with gain too.
+
