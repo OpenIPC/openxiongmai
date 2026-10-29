@@ -39,7 +39,7 @@ A bitmap is a run of pixels, row after row with no padding, each `1 << format` b
 `colormap` holds palette indexes: bits 7-4 the first foreground colour, 11-8 the second. What a pixel draws, as seen on an XM550 with `effect` 0:
 - **Format 0:** 0 transparent, 1 the first foreground colour.
 - **Format 1:** 0 transparent, 1 the first foreground colour, 2 and 3 the second.
-- **Format 2:** every non-zero pixel draws black. What it needs is not known yet.
+- **Format 2:** 4 bits a pixel, but every non-zero pixel draws the second foreground colour (bits 11-8), whatever its value. That holds with either or both mode bits set, so it is not a 15-colour mode: an overlay has at most three colours besides its background. It drew black in earlier tests only because bits 11-8 were 0.
 
 `effect` and the rest of `colormap` go to the hardware as they are (the register table shows where); what their bits do has not been tried.
 
