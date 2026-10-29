@@ -48,6 +48,25 @@ Tested on the lab XM510 with a JX-H62 under majestic:
   it settles in about 22 frames at R 1.47, B 2.31. The chart's greys come
   out R/G 0.92, B/G 1.02; the vendor daemon's are R/G 0.35, B/G 1.30 (cyan).
   It then makes no change for a minute.
+- **AWB under controlled light:** the room dark, the only light three
+  ceiling RGBCCT bulbs (5 W each) set to one colour temperature. For each,
+  xmispd starts fresh and AWB settles; then, with xmispd stopped, a closed
+  loop on the picture finds the gains that make the chart's greys neutral.
+  The vendor daemon gets the same measurement.
+
+  | Bulbs | xmispd: chart greys R/G, B/G | xmispd gains vs neutral, R / B | vendor daemon: R/G, B/G |
+  |---|---|---|---|
+  | 3000 K | 1.02, 1.06 | +1% / +5% | 2.56, 0.46 (orange) |
+  | 4000 K | 1.02, 1.07 | +2% / +8% | 0.28, 2.11 (cyan) |
+  | 5000 K | 1.00, 1.07 | +1% / +9% | 0.25, 2.07 (cyan) |
+  | 6000 K | 1.00, 1.10 | +1% / +10% | 0.24, 2.00 (cyan) |
+
+  The red gain follows the light to within 2%. The blue gain sits 5–10% high,
+  so greys come out slightly cool; the bluish-white surfaces in the room are
+  the likely pull. Under these bulbs the daylight colour matrix scores mean
+  dE 15.5 (3000 K) and 14.6 (6000 K). A matrix fitted at 3000 K reaches only
+  14.4, and is stronger, so the bulbs' LED spectrum, not the colour
+  temperature, limits accuracy there.
 - **Anti-flicker, under a 200 W LED lamp** (switched by the lab's
   controllable plug): with `isp.antiFlicker` disabled, AE settled at 87
   lines (1.6 ms), and the rows varied by 8.6% in rolling bands 186.4 rows

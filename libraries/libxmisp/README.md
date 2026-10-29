@@ -127,8 +127,10 @@ These were measured on the lab XM510 with `xmispd` holding the rest fixed:
   up to 746 lines, and gain up to 16 for now. Under anti-flicker that's 3
   periods of 10 ms (563 lines) or 4 of 8.33 ms (625).
 - **White balance:** in daylight the chart's grey needs R 1.56 and B 2.19
-  relative to G. AWB keeps to the range the vendor daemon's AWB searches,
-  R 0.75–2.8 and B 1.1–3.6.
+  relative to G. Under RGBCCT bulbs it needs R 1.17 / B 2.45 at 3000 K, up to
+  R 1.78 / B 1.82 at 6000 K. AWB tracks the red gain to within 2% over that
+  range, and the blue 5–10% high (see `tools/xmispd/README.md`). It keeps to
+  the range the vendor daemon's AWB searches, R 0.75–2.8 and B 1.1–3.6.
 - **Colour matrix:** calibrated against the colour checker in daylight with
   `tools/xm-isp-tune/colorchecker.py`, scoring mean dE 10.4–10.8. The
   vendor daemon's matrix and Cb/Cr gain (2.05×), traced in the same light,
