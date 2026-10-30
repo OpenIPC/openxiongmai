@@ -60,6 +60,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 │   ├── xm_v200_nn/              V200-series CNN accelerator's command queue (/dev/nn)
 │   ├── xm533_ive/               XM533 FFT engine's job queue (/dev/ive)
 │   ├── xm530v200_vo/            XM530V200 video output: BT656/LCD, layers, channels (/dev/vo)
+│   ├── xm533_isp/               XM533 ISP: parameter blocks to registers once a frame (/dev/isp)
 │   ├── xm_v200_venc/            V200-series VENC frame queue (/dev/venc_info)
 │   └── xm_vi/                   XM530/XM550 video input driver (/dev/vi)
 │
@@ -180,6 +181,7 @@ To add a sensor:
 | `xm_v200_nn` | V200-series CNN accelerator: the command queue and waits for the detection libraries (`/dev/nn`, `/proc/umap/cnn`) | Builds `open_nn.ko`; same ioctls and answers as the vendor `nn.ko` on all three designs in qemu-bench, without its lock-ups |
 | `xm533_ive` | XM533 FFT engine: the job queue and waits (`/dev/ive`) | Builds `open_ive.ko`; same ioctls and answers as the vendor `ive.ko` in qemu-bench, without its crash on a second queued job |
 | `xm530v200_vo` | XM530V200 video output: BT656/LCD/MIPI timing, the video layer's six channels and their buffers, image and cursor layers, colour (`/dev/vo`, `vo_get_buf`/`vo_put_buf`) | Builds `open_vo.ko`. Same ioctls, exports and `/proc/umap/vo` as the vendor `vo.ko`; in qemu-bench its register writes match `vo.ko`'s, and the XM530V200 streams with it |
+| `xm533_isp` | XM533 ISP: the sensor library's parameter blocks written to the ISP once a frame from the VICU interrupt, AWB statistics, register access, raw-frame dump (`/dev/isp`, `vpss_isp_*`, `ib_*`) | Builds `open_isp.ko`. Same ioctls, read/write/mmap and exports as the vendor `isp.ko`; in qemu-bench the XM533 streams with it, its register writes matching `isp.ko`'s frame by frame |
 | `xm530v200_vpss` | XM530V200 VPSS: the memory-to-memory engine that scales each sensor's picture into three channels, from its own thread, with splicing and covers (`/dev/vpss`) | Builds `open_vpss.ko`. Same ioctls and `isp.ko`/`vo.ko` hooks as the vendor `vpss.ko`; the XM530V200 boards stream with it in qemu-bench, pictures as with the vendor module |
 | `xm535w1_vi` | XM535W1 video input: the three channels' scaling and store on the XM535's VPSS block from their frame interrupts, covers, lines, OSD background luminance (`/dev/vi`) | Builds `open_vi.ko`. Same ioctls and hooks as the W1's vendor `vi.ko`; in qemu-bench the W1 streams with it, pictures as with the vendor module |
 | `xm535_vpss` | XM535D1/D2 VPSS: per-frame scaling of each sensor's picture into three channels, splicing of up to three sensors, store into VB buffers, covers and lines (`/dev/vpss`) | Builds `open_vpss.ko`. Same ioctls and `isp.ko` hooks as the vendor `vpss.ko`; all D1/D2 streams in qemu-bench, pictures as with the vendor module |
