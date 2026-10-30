@@ -23,9 +23,33 @@ The X6C-WEQ's firmware (V5.04.R02.20241125) has the XM530V200 `isp`. Its libsns:
 
 A driver is checked against the captures (`tools/xmv200-capture`). A tuning's sensor runs are libsns's init, its frame rate and the AE's first exposure and gain. For the tuning's mode, the driver has to write the same registers in the same order. Where a sensor's runs are laid out differently, its driver says so (`n_runs`, `run`). `make check` (or `make check FAMILY=xm530v200`) builds `check.c` on the build machine with every driver and tuning. It replays each tuning's runs through its driver and lists where the writes differ.
 
-Only the XM530V200's build is known so far. The XM535s', the W1's and the XM533's `isp` have tables of their own.
+Four builds are known, one per chip family, each with its own tables and its own version of some functions. A family's driver is a `family` section in the sensor's `sns_<sensor>.c`, or a file of its own. It takes only that family's tunings.
 
-## The XM530V200's drivers
+| Family | `isp` | libsns |
+|--------|-------|--------|
+| xm530v200 | X6C-WEQ V5.04.R02.20241125 | Nov 20 2024 e89d30f |
+| xm533 | X3-WQ-B V5.04.R02.20250828 | Aug 26 2025 b7cb00d |
+| xm535 (D1/D2) | X6E-WEQ V5.07.X02.20250906 | Aug 12 2025 d2db8e4 |
+| xm535w1 | X2W-WNG V5.00.R02.20240410 | Apr 7 2024 28505 |
+
+## The drivers
+
+Every family's tunings give the same writes through their drivers (`make check`). Each tuned sensor also streams in qemu-bench through its driver on its family's machine:
+
+| Family | Tuned sensors |
+|--------|---------------|
+| xm530v200 | 19 |
+| xm533 | 11 |
+| xm535 | 9 (SC1336, SC1345, SC307C and SC3235 have no D1 driver: its libsns only logs them) |
+| xm535w1 | 7 |
+
+The other families add these sensors, unverified:
+
+- XM533: SC2336P, SC2337P, SC307E, MIS2009, MIS4001, MIS40C1, GC1084, OV2735;
+- XM535: SC2337P, SC3338, SC4336, SC500AI;
+- W1: SC3335, SC223A, SC401AI, IMX307.
+
+The XM530V200's:
 
 | Driver | Vendor | Checked |
 |--------|--------|---------|
