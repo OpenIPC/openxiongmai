@@ -91,9 +91,15 @@ static const struct xmv200_sns_drv *const drivers[] = {
     &xmv200_sns_mis5001,
 };
 
-const struct xmv200_sns_drv *xmv200_sns_driver(const char *name) {
+static const char *family_of(const struct xmv200_sns_drv *drv) {
+  return drv->family ? drv->family : "xm530v200";
+}
+
+const struct xmv200_sns_drv *xmv200_sns_driver(const char *name,
+                                               const char *family) {
   for (unsigned i = 0; name && i < sizeof(drivers) / sizeof(drivers[0]); i++)
-    if (!strcasecmp(drivers[i]->name, name))
+    if (!strcasecmp(drivers[i]->name, name) &&
+        !strcmp(family_of(drivers[i]), family))
       return drivers[i];
   return NULL;
 }
@@ -137,19 +143,18 @@ xmv200_sns_find(const char *name, const struct xmv200_sns_tuning *t,
                 const struct xmv200_sns_drv **drv) {
   const struct xmv200_sns_mode *m;
 
-  /* the drivers are the XM530V200 libsns's; the other chips' have their
-   * own, and their tunings stay with the recorded runs */
+  /* a driver is its chip family's libsns's, for that family's tunings */
   *drv = NULL;
-  if (!t || strcmp(t->chip, "xm530v200"))
+  if (!t)
     return NULL;
-
-  *drv = xmv200_sns_driver(name);
+  *drv = xmv200_sns_driver(name, t->chip);
   if ((m = xmv200_sns_mode_for(*drv, NULL, t)))
     return m;
   /* the driver the vendor ran: its libsns can take one part for another
    * (the X6C-WEQ's reads SC2337P and runs SC2336P's driver) */
   for (unsigned i = 0; i < sizeof(drivers) / sizeof(drivers[0]); i++)
-    if ((m = xmv200_sns_mode_for(drivers[i], NULL, t))) {
+    if (!strcmp(family_of(drivers[i]), t->chip) &&
+        (m = xmv200_sns_mode_for(drivers[i], NULL, t))) {
       *drv = drivers[i];
       return m;
     }

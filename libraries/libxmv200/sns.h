@@ -59,6 +59,9 @@ struct xmv200_sns_ctx {
 
 struct xmv200_sns_drv {
   const char *name;
+  /* the chip family whose libsns it is, the tunings' chip: "xm533",
+   * "xm535" (XM535D1/D2), "xm535w1"; NULL: "xm530v200" */
+  const char *family;
   const struct xmv200_sns_mode *modes;
   int n_modes;
   /* the mode's registers and what the vendor writes after them */
@@ -90,8 +93,10 @@ struct xmv200_sns_drv {
               const struct xmv200_sns_ctx *c);
 };
 
-/* the driver for a sensor the registry names ("SC2336"), or NULL */
-const struct xmv200_sns_drv *xmv200_sns_driver(const char *name);
+/* the driver for a sensor the registry names ("SC2336") on a chip family,
+ * or NULL */
+const struct xmv200_sns_drv *xmv200_sns_driver(const char *name,
+                                               const char *family);
 /* the driver's mode for attr, or the one whose registers a tuning's first
  * run holds; NULL if none */
 const struct xmv200_sns_mode *
