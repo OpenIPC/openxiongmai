@@ -24,3 +24,22 @@ The X6C-WEQ's firmware (V5.04.R02.20241125) has the XM530V200 `isp`. Its libsns:
 A driver is checked against the captures (`tools/xmv200-capture`). A tuning's sensor runs are libsns's init, its frame rate and the AE's first exposure and gain. For the tuning's mode, the driver has to write the same registers in the same order. Where a sensor's runs are laid out differently, its driver says so (`n_runs`, `run`). `make check` (or `make check FAMILY=xm530v200`) builds `check.c` on the build machine with every driver and tuning. It replays each tuning's runs through its driver and lists where the writes differ.
 
 Only the XM530V200's build is known so far. The XM535s', the W1's and the XM533's `isp` have tables of their own.
+
+## The XM530V200's drivers
+
+| Driver | Vendor | Checked |
+|--------|--------|---------|
+| SC1336, SC1345, SC1346, SC1A4T, SC200AI, SC223AP, SC231AI, SC2331, SC2336, SC2336P (the X6C-WEQ's "SC2337P"), SC307C, SC3235, SC3335, SC3338, SC401AI, SC430AI, SC4336, SC500AI, SC831HAI | SmartSens | the same writes as their tunings (`make check`); each streams in qemu-bench through its driver |
+| SC035GS, SC202CS, SC2210, SC223A, SC2335, SC2337P, SC307E, SC4210, SC5239AI | SmartSens | no tuning: ported, not run |
+| GC3003 | GalaxyCore | no tuning |
+| IMX307, IMX335 | Sony | no tuning |
+| MIS2009, MIS4001, MIS40C1, MIS5001 | MIS | no tuning |
+| F37P, Q03, Q03P, H63, H63P | SOI (JX) | no tuning |
+
+GC2083's chip ID is in the probe, but this build has no driver for it. libxmv200 probes only SmartSens IDs (`board.c`). Each other driver's comment says how the vendor probes that sensor: the I2C address, the register widths, and the chip ID's registers.
+
+Not in the interface yet:
+
+- the HDR modes (SC200AI, SC223A, SC4210);
+- modes picked by product settings rather than by MIPI/DVP, lanes or 720p (SC1336 50 fps, SC500AI 4 lanes, SC5239AI and SC831HAI's other frame rates, IMX307 4 lanes, MIS4001 3M/4M);
+- the dual-sensor sync modes.
