@@ -302,3 +302,136 @@ const struct xmv200_sns_drv xmv200_sns_mis4001_xm533 = {
     .set_gain = set_gain,
     .set_flip = xm533_set_flip,
 };
+
+/* ---- XM535 ----
+ *
+ * The XM535D1 libsns's (Aug 2025), unverified. Its probe: I2C address 0x30
+ * (a product preset may give another), 16-bit registers, 8-bit values;
+ * 0x3006 written, 100 ms, chip ID 0x3000 << 8 | 0x3001 (0x3004/0x3005 when
+ * that reads neither 0x2008 nor 0x1311) = 0x1311. One 4M table; a digital
+ * gain in 0x3a00/0x3a01 (the vendor's 1/128, 1x .. 8x); frame lengths for
+ * 12 (2800 lines), 15 (2333) and otherwise 20 fps (1875), or 25 fps (1400)
+ * on a frame-synced board (cmos_set_sns_attr's +0x20 with 0x11, the "frame
+ * sync" mode here), where the frame length setter does nothing; a 2-line
+ * margin; and the flip in a 0x3006 = 2 hold without turning channel 1
+ * round. Exposure and the analog gain steps are the XM530V200's.
+ */
+
+extern const struct xmv200_sns_reg xm535_mis4001_4m[175];
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    {"4M mipi", {0, 0, 0, 0}, xm535_mis4001_4m, N(xm535_mis4001_4m)},
+    {"4M mipi, frame sync", {0, 0, 0, 0}, xm535_mis4001_4m,
+     N(xm535_mis4001_4m)},
+};
+
+static int xm535_sync[MAX_CHN];
+static uint32_t xm535_vts_cache; /* the vendor's: one for every channel */
+
+static int synced(const struct xmv200_sns_dev *d) {
+  return d->chn < MAX_CHN && xm535_sync[d->chn];
+}
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN) {
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
+    xm535_sync[d->chn] = m == &xm535_modes[1];
+  }
+  for (int i = 0; i < m->n; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  usleep(20000);
+}
+
+static void xm535_ae_default(const struct xmv200_sns_attr *a,
+                             struct xmv200_sns_ae *ae) {
+  ae->full_lines = 0x753;
+  ae->max_lines = 0x751;
+  ae->again_min = 0x400 >> 5;
+  ae->again_max = 0x3e00 >> 5;
+  ae->dgain_min = 0x80 >> 2;
+  ae->dgain_max = 0x400 >> 2;
+}
+
+static void xm535_frame_length(const struct xmv200_sns_dev *d, uint32_t vts) {
+  w(d, 0x3006, 2);
+  usleep(100000);
+  w(d, 0x310c, vts >> 8);
+  w(d, 0x310d, vts & 0xff);
+  w(d, 0x3006, 0);
+}
+
+/* the vendor's leaves the exposure as it is */
+static void xm535_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t vts = fps == 12   ? 0xaf0
+                 : fps == 15 ? 0x91d
+                 : synced(d) ? 0x578
+                             : 0x753;
+
+  ae->full_lines = vts;
+  ae->max_lines = vts - 2;
+  xm535_frame_length(d, vts);
+}
+
+static void xm535_set_vts(const struct xmv200_sns_dev *d, uint32_t vts,
+                          struct xmv200_sns_ae *ae) {
+  if (synced(d) || xm535_vts_cache == vts)
+    return;
+  xm535_vts_cache = vts;
+  ae->full_lines = vts;
+  ae->max_lines = vts - 2;
+  clamp_exposure(d, ae);
+  xm535_frame_length(d, vts);
+}
+
+/* sns.h's 1/32 to the vendor's 1/128 */
+static void xm535_dgain_calc(uint32_t gain, uint32_t *reg, uint32_t *real) {
+  *reg = gain << 2;
+  *real = gain;
+}
+
+static void xm535_set_gain(const struct xmv200_sns_dev *d, uint32_t idx,
+                           uint32_t dreg) {
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].valid & 2 && st[d->chn].again == idx &&
+        st[d->chn].dgain == dreg)
+      return;
+    st[d->chn].again = idx;
+    st[d->chn].dgain = dreg;
+    st[d->chn].valid |= 2;
+  }
+  w(d, 0x3102, idx);
+  w(d, 0x3a00, (dreg & 0x7ff) >> 8);
+  w(d, 0x3a01, dreg & 0xff);
+}
+
+static void xm535_set_flip(const struct xmv200_sns_dev *d, int mirror,
+                           int flip) {
+  uint32_t v = r(d, 0x3007);
+
+  v = mirror ? v & ~1u : v | 1;
+  v = flip ? v & ~2u : v | 2;
+  w(d, 0x3006, 2);
+  usleep(100000);
+  w(d, 0x3007, v);
+  w(d, 0x3006, 0);
+}
+
+const struct xmv200_sns_drv xmv200_sns_mis4001_xm535 = {
+    .name = "MIS4001",
+    .family = "xm535",
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = xm535_init,
+    .ae_default = xm535_ae_default,
+    .set_fps = xm535_set_fps,
+    .set_vts = xm535_set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = xm535_dgain_calc,
+    .set_gain = xm535_set_gain,
+    .set_flip = xm535_set_flip,
+};

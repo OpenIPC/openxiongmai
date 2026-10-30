@@ -204,3 +204,121 @@ const struct xmv200_sns_drv xmv200_sns_imx307_xm535w1 = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM535 ----
+ *
+ * The XM535D1 libsns's (Aug 2025), unverified. Probe as above (I2C
+ * address 0x1a unless a product preset gives another). Its tables (standby
+ * on first), the 10-bit pairs after them where the vendor's lane field's
+ * high nibble is 1 (the "10-bit" modes here), then the XM535W1's standby
+ * off, 0x3002 and 0x304b. Frame rate and gain steps are the XM530V200's;
+ * the exposure, gain and frame length state is per channel, and a shorter
+ * frame takes the exposure down with it.
+ */
+
+extern const struct xmv200_sns_reg xm535_imx307_mipi_4lane[57],
+    xm535_imx307_mipi_2lane[67], xm535_imx307_10bit[8];
+
+static struct {
+  int valid;
+  uint32_t lines, vts;
+  int32_t last[4]; /* 0x3020, 0x3021, 0x3014, 0x3009 */
+} xm535_st[MAX_CHN];
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    {"1080p mipi 2 lanes", {0, 0, 0, 0}, xm535_imx307_mipi_2lane,
+     N(xm535_imx307_mipi_2lane)},
+    {"1080p mipi 4 lanes", {0, 0, 0, 0}, xm535_imx307_mipi_4lane,
+     N(xm535_imx307_mipi_4lane)},
+    {"1080p mipi 2 lanes 10-bit", {0, 0, 0, 0}, xm535_imx307_mipi_2lane,
+     N(xm535_imx307_mipi_2lane)},
+    {"1080p mipi 4 lanes 10-bit", {0, 0, 0, 0}, xm535_imx307_mipi_4lane,
+     N(xm535_imx307_mipi_4lane)},
+};
+
+static void xm535_w(const struct xmv200_sns_dev *d, int i, uint16_t reg,
+                    uint32_t val) {
+  if (d->chn < MAX_CHN) {
+    if (xm535_st[d->chn].last[i] == (int32_t)val)
+      return;
+    xm535_st[d->chn].last[i] = val;
+  }
+  w(d, reg, val);
+}
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN) {
+    xm535_st[d->chn].valid = 0;
+    for (int i = 0; i < 4; i++)
+      xm535_st[d->chn].last[i] = -1;
+  }
+  for (int i = 0; i < m->n; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  if (m >= &xm535_modes[2])
+    for (int i = 0; i < N(xm535_imx307_10bit); i++)
+      w(d, xm535_imx307_10bit[i].reg, xm535_imx307_10bit[i].val);
+  w(d, 0x3000, 0);
+  usleep(20000);
+  w(d, 0x3002, 0);
+  w(d, 0x304b, 10);
+  usleep(20000);
+}
+
+static void xm535_set_exposure(const struct xmv200_sns_dev *d,
+                               uint32_t lines) {
+  uint32_t s;
+
+  if (d->chn < MAX_CHN) {
+    if (xm535_st[d->chn].valid & 1 && xm535_st[d->chn].lines == lines)
+      return;
+    xm535_st[d->chn].lines = lines;
+    xm535_st[d->chn].valid |= 1;
+  }
+  s = (full[d->chn < MAX_CHN ? d->chn : 0] - lines) & 0xffff;
+  xm535_w(d, 0, 0x3020, s & 0xff);
+  xm535_w(d, 1, 0x3021, s >> 8);
+}
+
+static void xm535_set_vts(const struct xmv200_sns_dev *d, uint32_t vts,
+                          struct xmv200_sns_ae *ae) {
+  if (d->chn < MAX_CHN) {
+    if (xm535_st[d->chn].valid & 2 && xm535_st[d->chn].vts == vts)
+      return;
+    xm535_st[d->chn].vts = vts;
+    xm535_st[d->chn].valid |= 2;
+  }
+  ae->full_lines = vts;
+  ae->max_lines = vts - 4;
+  if (d->chn < MAX_CHN && xm535_st[d->chn].valid & 1 &&
+      ae->max_lines < xm535_st[d->chn].lines)
+    xm535_set_exposure(d, ae->max_lines);
+  w(d, 0x3018, vts & 0xff);
+  w(d, 0x3019, vts >> 8);
+  w(d, 0x301a, 0);
+}
+
+static void xm535_set_gain(const struct xmv200_sns_dev *d, uint32_t idx,
+                           uint32_t dreg) {
+  uint32_t a = idx > 0x14 ? idx - 0x15 : idx;
+
+  xm535_w(d, 2, 0x3014, (a + dreg) & 0xff);
+  xm535_w(d, 3, 0x3009, idx < 0x15 ? 2 : 0x12);
+}
+
+const struct xmv200_sns_drv xmv200_sns_imx307_xm535 = {
+    .name = "IMX307",
+    .family = "xm535",
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = xm535_init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = xm535_set_vts,
+    .set_exposure = xm535_set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = xm535_set_gain,
+    .set_flip = set_flip,
+};

@@ -212,3 +212,53 @@ const struct xmv200_sns_drv xmv200_sns_mis40c1_xm533 = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM535 ----
+ *
+ * The XM535D1 libsns's (Aug 2025), unverified. Its probe: I2C address 0x30
+ * (a product preset may give another), 16-bit registers, 8-bit values;
+ * 0x3006 written, 100 ms, chip ID 0x3004 << 8 | 0x3005 = 0x0004 (after
+ * 0x3000/0x3001 read neither 0x2008 nor 0x1311). Its own table; the frame
+ * rate keeps the frame at 1500 lines and sets the line length (0x3107/
+ * 0x3108: 99000 / fps, 7920 at 12 fps). The rest is the XM530V200's.
+ */
+
+extern const struct xmv200_sns_reg xm535_mis40c1[267];
+
+static void xm535_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t hts = fps == 12 ? 0x1ef0 : 0x182b8 / (fps ? fps : 1);
+
+  ae->full_lines = 0x5dc;
+  ae->max_lines = 0x5d9;
+  clamp_exposure(d, ae);
+  w(d, 0x3006, 2);
+  usleep(100000);
+  w(d, 0x3105, 0x05);
+  w(d, 0x3106, 0xdc);
+  w(d, 0x3107, (hts & 0xffff) >> 8);
+  w(d, 0x3108, hts & 0xff);
+  w(d, 0x300c, 1);
+  w(d, 0x3006, 0);
+}
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    {"1080p mipi", {0, 0, 0, 0}, xm535_mis40c1, N(xm535_mis40c1)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_mis40c1_xm535 = {
+    .name = "MIS40C1",
+    .family = "xm535",
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = xm535_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+};

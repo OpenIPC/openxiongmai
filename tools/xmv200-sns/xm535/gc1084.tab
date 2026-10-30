@@ -1,0 +1,4 @@
+# name address pairs what-the-vendor-logs
+xm535_gc1084_dvp 0x7fdb6 112 gc1084 (@20240426 dvp)
+xm535_gc1084_again:u32 0x7fbd8 27 the analog gain's steps, 1/64, ending 0xffffffff
+xm535_gc1084_again_regs:u8 0x7fc40 156 0xd1, 0xd0, 0xdc1, 0x155, 0xb8, 0xb9 per step
