@@ -10,7 +10,7 @@ REF is the reference trace, or the template it made (xm510_start.c).
 
 What the vendor daemon did before the first frame, in order, splits the
 same way for every sensor it supports (XM510: JX-H62, JX-H42, JX-H65,
-SC1235, SC1245, SC2235, AR0130):
+SC1235, SC1245, SC2235, AR0130, OV9750):
 
     MMZ, VI and region resets, the first PLL setup     SoC
     the chip ID probe                                  sensor: probe
@@ -34,7 +34,8 @@ the reference's delays are kept (a trace under emulation runs at another
 speed). Values that point into the MMZ block (in 8-byte units from DDR) are
 written relative to wherever the block is allocated. The probe keeps only
 the sensor's own bus: a trace taken under emulation also shows the vendor
-daemon's probes for the sensors before it. In the probe the reads are the
+daemon's probes for the sensors before it, which are dropped with their
+delays. In the probe the reads are the
 chip ID, checked at start, except a read of 0: under emulation that's a
 register the sensor model doesn't preset, not part of the ID. Elsewhere a
 read is only replayed.
@@ -240,8 +241,18 @@ class Trace:
     def part(self, name, bus):
         steps = [s for n, st in self.segs if n == name for s in st]
         if name == "probe":
-            # Only the sensor's own address and register width.
-            steps = [s for s in steps if s[0] not in I2C_OPS or s[4][:2] == bus[:2]]
+            # Only the sensor's own address and register width; a delay goes
+            # with the step after it, kept or dropped.
+            kept, delays = [], []
+            for s in steps:
+                if s[0] == "XMISP_DELAY_MS":
+                    delays.append(s)
+                elif s[0] not in I2C_OPS or s[4][:2] == bus[:2]:
+                    kept += delays + [s]
+                    delays = []
+                else:
+                    delays = []
+            steps = kept
             while steps and steps[0][0] == "XMISP_DELAY_MS":
                 steps.pop(0)
             for s in steps:

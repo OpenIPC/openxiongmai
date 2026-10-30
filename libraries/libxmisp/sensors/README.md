@@ -19,6 +19,7 @@ One directory per sensor, `<vendor>_<model>/`, containing:
 | `smartsens_sc1245` | 720p | no | no |
 | `smartsens_sc2235` | 1080p (1136x1080) | no | no |
 | `onsemi_ar0130` | 720p | no | no |
+| `omnivision_ov9750` | 720p | no | no |
 
 ## Clean room
 
