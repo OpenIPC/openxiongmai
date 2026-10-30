@@ -402,3 +402,155 @@ const struct xmv200_sns_drv xmv200_sns_sc2336p =
 const struct xmv200_sns_drv xmv200_sns_sc2337p =
     DRV("SC2337P", sc2337p_modes, sc2337p_init, sc2337p_ae_default,
         sc2337p_set_fps, gain_write);
+
+/* ---- XM535 ---- */
+
+/*
+ * The XM535D1's libsns (Aug 12 2025 d2db8e4): SC2336 has one table; SC2336P
+ * (and SC2337P, the same functions) DVP, MIPI on one lane, MIPI. Exposure,
+ * gain and their steps are the XM530V200's. On a frame-synced board
+ * (cmos_set_sns_attr's +0x20 with 0x11) channel 0 is the slave: its 1-lane
+ * init and every frame length change write 0x301f = 0x47 and 0x322e/0x322f
+ * = VTS - 4. The synced modes' registers are the same as the others', so a
+ * tuning picks the synced one (the first). The 2-lane synced (0x19)
+ * master/slave tables are not done.
+ */
+extern const struct xmv200_sns_reg xm535_sc2336_mipi[145],
+    xm535_sc2336p_dvp[160], xm535_sc2336p_mipi_1lane_sync[172],
+    xm535_sc2336p_mipi_1lane[167], xm535_sc2336p_mipi[149];
+
+static const struct xmv200_sns_mode xm535_sc2336_modes[] = {
+    MODE("1080p mipi 1 lane, frame sync", 0, 1, 0, xm535_sc2336_mipi),
+    MODE("1080p mipi 1 lane", 0, 1, 0, xm535_sc2336_mipi),
+};
+static const struct xmv200_sns_mode xm535_sc2336p_modes[] = {
+    MODE("1080p mipi 1 lane, frame sync", 0, 1, 0,
+         xm535_sc2336p_mipi_1lane_sync),
+    MODE("1080p mipi 1 lane", 0, 1, 0, xm535_sc2336p_mipi_1lane),
+    MODE("1080p mipi", 0, 0, 0, xm535_sc2336p_mipi),
+    MODE("1080p dvp", 1, 0, 0, xm535_sc2336p_dvp),
+};
+
+static int xm535_sync[MAX_CHN];
+
+static int xm535_synced(const struct xmv200_sns_mode *m) {
+  return m == &xm535_sc2336_modes[0] || m == &xm535_sc2336p_modes[0];
+}
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  reset_state(d->chn);
+  if (d->chn < MAX_CHN)
+    xm535_sync[d->chn] = xm535_synced(m);
+  if (m->regs == xm535_sc2336p_mipi_1lane_sync && d->chn) {
+    /* the table, then the master's writes in place of the slave's */
+    for (int i = 0; i < 166; i++)
+      w(d, m->regs[i].reg, m->regs[i].val);
+    w(d, 0x3032, 0xa0);
+    w(d, 0x3224, 0x82);
+    w(d, 0x300a, 0x24);
+    w(d, 0x0100, 0x01);
+  } else {
+    table(d, m);
+  }
+  usleep(20000);
+}
+
+static void xm535_ae_default(const struct xmv200_sns_attr *a,
+                             struct xmv200_sns_ae *ae) {
+  uint32_t full = a->p720 ? 750 : 1125;
+
+  ae_limits(ae, full, full - 6);
+}
+
+static int xm535_slave(const struct xmv200_sns_dev *d) {
+  return d->chn == 0 && xm535_sync[0];
+}
+
+static void xm535_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t hts, vts;
+
+  switch (fps) {
+  case 15:
+    if (a->one_lane)
+      w(d, 0x301f, 0x3b);
+    hts = 2200, vts = 2250;
+    break;
+  case 10:
+    if (a->one_lane)
+      w(d, 0x301f, 0x3b);
+    hts = 2200, vts = 3375;
+    break;
+  case 12:
+    if (a->one_lane)
+      w(d, 0x301f, 0x48);
+    hts = 2640, vts = 2250;
+    break;
+  case 26:
+    hts = 2376, vts = 1250;
+    break;
+  case 31:
+    hts = 2200, vts = 1124;
+    break;
+  default:
+    hts = 66000 / (fps ? fps : 1), vts = 1125;
+  }
+  timing(d, hts, vts, 0xff, 0xef, ae);
+  if (xm535_slave(d) && a->one_lane) {
+    w(d, 0x301f, 0x47);
+    w(d, 0x322e, (vts - 4) >> 8);
+    w(d, 0x322f, (vts - 4) & 0xff);
+  }
+}
+
+static void xm535_set_vts(const struct xmv200_sns_dev *d, uint32_t vts,
+                          struct xmv200_sns_ae *ae) {
+  if (d->chn < MAX_CHN && st[d->chn].vts == vts)
+    return;
+  if (d->chn < MAX_CHN)
+    st[d->chn].vts = vts;
+  ae->full_lines = vts;
+  ae->max_lines = vts - 6;
+  clamp_exposure(d, ae);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xff);
+  if (xm535_slave(d)) {
+    w(d, 0x322e, (vts - 4) >> 8);
+    w(d, 0x322f, (vts - 4) & 0xff);
+  }
+}
+
+/* mirror 0x06, flip 0xe0; no channel turned round */
+static void xm535_set_flip(const struct xmv200_sns_dev *d, int mirror,
+                           int flip) {
+  uint32_t v = r(d, 0x3221);
+
+  v = mirror ? v | 0x06 : v & ~0x06u;
+  v = flip ? v | 0xe0 : v & ~0xe0u;
+  w(d, 0x3221, v);
+}
+
+#define XM535_DRV(nm, md)                                                      \
+  {.name = nm,                                                                 \
+   .family = "xm535",                                                          \
+   .modes = md,                                                                \
+   .n_modes = N(md),                                                           \
+   .init = xm535_init,                                                         \
+   .ae_default = xm535_ae_default,                                             \
+   .set_fps = xm535_set_fps,                                                   \
+   .set_vts = xm535_set_vts,                                                   \
+   .set_exposure = set_exposure,                                               \
+   .again_calc = again_calc,                                                   \
+   .dgain_calc = dgain_calc,                                                   \
+   .set_gain = sc2336_set_gain,                                                \
+   .set_flip = xm535_set_flip}
+
+const struct xmv200_sns_drv xmv200_sns_sc2336_xm535 =
+    XM535_DRV("SC2336", xm535_sc2336_modes);
+const struct xmv200_sns_drv xmv200_sns_sc2336p_xm535 =
+    XM535_DRV("SC2336P", xm535_sc2336p_modes);
+const struct xmv200_sns_drv xmv200_sns_sc2337p_xm535 =
+    XM535_DRV("SC2337P", xm535_sc2336p_modes);
