@@ -284,7 +284,7 @@ static XM_VOID cmos_fps_set(XM_U8 u8Fps, AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
   XM_U32 u32TotalSizeV;
 
   // only for 5M
-  u32TotalSizeV = 2640;
+  u32TotalSizeV = 3300; /* vendor 15 fps: HTS 1500 x VTS 3300 */
   u8Fps = 15;
 #if 0
   switch (u8Fps) {
@@ -322,6 +322,8 @@ static XM_VOID cmos_fps_set(XM_U8 u8Fps, AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
     pstAeSnsDft->u32LinesPer500ms = pstAeSnsDft->u32FullLinesStd * u8Fps / 2;
   }
 
+  sensor_write_register(0x320C, 0x05); /* HTS 1500, as the vendor */
+  sensor_write_register(0x320D, 0xDC);
   sensor_write_register(0x320E, u32TotalSizeV >> 8);
   sensor_write_register(0x320F, u32TotalSizeV & 0xFC);
   XM_MPI_MIPI_RefreshFV(0, u32TotalSizeV);
