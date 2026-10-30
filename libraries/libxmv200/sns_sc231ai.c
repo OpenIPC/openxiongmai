@@ -218,3 +218,81 @@ static void run(const struct xmv200_sns_dev *d, int n,
   dgain_calc(0x20, &reg, &real);
   set_gain(d, idx, reg);
 }
+
+/* ---- XM533 ---- */
+
+/*
+ * The XM533 libsns's: two tables of its own (linear 25 fps, and a low
+ * frequency one a product setting picks), the same functions but the frame
+ * rate's: 12 and 15 fps at twice the frame length, 6 fps at four times,
+ * the others by line length (66000 / fps) at 1125 lines.
+ */
+extern const struct xmv200_sns_reg xm533_sc231ai_mipi[151],
+    xm533_sc231ai_mipi_lf[151];
+
+static void xm533_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t hts, vts;
+
+  if (fps == 12)
+    hts = 0xa50, vts = 0x8ca;
+  else if (fps == 15)
+    hts = 0x898, vts = 0x8ca;
+  else if (fps == 6)
+    hts = 0xa50, vts = 0x1194;
+  else
+    hts = 66000 / (fps ? fps : 1), vts = 0x465;
+  ae->full_lines = vts;
+  ae->max_lines = vts - 6;
+  clamp_exposure(d, ae);
+  w(d, 0x320c, hts >> 8);
+  w(d, 0x320d, hts & 0xff);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xff);
+  if (d->chn < MAX_CHN)
+    st[d->chn].vts = vts;
+}
+
+static const struct xmv200_sns_mode xm533_modes[] = {
+    {"1080p mipi", {0, 0, 0, 0}, xm533_sc231ai_mipi, N(xm533_sc231ai_mipi)},
+    {"1080p mipi low frequency", {0, 0, 0, 0}, xm533_sc231ai_mipi_lf,
+     N(xm533_sc231ai_mipi_lf)},
+};
+
+static void xm533_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c);
+
+const struct xmv200_sns_drv xmv200_sns_sc231ai_xm533 = {
+    .name = "SC231AI",
+    .family = "xm533",
+    .exp_shift = 1,
+    .modes = xm533_modes,
+    .n_modes = N(xm533_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = xm533_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+    .run = xm533_run,
+};
+
+static void xm533_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c) {
+  uint32_t idx, reg, real;
+
+  if (n == 0)
+    xmv200_sns_init_step(&xmv200_sns_sc231ai_xm533, d, c);
+  if (n == 1)
+    xmv200_sns_fps_step(&xmv200_sns_sc231ai_xm533, d, c);
+  if (n != 2)
+    return;
+  set_exposure(d, c->exp_lines / 2);
+  again_calc(0x20, &idx, &real);
+  dgain_calc(0x20, &reg, &real);
+  set_gain(d, idx, reg);
+}
