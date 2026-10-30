@@ -14,14 +14,14 @@
 #include "xmisp.h"
 
 extern const struct xmisp_script xmisp_h42_720p, xmisp_h65_720p, xmisp_h65_960p,
-    xmisp_sc1235_720p, xmisp_sc1235_960p, xmisp_sc1245_720p, xmisp_sc2235_1080p,
-    xmisp_sc1135_720p, xmisp_sc1135_960p, xmisp_ov9732_720p, xmisp_ar0130_720p,
-    xmisp_ov9750_720p, xmisp_mis1002_720p;
+    xmisp_sc1235_720p, xmisp_sc1235_960p, xmisp_sc2145h_720p,
+    xmisp_sc2235_1080p, xmisp_sc1135_720p, xmisp_sc1135_960p, xmisp_ov9732_720p,
+    xmisp_ar0130_720p, xmisp_ov9750_720p, xmisp_mis1002_720p;
 
 const struct xmisp_script *const xmisp_scripts[] = {
-    &xmisp_h62_720p,    &xmisp_h42_720p,     &xmisp_h65_720p,
-    &xmisp_h65_960p,    &xmisp_sc1235_720p,  &xmisp_sc1235_960p,
-    &xmisp_sc1245_720p, &xmisp_sc2235_1080p, &xmisp_sc1135_720p,
-    &xmisp_sc1135_960p, &xmisp_ov9732_720p,  &xmisp_ar0130_720p,
-    &xmisp_ov9750_720p, &xmisp_mis1002_720p, NULL,
+    &xmisp_h62_720p,     &xmisp_h42_720p,     &xmisp_h65_720p,
+    &xmisp_h65_960p,     &xmisp_sc1235_720p,  &xmisp_sc1235_960p,
+    &xmisp_sc2145h_720p, &xmisp_sc2235_1080p, &xmisp_sc1135_720p,
+    &xmisp_sc1135_960p,  &xmisp_ov9732_720p,  &xmisp_ar0130_720p,
+    &xmisp_ov9750_720p,  &xmisp_mis1002_720p, NULL,
 };
