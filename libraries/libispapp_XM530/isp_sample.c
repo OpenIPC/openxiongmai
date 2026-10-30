@@ -1634,7 +1634,7 @@ static void GetProductInfo() {
       stComboDevAttr.mipi_attr.bAllPixs = 3840;
     } else {
       stComboDevAttr.mipi_attr.snsAllPixs = 3000;
-      stComboDevAttr.mipi_attr.snsAllLine = 2640;
+      stComboDevAttr.mipi_attr.snsAllLine = 3300;
       stComboDevAttr.mipi_attr.snsActivePixs = 2600;
       stComboDevAttr.mipi_attr.snsActiveLine = 1952;
       stComboDevAttr.mipi_attr.bMpDvpclk = 118800000;
