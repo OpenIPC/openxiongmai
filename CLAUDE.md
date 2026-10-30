@@ -129,6 +129,7 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 ### Kernel drivers
 
 - `drivers/xm533_isp`: the XM533's kernel `isp.ko` (`/dev/isp`), `open_isp.ko`, in the vendor's six parts (isp, bpu, ib, iw, vicu, vpss_isp). g_comm_para is kept as a byte block at isp.ko's offsets (`isp.h` C32()/C16()); the VPSS side has its own blocks (`vp[2][0x788]`) and register image. Not the user-space ISP daemon (which stays off-limits): the kernel module it talks to.
+- `drivers/xm530v200_isp`: the XM530V200's kernel `isp.ko`, `open_isp.ko`, laid out like xm533_isp (g_comm_para 0x6380 bytes, three BPU groups of 0x12d4 at 0x2930, VPSS blocks `vp[3][0x7c8]`, image `vs[0x840]`). Ghidra's `G_`/`B_` names can be immediates that fall in its .bss image (`G_2d68` is 0x22000, VICU 1's register offset): check the instruction.
 - `drivers/xm530v200_vo`: the XM530V200's video output (`/dev/vo`, 0x31000000, IRQ 59), `open_vo.ko`; exports `vo_get_buf`/`vo_put_buf` for the VPSS, its channel buffers V200 vb descriptors (state word 16, last-shown frame word 17).
 - `drivers/xm533_ive`: the XM533's FFT engine (`/dev/ive`, 0x21300000, IRQ 95), `open_ive.ko`, nn.ko's queue design; ioctls return 0 whatever happened, as ive.ko's.
 - `drivers/xm530v200_jpeg`, `xm533_venc_mem`, `xm_v200_nn`: drop-ins for the vendor jpeg.ko (XM530V200), venc_mem.ko (XM533) and nn.ko (`NN_CHIP=v200|xm533|xm535`: three designs; the query/reset ioctls are 0xc0046301/2, the submit 0x80186300 with 6 words on the XM530V200, 0x80246300 with 9 elsewhere).
