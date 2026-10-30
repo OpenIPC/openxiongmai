@@ -18,8 +18,11 @@
 
 static uint16_t regs[0x10000]; /* AR0130 data is 16-bit */
 static unsigned writes;
+static uint32_t fail_reg; /* a register whose writes fail; 0 none */
 
 int xmisp_sensor_write(struct xmisp *isp, uint32_t reg, uint32_t val) {
+  if (fail_reg && reg == fail_reg)
+    return -1;
   regs[reg & 0xffff] = (uint16_t)val;
   writes++;
   return 0;
@@ -165,6 +168,21 @@ static void sc1235(void) {
        RV({0x3e08, 0x1f}, {0x3e09, 0x12}, {0x3301, 0xff}, {0x5781, 0x04}));
   step(n, s, 996,
        RV({0x3e08, 0x1f}, {0x3e09, 0x1a}, {0x5781, 0x02}, {0x5785, 0x08}));
+  /* 960p passed 9x and 13x only: at 12.5x it keeps the lower setting */
+  step(n, s, 996, RV({0x3e08, 0x1f}, {0x3e09, 0x19}, {0x5781, 0x04}));
+}
+
+/* A write failing inside the SmartSens group hold still releases it. */
+static void group_release(void) {
+  memset(regs, 0, sizeof(regs));
+  fail_reg = 0x3301;
+  float g = 2.5f;
+  if (xmisp_sensor_sc1235_720p.set_exposure(NULL, 746, &g) == 0)
+    fail("SC1235", "set_exposure succeeded with 0x3301 failing%.0f%.0f", 0, 0);
+  if (regs[0x3812] != 0x30)
+    fail("SC1235", "group held after a failed write: 0x3812 = %.0f%.0f",
+         regs[0x3812], 0);
+  fail_reg = 0;
 }
 
 static void sc2145h(void) {
@@ -241,6 +259,7 @@ static void ov(void) {
 int main(void) {
   soi();
   sc1235();
+  group_release();
   sc2145h();
   sc2235();
   sc1135();

@@ -26,14 +26,18 @@ static const struct xmisp_ss_range analog_960p[] = {
     {4.0f, {0x3631, 0x3301, 0x3633}, {0x88, 0xff, 0x43}},
 };
 /* Both modes: 0x04, 0x18 at 9x; 0x02, 0x08 at 12.5x (720p) and 13x
- * (960p). */
-static const struct xmisp_ss_range post[] = {
+ * (960p), the first gains above 9x the ramps passed. */
+static const struct xmisp_ss_range post_720p[] = {
     {0.0f, {0x5781, 0x5785}, {0x04, 0x18}},
     {12.5f, {0x5781, 0x5785}, {0x02, 0x08}},
 };
+static const struct xmisp_ss_range post_960p[] = {
+    {0.0f, {0x5781, 0x5785}, {0x04, 0x18}},
+    {13.0f, {0x5781, 0x5785}, {0x02, 0x08}},
+};
 
-static const struct xmisp_ss ss_720p = {3, analog_720p, 3, post, 2};
-static const struct xmisp_ss ss_960p = {3, analog_960p, 3, post, 2};
+static const struct xmisp_ss ss_720p = {3, analog_720p, 3, post_720p, 2};
+static const struct xmisp_ss ss_960p = {3, analog_960p, 3, post_960p, 2};
 
 static int get_exposure(struct xmisp *isp, uint32_t *lines, float *gain) {
   return xmisp_ss_get(isp, lines, gain);

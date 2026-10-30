@@ -82,9 +82,11 @@ int xmisp_ss_set(struct xmisp *isp, const struct xmisp_ss *ss, uint32_t lines,
   if (update(isp) < 0 || xmisp_sensor_write(isp, REG_EXP_CTRL, 0x02) < 0 ||
       xmisp_sensor_write(isp, REG_LINES_HI, (lines >> 4) & 0xff) < 0 ||
       xmisp_sensor_write(isp, REG_LINES_LO, (lines << 4) & 0xf0) < 0 ||
-      update(isp) < 0 || xmisp_sensor_write(isp, REG_GROUP, GROUP_START) < 0 ||
-      ranges_write(isp, ss->analog, ss->n_analog, g) < 0 ||
-      xmisp_sensor_write(isp, REG_GROUP, GROUP_END) < 0 ||
+      update(isp) < 0 || xmisp_sensor_write(isp, REG_GROUP, GROUP_START) < 0)
+    return -1;
+  /* The group is released even when a write in it failed. */
+  const int held = ranges_write(isp, ss->analog, ss->n_analog, g);
+  if (xmisp_sensor_write(isp, REG_GROUP, GROUP_END) < 0 || held < 0 ||
       xmisp_sensor_write(isp, REG_COARSE, c) < 0 ||
       xmisp_sensor_write(isp, REG_FINE, f) < 0 ||
       ranges_write(isp, ss->post, ss->n_post, g) < 0)
