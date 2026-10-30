@@ -36,9 +36,14 @@ written relative to wherever the block is allocated. The probe keeps only
 the sensor's own bus: a trace taken under emulation also shows the vendor
 daemon's probes for the sensors before it, which are dropped with their
 delays. In the probe the reads are the
-chip ID, checked at start, except a read of 0: under emulation that's a
-register the sensor model doesn't preset, not part of the ID. Elsewhere a
-read is only replayed.
+chip ID, checked at start: the last run of reads (the daemon stops once
+one matches), or only the registers --id names, and never a read of 0 (under
+emulation, a register the sensor model doesn't preset). Earlier reads on
+the sensor's bus belong to other probes and are only replayed, as is any
+read outside the probe. --id is for a value the probe sequence itself puts
+there: a 16-bit register address sent to an 8-bit device writes its low
+byte as data, so after the SmartSens probe of 0x3005 an MIS1002 reads 0x05
+at 0x30.
 
 --ignore names ISP registers whose value the daemon computes from what it
 reads of the hardware: under emulation they read 0, so the reference's
@@ -238,7 +243,7 @@ class Trace:
             self.fail(f"sensor writes on more than one bus: {sorted(buses)}")
         return buses.pop()
 
-    def part(self, name, bus):
+    def part(self, name, bus, ids=None):
         steps = [s for n, st in self.segs if n == name for s in st]
         if name == "probe":
             # Only the sensor's own address and register width; a delay goes
@@ -255,8 +260,13 @@ class Trace:
             steps = kept
             while steps and steps[0][0] == "XMISP_DELAY_MS":
                 steps.pop(0)
-            for s in steps:
-                if s[0] == "XMISP_I2C_R" and s[2]:
+            # The chip ID is the last run of reads: the daemon stops probing
+            # once it matches. Earlier reads on the bus are other probes.
+            last = len(steps)
+            while last and steps[last - 1][0] in ("XMISP_I2C_R", "XMISP_DELAY_MS"):
+                last -= 1
+            for k, s in enumerate(steps):
+                if s[0] == "XMISP_I2C_R" and s[2] and k >= last and (not ids or s[1] in ids):
                     s[0], s[3] = "XMISP_I2C_EXPECT", "chip ID"
         # The interpreter drives every sensor step with the script's widths.
         for s in steps:
@@ -353,6 +363,7 @@ def main():
     ap.add_argument("--fixed", help="frame range FIRST-LAST")
     ap.add_argument("--sensor", help="3A driver, e.g. h62")
     ap.add_argument("--ignore", default="", help="ISP registers to keep from REF")
+    ap.add_argument("--id", default="", help="the probe's chip ID registers, if not all its last reads")
     ap.add_argument("-m", help="register map header, for comments")
     a = ap.parse_args()
     regname = decode.namer(*decode.load_names(a.m)) if a.m else lambda x: ""
@@ -384,7 +395,8 @@ def main():
     tr = Trace(path, lo, hi, regname)
     bus = tr.bus()
     over, buf = overrides(ref, tr, ignore)
-    parts = {p: tr.part(p, bus) for p in PARTS}
+    ids = {int(x, 0) for x in a.id.split(",") if x}
+    parts = {p: tr.part(p, bus, ids) for p in PARTS}
 
     src = os.path.basename(path)
     print(f"""// SPDX-License-Identifier: MIT

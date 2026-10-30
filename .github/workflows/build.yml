@@ -180,7 +180,7 @@ jobs:
                 xmisp_awb_candidates xmisp_expand xmisp_xm510_start \
                 xmisp_h42_720p xmisp_h65_720p xmisp_sc1235_720p \
                 xmisp_sc1245_720p xmisp_sc2235_1080p xmisp_ar0130_720p \
-                xmisp_ov9750_720p
+                xmisp_ov9750_720p xmisp_ov9732_720p xmisp_mis1002_720p
           exit $fail
 
       - name: Assert no vendor libs in NEEDED
