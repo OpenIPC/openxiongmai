@@ -151,7 +151,7 @@ step the one its trace gave before the template was split out
 | `sensors/soi_jxh42/h42_720p.c` | JX-H42 (`0x30`, `0xa042`) | 1280x720 | no | emulated |
 | `sensors/soi_jxh65/h65_720p.c` | JX-H65 (`0x30`, `0x0a65`) | 1280x720 | no | emulated |
 | `sensors/smartsens_sc1235/sc1235_720p.c` | SC1235 (`0x30`, `0x1235`) | 1280x720 | no | emulated |
-| `sensors/smartsens_sc1245/sc1245_720p.c` | SC1245 (`0x30`, `0x1245`) | 1280x720 | no | emulated |
+| `sensors/smartsens_sc2145h/sc2145h_720p.c` | SC2145H (`0x30`, `0x1245`) | 1280x720 | no | emulated |
 | `sensors/smartsens_sc2235/sc2235_1080p.c` | SC2235 (`0x30`, `0x2235`) | 1136x1080 | no | emulated |
 | `sensors/onsemi_ar0130/ar0130_720p.c` | AR0130 (`0x10`, `0x2402`) | 1280x720 | yes | 53X13 XM510 board |
 | `sensors/omnivision_ov9750/ov9750_720p.c` | OV9750 (`0x36`, `0x9750` at `0x300b`) | 1280x720 | no | emulated |

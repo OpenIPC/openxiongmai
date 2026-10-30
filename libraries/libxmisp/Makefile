@@ -13,7 +13,7 @@ SENSORS = sensors/soi_jxh62/sensor.o sensors/soi_jxh62/jxh62_720p.o \
           sensors/smartsens_sc1235/sc1235_960p.o \
           sensors/smartsens_sc1135/sc1135_720p.o \
           sensors/smartsens_sc1135/sc1135_960p.o \
-          sensors/smartsens_sc1245/sc1245_720p.o \
+          sensors/smartsens_sc2145h/sc2145h_720p.o \
           sensors/smartsens_sc2235/sc2235_1080p.o \
           sensors/onsemi_ar0130/sensor.o sensors/onsemi_ar0130/ar0130_720p.o \
           sensors/omnivision_ov9750/ov9750_720p.o \

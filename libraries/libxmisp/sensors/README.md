@@ -16,7 +16,7 @@ One directory per sensor, `<vendor>_<model>/`, containing:
 | `soi_jxh42` | 720p | no | no |
 | `soi_jxh65` | 720p, 960p | no | no |
 | `smartsens_sc1235` | 720p, 960p | no | no |
-| `smartsens_sc1245` | 720p | no | no |
+| `smartsens_sc2145h` | 720p | no | no |
 | `smartsens_sc2235` | 1080p (1136x1080) | no | no |
 | `onsemi_ar0130` | 720p, 25 fps | yes | yes (53X13 XM510 board) |
 | `omnivision_ov9750` | 720p | no | no |
@@ -51,7 +51,9 @@ it in qemu-bench instead:
   (`sensor=xm-sensor,sensor-addr=…`, `-global xm-sensor.regs=…`; see
   qemu-bench's `docs/xiongmai.md`).
 
-The daemon logs `[X1x]<name> sensor init OK` when it takes the sensor. With
+The daemon logs `[X1x]<name> sensor init OK` (or its own form, such as
+`SC2145H 25fps init ok`) when it takes the sensor: name the script from that
+line, not from the chip ID's digits (`0x1245` is an SC2145H). With
 `sensor=none` its I2C traffic in the trace shows the probes it tries. The
 sensors it knows are named in its log strings (`strings /usr/bin/isp`);
 their chip IDs come from public tables (ipctool) or a sweep of the probe in
