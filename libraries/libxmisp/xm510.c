@@ -398,6 +398,8 @@ static int ae_start(struct xmisp *s) {
   cfg.lines_min = sn->lines_min;
   cfg.lines_max = sn->lines_max;
   cfg.gain_max = sn->gain_max;
+  if (sn->ae_target > 0)
+    cfg.target = sn->ae_target;
   xmisp_ae_init(&s->ae, &cfg, s->lines, s->gain);
   s->ae_on = 1;
   return 0;
