@@ -10,7 +10,7 @@ REF is the reference trace, or the template it made (xm510_start.c).
 
 What the vendor daemon did before the first frame, in order, splits the
 same way for every sensor it supports (XM510: JX-H62, JX-H42, JX-H65,
-SC1235, SC1245, SC2235, AR0130, OV9750):
+SC1235, SC2145H, SC2235, AR0130, OV9750):
 
     MMZ, VI and region resets, the first PLL setup     SoC
     the chip ID probe                                  sensor: probe
