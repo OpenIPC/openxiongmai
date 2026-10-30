@@ -9,7 +9,9 @@ checked by its MD5. Each table is register/value pairs of 16 bits each.
 
 BUILD/SENSOR.tab lists the sensor's tables in that build, one a line: the
 array's name, the address, the number of pairs (the vendor's init loop's),
-and what the vendor logs for it.
+and what the vendor logs for it. A line "format u8u8" makes the tables
+after it pairs of bytes (sensors with 8-bit register addresses); the
+default is "format u16u16".
 """
 import hashlib
 import os
@@ -39,15 +41,19 @@ def main():
           (sensor.upper(), sensor))
     print(" * tools/xmv200-sns/extract.py from the vendor isp %s */" % md5)
     print('#include "sns.h"')
+    fmt, size = "<HH", 4
     for line in open(tab):
         if not line.strip() or line.startswith("#"):
+            continue
+        if line.split()[0] == "format":
+            fmt, size = {"u16u16": ("<HH", 4), "u8u8": ("<BB", 2)}[line.split()[1]]
             continue
         name, addr, n, what = line.split(None, 3)
         addr, n = int(addr, 0), int(n, 0)
         print("\n/* %s */" % what.strip())
         print("const struct xmv200_sns_reg %s[%d] = {" % (name, n))
         for i in range(n):
-            reg, val = struct.unpack_from("<HH", data, addr - base + i * 4)
+            reg, val = struct.unpack_from(fmt, data, addr - base + i * size)
             if val > 0xff:
                 sys.exit("%s: %04x = %x is not a byte" % (name, reg, val))
             print("    {0x%04x, 0x%02x}," % (reg, val))

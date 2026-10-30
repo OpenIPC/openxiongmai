@@ -1,0 +1,6 @@
+# name address pairs what-the-vendor-logs
+format u8u8
+h63_dvp 0x73359 96 h63 (@20230317_DVP)
+h63_mipi 0x73419 106 h63
+h63p_dvp 0x74506 98 h63p (DVP)
+h63p_mipi 0x745ca 108 h63p
