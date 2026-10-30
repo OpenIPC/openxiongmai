@@ -1,0 +1,3 @@
+# name address pairs what-the-vendor-logs
+sc4210_linear 0x9a008 267 sc4210 4M linear init ok! (@20210827_4lane)
+sc4210_hdr 0x99b54 301 sc4210 4M HDR init ok! (@20220902_4lane)
