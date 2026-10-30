@@ -247,9 +247,9 @@ class Trace:
             for s in steps:
                 if s[0] == "XMISP_I2C_R" and s[2]:
                     s[0], s[3] = "XMISP_I2C_EXPECT", "chip ID"
+        # The interpreter drives every sensor step with the script's widths.
         for s in steps:
-            if s[4] and s[0] in I2C_OPS + ("XMISP_I2C_EXPECT",) and s[4][2] != bus[2] \
-                    and name != "probe":
+            if s[4] and s[0] in I2C_OPS + ("XMISP_I2C_EXPECT",) and s[4][2] != bus[2]:
                 self.fail(f"{name}: a {s[4][2]}-byte sensor value on a {bus[2]}-byte bus")
         if not any(s[0] == "XMISP_I2C_EXPECT" for s in steps) and name == "probe":
             self.fail("no chip ID read on the sensor's bus")
@@ -267,10 +267,12 @@ class Template:
 
     def __init__(self, path):
         self.path, self.steps = path, []
-        for line in open(path):
-            m = self.STEP.search(line)
-            if m and m.group(1) not in ("XMISP_END", "XMISP_SENSOR"):
+        src = re.sub(r"/\*.*?\*/", "", open(path).read(), flags=re.S)
+        for m in self.STEP.finditer(src):  # clang-format may put two on a line
+            if m.group(1) not in ("XMISP_END", "XMISP_SENSOR"):
                 self.steps.append([m.group(1), int(m.group(2), 0), int(m.group(3), 0), "", None])
+        if not self.steps:
+            self.fail("no template steps")
 
     def soc(self):
         return self.steps
@@ -341,7 +343,7 @@ def main():
     ap.add_argument("--sensor", help="3A driver, e.g. h62")
     ap.add_argument("--ignore", default="", help="ISP registers to keep from REF")
     ap.add_argument("-m", help="register map header, for comments")
-    a, rest = ap.parse_known_args()
+    a = ap.parse_args()
     regname = decode.namer(*decode.load_names(a.m)) if a.m else lambda x: ""
 
     if a.soc:

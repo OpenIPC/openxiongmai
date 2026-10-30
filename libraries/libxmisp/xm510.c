@@ -348,9 +348,10 @@ static int run(struct xmisp *s, const struct xmisp_op *op) {
         probing = 0;
       break;
     case XMISP_I2C_R:
+      /* Replayed for its side effects; nothing uses the value, so a failed
+       * read doesn't stop the start-up. */
       v = 0;
-      if (i2c(s, I2C_READ, op->a, &v) < 0)
-        return fail(s, "sensor read %#x: %s", op->a, strerror(errno));
+      (void)i2c(s, I2C_READ, op->a, &v);
       break;
     case XMISP_VI_IOW:
       if (ioctl(s->vi, op->a, (void *)&args[op->b + 1]) < 0)
@@ -773,8 +774,10 @@ int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
     s->script = *scripts;
     const unsigned n = xmisp_expand(xmisp_xm510_start, s->script, NULL, 0);
     struct xmisp_op *start = malloc(n * sizeof(*start));
-    if (!start)
+    if (!start) {
+      s->script = NULL;
       return fail(s, "start-up of %u steps: %s", n, strerror(errno));
+    }
     xmisp_expand(xmisp_xm510_start, s->script, start, n);
     int r = run(s, start);
     free(start);
