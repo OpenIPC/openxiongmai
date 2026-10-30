@@ -379,9 +379,14 @@ jobs:
           make -C drivers/xm535_isp KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
+      - name: Build xm535w1_isp
+        run: |
+          make -C drivers/xm535w1_isp KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
       - name: Verify modules
         run: |
-          modules="drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/open_h264.ko drivers/xm_mmz/open_mmz.ko drivers/xm_hevc/open_hevc.ko drivers/xm_v200_i2c/open_i2c.ko drivers/xm_v200_sys/open_sys.ko drivers/xm_v200_vb/open_vb.ko drivers/xm_v200_venc/open_venc.ko drivers/xm_v200_rgn/open_rgn.ko drivers/xm533_vi/open_vi.ko drivers/xm535_vpss/open_vpss.ko drivers/xm535w1_vi/open_vi.ko drivers/xm530v200_vpss/open_vpss.ko drivers/xm_v200_adc/open_adc.ko drivers/xm_v200_ddr/open_ddr.ko drivers/xm_v200_log/open_log.ko drivers/xm_v200_acodec/open_acodec.ko drivers/xm_v200_i2s/open_i2s.ko drivers/xm533_mipi_io/open_mipi_io.ko $RUNNER_TEMP/hx280enc-v200/open_h264.ko drivers/xm530v200_jpeg/open_jpeg.ko drivers/xm533_venc_mem/open_venc_mem.ko drivers/xm_v200_nn/open_nn.ko drivers/xm533_ive/open_ive.ko drivers/xm530v200_vo/open_vo.ko drivers/xm533_isp/open_isp.ko drivers/xm530v200_isp/open_isp.ko drivers/xm535_isp/open_isp.ko"
+          modules="drivers/xm_i2c/xm_i2c.ko drivers/hx280enc/open_h264.ko drivers/xm_mmz/open_mmz.ko drivers/xm_hevc/open_hevc.ko drivers/xm_v200_i2c/open_i2c.ko drivers/xm_v200_sys/open_sys.ko drivers/xm_v200_vb/open_vb.ko drivers/xm_v200_venc/open_venc.ko drivers/xm_v200_rgn/open_rgn.ko drivers/xm533_vi/open_vi.ko drivers/xm535_vpss/open_vpss.ko drivers/xm535w1_vi/open_vi.ko drivers/xm530v200_vpss/open_vpss.ko drivers/xm_v200_adc/open_adc.ko drivers/xm_v200_ddr/open_ddr.ko drivers/xm_v200_log/open_log.ko drivers/xm_v200_acodec/open_acodec.ko drivers/xm_v200_i2s/open_i2s.ko drivers/xm533_mipi_io/open_mipi_io.ko $RUNNER_TEMP/hx280enc-v200/open_h264.ko drivers/xm530v200_jpeg/open_jpeg.ko drivers/xm533_venc_mem/open_venc_mem.ko drivers/xm_v200_nn/open_nn.ko drivers/xm533_ive/open_ive.ko drivers/xm530v200_vo/open_vo.ko drivers/xm533_isp/open_isp.ko drivers/xm530v200_isp/open_isp.ko drivers/xm535_isp/open_isp.ko drivers/xm535w1_isp/open_isp.ko"
           [ "${{ matrix.soc }}" = xm530 ] && modules="$modules drivers/xm_vi/open_vi.ko"
           for ko in $modules; do
             [ -f "$ko" ] || { echo "MISSING: $ko" >&2; exit 1; }
