@@ -142,7 +142,27 @@ static const struct xmv200_sns_mode modes[] = {
     {"1080p mipi", {0, 0, 0, 0}, sc202cs_mipi, N(sc202cs_mipi)},
 };
 
+/* at 0x10, unlike the other SmartSens parts: its chip ID as theirs */
+static uint32_t probe(int bus, uint8_t addr) {
+  uint32_t hi, lo;
+
+  if (xmv200_i2c_read(bus, addr, 0x3107, 2, &hi, 1) ||
+      xmv200_i2c_read(bus, addr, 0x3108, 2, &lo, 1) ||
+      ((hi & 0xff) << 8 | (lo & 0xff)) != 0xeb52)
+    return 0;
+  return 0xeb52;
+}
+
+/* the tuning's runs: init and the AE's start (its frame rate does
+ * nothing), which the vendor's AE begins at 8x analog gain */
+static void run(const struct xmv200_sns_dev *d, int n,
+                const struct xmv200_sns_ctx *c);
+
 const struct xmv200_sns_drv xmv200_sns_sc202cs = {
+    .probe = probe,
+    .probe_addr = {0x10},
+    .n_runs = 2,
+    .run = run,
     .name = "SC202CS",
     .modes = modes,
     .n_modes = N(modes),
@@ -156,3 +176,17 @@ const struct xmv200_sns_drv xmv200_sns_sc202cs = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+static void run(const struct xmv200_sns_dev *d, int n,
+                const struct xmv200_sns_ctx *c) {
+  uint32_t idx, reg, real;
+
+  if (n == 0) {
+    xmv200_sns_init_step(&xmv200_sns_sc202cs, d, c);
+    return;
+  }
+  set_exposure(d, c->exp_lines);
+  again_calc(0x100, &idx, &real);
+  dgain_calc(0x20, &reg, &real);
+  set_gain(d, idx, reg);
+}

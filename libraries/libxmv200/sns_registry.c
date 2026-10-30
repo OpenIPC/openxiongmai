@@ -15,6 +15,7 @@ extern const struct xmv200_sns_tuning xmv200_tuning_sc1345;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1346;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1a4t;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc200ai;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc202cs;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2210;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc223ap;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc231ai;
@@ -78,6 +79,7 @@ const struct xmv200_sns xmv200_sensors[] = {
     {0xda4d, "SC1346", &xmv200_tuning_sc1346},
     {0x9a4d, "SC1A4T", &xmv200_tuning_sc1a4t},
     {0xcb1c, "SC200AI", &xmv200_tuning_sc200ai},
+    {0xeb52, "SC202CS", &xmv200_tuning_sc202cs},
     {0x2210, "SC2210", &xmv200_tuning_sc2210},
     {0xcb3e, "SC223AP", &xmv200_tuning_sc223ap},
     {0xcb6a, "SC231AI", &xmv200_tuning_sc231ai},

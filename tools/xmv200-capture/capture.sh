@@ -4,7 +4,8 @@
 #   MACHINE  qemu-bench machine (xm530v200); CAP_H / CAP_ISZ for another
 #            chip's modules (see cap.py)
 #   SENSOR_MODEL  another sensor model than SmartSens, qemu-bench's
-#            TYPE@ADDR (e.g. hisi-imx335@1a); CHIP_ID then only names it
+#            TYPE@ADDR (e.g. hisi-imx335@1a); CHIP_ID then only names it.
+#            hisi-smartsens@ADDR: the SmartSens CHIP_ID at another address
 #
 # Runs a stock XM530V200 firmware image under qemu-bench with a SmartSens
 # sensor of CHIP_ID (e.g. cb3a) and records the reference gen_tuning.py
@@ -15,7 +16,11 @@ set -e
 ID=$1; O=$2; P=${3:-1234}
 : "${QEMU:?set QEMU to the qemu-bench qemu-system-arm}" "${IMAGE:?set IMAGE to the stock firmware}"
 D=$(cd "$(dirname "$0")" && pwd)
-SNS=sensor-id=$ID; [ -n "$SENSOR_MODEL" ] && SNS=sensor=$SENSOR_MODEL
+SNS=sensor-id=$ID
+case "$SENSOR_MODEL" in
+hisi-smartsens@*) SNS=sensor=$SENSOR_MODEL,sensor-id=$ID ;; # at another address
+?*) SNS=sensor=$SENSOR_MODEL ;;
+esac
 mkdir -p "$O"; rm -f "$O/merged.trace"; cp "$IMAGE" "$O/flash.bin"
 XM_REGTRACE="$O/merged.trace" timeout 500 "$QEMU" \
     -M "${MACHINE:-xm530v200}",flash-file="$O/flash.bin","$SNS" -m 128M \
