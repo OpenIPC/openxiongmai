@@ -6,6 +6,11 @@
 
 #include "sns.h"
 
+/* one line a driver (sns_<sensor>.c) */
+extern const struct xmv200_sns_drv xmv200_sns_sc2336;
+extern const struct xmv200_sns_drv xmv200_sns_sc2336p;
+extern const struct xmv200_sns_drv xmv200_sns_sc2337p;
+
 static const struct xmv200_sns_drv *const drivers[] = {
     &xmv200_sns_sc2336,
     &xmv200_sns_sc2336p,
