@@ -411,6 +411,7 @@ int xmv200_board_layout(const char *name, struct xmv200_layout *l) {
 static int layout_board(const struct xmv200_layout *l, struct board *b) {
   const char *family = family_of(l->chip ? l->chip : xmv200_chip_name());
   const struct xmv200_sns_tuning *t = NULL;
+  const char *model = NULL;
 
   memset(b, 0, sizeof(*b));
   if (l->n_sensors < 1 || l->n_sensors > XMV200_MAX_SENSORS ||
@@ -432,6 +433,7 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
       return -1;
     }
     t = sn->tuning;
+    model = sn->name;
     b->isp.sensor[c] =
         (struct xmv200_isp_sensor){ls->bus, ls->addr, ls->flip};
     b->isp.chn[c] = (struct xmv200_isp_chn){
@@ -451,6 +453,11 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
   b->isp.n_chn = l->n_sensors;
   b->n_streams = l->n_streams;
   b->fps = l->fps ? l->fps : 12;
+  /* the sensor's driver, in the mode the tuning is of */
+  b->isp.mode = xmv200_sns_find(model, t, &b->isp.drv);
+  if (b->isp.mode)
+    b->isp.attr = b->isp.mode->attr;
+  b->isp.attr.fps = b->fps;
   for (int s = 0; s < l->n_streams; s++) {
     uint32_t w = l->stream[s].width, h = l->stream[s].height;
     uint32_t g = l->stream[s].sensors & ((1u << l->n_sensors) - 1);

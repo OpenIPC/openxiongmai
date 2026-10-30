@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 
+#include "sns.h"
+
 struct xmv200_sns_tuning;
 
 struct xmv200_isp_sensor {
@@ -33,6 +35,10 @@ struct xmv200_isp_cfg {
   int n_chn;
   struct xmv200_isp_chn chn[3];
   struct xmv200_isp_sensor sensor[3];
+  /* the sensors' driver and its mode, or NULL: the tuning's recorded runs */
+  const struct xmv200_sns_drv *drv;
+  const struct xmv200_sns_mode *mode;
+  struct xmv200_sns_attr attr; /* the mode's, and the frame rate */
 };
 
 /* What differs between the chip families' kernel modules and clocks, for
@@ -81,6 +87,8 @@ struct xmv200_ae_sensor {
 
 /* a layout board's sensors, where[] by channel; handoff: the digital gain
  * goes to the frame thread (frame_answer) */
+/* the frame length a channel's sensor driver set, or 0 */
+uint32_t xmv200_isp_full_lines(uint32_t chn);
 void xmv200_ae_init(const struct xmv200_isp_cfg *cfg,
                     const struct xmv200_ae_sensor *where, int handoff);
 #endif

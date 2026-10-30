@@ -168,7 +168,43 @@ struct chn_place {
   int first_on_phy, n_on_phy;
 };
 
-static int run_program(const struct xmv200_isp_chn *c,
+/* what each channel's sensor driver set: the frame length isp.ko and AE
+ * take */
+static struct xmv200_sns_ae sns_ae[3];
+
+/*
+ * A tuning's three sensor runs are what the vendor's libsns does in turn:
+ * the mode's registers, the frame rate, and the exposure and gain the ISP
+ * starts from. With a driver, the driver does them.
+ */
+static void sns_run(const struct xmv200_isp_cfg *cfg,
+                    const struct xmv200_isp_chn *c,
+                    const struct xmv200_isp_sensor *s, int n) {
+  const struct xmv200_sns_drv *drv = cfg->drv;
+  const struct xmv200_sns_tuning *t = cfg->tuning;
+  struct xmv200_sns_dev d = {s->bus, s->addr, c->chn};
+  struct xmv200_sns_ae *ae = &sns_ae[c->chn < 3 ? c->chn : 0];
+  uint32_t idx, reg, real;
+
+  switch (n) {
+  case 0:
+    drv->init(&d, cfg->mode, &cfg->attr);
+    break;
+  case 1:
+    drv->ae_default(&cfg->attr, ae);
+    drv->set_fps(&d, &cfg->attr, cfg->attr.fps, ae);
+    break;
+  case 2:
+    drv->set_exposure(&d, t->exp_lines);
+    drv->again_calc(0x20, &idx, &real);
+    drv->dgain_calc(0x20, &reg, &real);
+    drv->set_gain(&d, idx, reg);
+    break;
+  }
+}
+
+static int run_program(const struct xmv200_isp_cfg *cfg,
+                       const struct xmv200_isp_chn *c,
                        const struct xmv200_isp_sensor *s,
                        const struct xmv200_sns_tuning *t,
                        const struct xmv200_chip *chip, struct chn_place pl) {
@@ -198,7 +234,10 @@ static int run_program(const struct xmv200_isp_chn *c,
     if (op & 0x2000) {
       if ((op & 0xff) >= t->n_runs)
         return -1;
-      sns_table(s, t->runs[op & 0xff].regs, t->runs[op & 0xff].n);
+      if (cfg->drv && t->n_runs == 3)
+        sns_run(cfg, c, s, op & 0xff);
+      else
+        sns_table(s, t->runs[op & 0xff].regs, t->runs[op & 0xff].n);
       continue;
     }
     switch (op) {
@@ -227,6 +266,8 @@ static int run_program(const struct xmv200_isp_chn *c,
 
       memcpy(a, t->chn_attr, sizeof(a));
       a[0] = c->chn | (chip->chn_attr_idx ? c->vi_idx << 4 : 0);
+      if (cfg->drv && sns_ae[c->chn < 3 ? c->chn : 0].full_lines)
+        a[2] = sns_ae[c->chn < 3 ? c->chn : 0].full_lines;
       r = isp_cmd(ISP_CHN_ATTR, a);
       break;
     }
@@ -390,7 +431,7 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
 
       isp_cmd(ISP_COMM, a);
     }
-    if (run_program(ch, &cfg->sensor[c], t, chip, pl))
+    if (run_program(cfg, ch, &cfg->sensor[c], t, chip, pl))
       return -1;
   }
 
@@ -405,4 +446,8 @@ void xmv200_isp_stop(void) {
     isp_running = 0;
     pthread_join(isp_thread, NULL);
   }
+}
+
+uint32_t xmv200_isp_full_lines(uint32_t chn) {
+  return chn < 3 ? sns_ae[chn].full_lines : 0;
 }
