@@ -173,34 +173,18 @@ struct chn_place {
 static struct xmv200_sns_ae sns_ae[3];
 
 /*
- * A tuning's three sensor runs are what the vendor's libsns does in turn:
- * the mode's registers, the frame rate, and the exposure and gain the ISP
- * starts from. With a driver, the driver does them.
+ * A tuning's sensor runs are what the vendor's libsns does in turn: the
+ * mode's registers, the frame rate, and the exposure and gain the ISP
+ * starts from. With a driver, the driver does them (xmv200_sns_run).
  */
 static void sns_run(const struct xmv200_isp_cfg *cfg,
                     const struct xmv200_isp_chn *c,
                     const struct xmv200_isp_sensor *s, int n) {
-  const struct xmv200_sns_drv *drv = cfg->drv;
-  const struct xmv200_sns_tuning *t = cfg->tuning;
   struct xmv200_sns_dev d = {s->bus, s->addr, c->chn};
-  struct xmv200_sns_ae *ae = &sns_ae[c->chn < 3 ? c->chn : 0];
-  uint32_t idx, reg, real;
+  struct xmv200_sns_ctx ctx = {cfg->mode, cfg->attr, cfg->tuning->exp_lines,
+                               &sns_ae[c->chn < 3 ? c->chn : 0]};
 
-  switch (n) {
-  case 0:
-    drv->init(&d, cfg->mode, &cfg->attr);
-    break;
-  case 1:
-    drv->ae_default(&cfg->attr, ae);
-    drv->set_fps(&d, &cfg->attr, cfg->attr.fps, ae);
-    break;
-  case 2:
-    drv->set_exposure(&d, t->exp_lines);
-    drv->again_calc(0x20, &idx, &real);
-    drv->dgain_calc(0x20, &reg, &real);
-    drv->set_gain(&d, idx, reg);
-    break;
-  }
+  xmv200_sns_run(cfg->drv, &d, n, &ctx);
 }
 
 static int run_program(const struct xmv200_isp_cfg *cfg,
@@ -234,7 +218,8 @@ static int run_program(const struct xmv200_isp_cfg *cfg,
     if (op & 0x2000) {
       if ((op & 0xff) >= t->n_runs)
         return -1;
-      if (cfg->drv && t->n_runs == 3)
+      if (cfg->drv &&
+          t->n_runs == (cfg->drv->n_runs ? cfg->drv->n_runs : 3))
         sns_run(cfg, c, s, op & 0xff);
       else
         sns_table(s, t->runs[op & 0xff].regs, t->runs[op & 0xff].n);

@@ -49,6 +49,14 @@ struct xmv200_sns_ae {
   uint32_t dgain_min, dgain_max;
 };
 
+/* what a tuning's sensor runs take: the mode, and the AE's start */
+struct xmv200_sns_ctx {
+  const struct xmv200_sns_mode *mode;
+  struct xmv200_sns_attr attr; /* with the frame rate */
+  uint32_t exp_lines;          /* the exposure the tuning starts from */
+  struct xmv200_sns_ae *ae;    /* what the frame rate sets */
+};
+
 struct xmv200_sns_drv {
   const char *name;
   const struct xmv200_sns_mode *modes;
@@ -72,6 +80,11 @@ struct xmv200_sns_drv {
   void (*set_gain)(const struct xmv200_sns_dev *d, uint32_t again_idx,
                    uint32_t dgain_reg);
   void (*set_flip)(const struct xmv200_sns_dev *d, int mirror, int flip);
+  /* the tuning's sensor runs: how many the vendor's libsns makes, and
+   * what each is (NULL: init, frame rate, the AE's start) */
+  int n_runs; /* 0: 3 */
+  void (*run)(const struct xmv200_sns_dev *d, int n,
+              const struct xmv200_sns_ctx *c);
 };
 
 /* the driver for a sensor the registry names ("SC2336"), or NULL */
@@ -88,6 +101,23 @@ xmv200_sns_mode_for(const struct xmv200_sns_drv *drv,
 const struct xmv200_sns_mode *
 xmv200_sns_find(const char *name, const struct xmv200_sns_tuning *t,
                 const struct xmv200_sns_drv **drv);
+
+/* the tuning's sensor run n, by the driver; the default: run 0 the mode's
+ * init, run 1 the frame rate, run 2 the exposure the tuning starts from and
+ * 1x gain */
+void xmv200_sns_run(const struct xmv200_sns_drv *drv,
+                    const struct xmv200_sns_dev *d, int n,
+                    const struct xmv200_sns_ctx *c);
+/* the steps of the default */
+void xmv200_sns_init_step(const struct xmv200_sns_drv *drv,
+                          const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_ctx *c);
+void xmv200_sns_fps_step(const struct xmv200_sns_drv *drv,
+                         const struct xmv200_sns_dev *d,
+                         const struct xmv200_sns_ctx *c);
+void xmv200_sns_ae_step(const struct xmv200_sns_drv *drv,
+                        const struct xmv200_sns_dev *d,
+                        const struct xmv200_sns_ctx *c);
 
 extern const struct xmv200_sns_drv xmv200_sns_sc2336, xmv200_sns_sc2336p,
     xmv200_sns_sc2337p;

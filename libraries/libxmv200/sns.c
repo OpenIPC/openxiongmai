@@ -71,3 +71,47 @@ xmv200_sns_find(const char *name, const struct xmv200_sns_tuning *t,
   *drv = NULL;
   return NULL;
 }
+
+void xmv200_sns_init_step(const struct xmv200_sns_drv *drv,
+                          const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_ctx *c) {
+  drv->init(d, c->mode, &c->attr);
+}
+
+void xmv200_sns_fps_step(const struct xmv200_sns_drv *drv,
+                         const struct xmv200_sns_dev *d,
+                         const struct xmv200_sns_ctx *c) {
+  drv->ae_default(&c->attr, c->ae);
+  drv->set_fps(d, &c->attr, c->attr.fps, c->ae);
+}
+
+void xmv200_sns_ae_step(const struct xmv200_sns_drv *drv,
+                        const struct xmv200_sns_dev *d,
+                        const struct xmv200_sns_ctx *c) {
+  uint32_t idx, reg, real;
+
+  drv->set_exposure(d, c->exp_lines);
+  drv->again_calc(0x20, &idx, &real);
+  drv->dgain_calc(0x20, &reg, &real);
+  drv->set_gain(d, idx, reg);
+}
+
+void xmv200_sns_run(const struct xmv200_sns_drv *drv,
+                    const struct xmv200_sns_dev *d, int n,
+                    const struct xmv200_sns_ctx *c) {
+  if (drv->run) {
+    drv->run(d, n, c);
+    return;
+  }
+  switch (n) {
+  case 0:
+    xmv200_sns_init_step(drv, d, c);
+    break;
+  case 1:
+    xmv200_sns_fps_step(drv, d, c);
+    break;
+  case 2:
+    xmv200_sns_ae_step(drv, d, c);
+    break;
+  }
+}
