@@ -191,6 +191,45 @@ const struct xmv200_sns_drv *xmv200_sns_driver(const char *name,
   return NULL;
 }
 
+static struct {
+  uint16_t reg;
+  uint8_t val;
+} rec[512];
+static int n_rec;
+
+static void record(uint32_t reg, uint32_t val) {
+  if (n_rec < (int)(sizeof(rec) / sizeof(rec[0]))) {
+    rec[n_rec].reg = reg;
+    rec[n_rec].val = val;
+  }
+  n_rec++;
+}
+
+static int same_rec(const struct xmv200_sns_run *r) {
+  int same = n_rec == r->n;
+
+  for (int k = 0; same && k < n_rec; k++)
+    same = rec[k].reg == r->regs[k].reg && rec[k].val == r->regs[k].val;
+  return same;
+}
+
+/* does the mode's init (run 0, through the driver's run hook) write what
+ * the tuning's run 0 recorded */
+static int init_writes_run0(const struct xmv200_sns_drv *drv,
+                            const struct xmv200_sns_mode *m,
+                            const struct xmv200_sns_tuning *t) {
+  struct xmv200_sns_dev d = {0, 0x30, 0};
+  struct xmv200_sns_ae ae = {0};
+  struct xmv200_sns_ctx c = {m, m->attr, t->exp_lines, &ae};
+
+  c.attr.fps = 12;
+  n_rec = 0;
+  xmv200_i2c_divert = record;
+  xmv200_sns_run(drv, &d, 0, &c);
+  xmv200_i2c_divert = NULL;
+  return same_rec(&t->runs[0]);
+}
+
 static int same_regs(const struct xmv200_sns_mode *m,
                      const struct xmv200_sns_run *run) {
   if (m->n != run->n)
@@ -218,9 +257,13 @@ xmv200_sns_mode_for(const struct xmv200_sns_drv *drv,
     }
     return NULL;
   }
-  /* the mode the tuning was captured in */
+  /* the mode the tuning was captured in: its table, or what its init
+   * writes (done without writing) */
   for (int i = 0; t && t->n_runs && i < drv->n_modes; i++)
     if (same_regs(&drv->modes[i], &t->runs[0]))
+      return &drv->modes[i];
+  for (int i = 0; t && t->n_runs && i < drv->n_modes; i++)
+    if (init_writes_run0(drv, &drv->modes[i], t))
       return &drv->modes[i];
   return NULL;
 }
@@ -293,20 +336,6 @@ void xmv200_sns_run(const struct xmv200_sns_drv *drv,
   }
 }
 
-static struct {
-  uint16_t reg;
-  uint8_t val;
-} rec[512];
-static int n_rec;
-
-static void record(uint32_t reg, uint32_t val) {
-  if (n_rec < (int)(sizeof(rec) / sizeof(rec[0]))) {
-    rec[n_rec].reg = reg;
-    rec[n_rec].val = val;
-  }
-  n_rec++;
-}
-
 uint32_t xmv200_sns_capture_fps(const struct xmv200_sns_drv *drv,
                                 const struct xmv200_sns_mode *m,
                                 const struct xmv200_sns_tuning *t,
@@ -329,13 +358,43 @@ uint32_t xmv200_sns_capture_fps(const struct xmv200_sns_drv *drv,
     n_rec = 0;
     xmv200_sns_run(drv, d, 1, &c);
     xmv200_i2c_divert = NULL;
-    same = n_rec == r->n;
-    for (int k = 0; same && k < n_rec; k++)
-      same = rec[k].reg == r->regs[k].reg && rec[k].val == r->regs[k].val;
+    same = same_rec(r);
     if (same) {
       found = rates[i];
       break;
     }
   }
   return found;
+}
+
+uint32_t xmv200_sns_probe(int bus, uint8_t addr, const char *family) {
+  for (unsigned i = 0; i < sizeof(drivers) / sizeof(drivers[0]); i++) {
+    const struct xmv200_sns_drv *d = drivers[i];
+    uint32_t id;
+
+    if (!d->probe || strcmp(family_of(d), family) ||
+        (d->probe_addr[0] != addr && d->probe_addr[1] != addr))
+      continue;
+    if ((id = d->probe(bus, addr)))
+      return id;
+  }
+  return 0;
+}
+
+int xmv200_sns_probe_addrs(const char *family, uint8_t *addr, int n) {
+  int k = 0;
+
+  for (unsigned i = 0; i < sizeof(drivers) / sizeof(drivers[0]); i++)
+    for (int j = 0; drivers[i]->probe && j < 2; j++) {
+      uint8_t a = drivers[i]->probe_addr[j];
+      int seen = !a;
+
+      if (strcmp(family_of(drivers[i]), family))
+        continue;
+      for (int m = 0; m < k; m++)
+        seen |= addr[m] == a;
+      if (!seen && k < n)
+        addr[k++] = a;
+    }
+  return k;
 }

@@ -156,6 +156,20 @@ static void set_flip(const struct xmv200_sns_dev *d, int mirror, int flip) {
   w(d, 0x3116, flip ? 2 : 8);
 }
 
+/* the vendor's probe: 0x3302 reads 0x32; the registry's ID for it */
+static uint32_t probe(int bus, uint8_t addr) {
+  uint32_t v;
+
+  if (xmv200_i2c_read(bus, addr, 0x3302, 2, &v, 1) || (v & 0xff) != 0x32)
+    return 0;
+  return 0x0335;
+}
+
+/* The tuning's runs: init, frame rate, the AE's start, and the flip the
+ * vendor's ISP sets after them (off) */
+static void run(const struct xmv200_sns_dev *d, int n,
+                const struct xmv200_sns_ctx *c);
+
 static const struct xmv200_sns_mode modes[] = {
     {"5M mipi 4 lanes", {0, 0, 0, 0}, imx335_mipi_4lane, N(imx335_mipi_4lane)},
 };
@@ -173,4 +187,26 @@ const struct xmv200_sns_drv xmv200_sns_imx335 = {
     .dgain_calc = dgain_calc,
     .set_gain = set_gain,
     .set_flip = set_flip,
+    .n_runs = 4,
+    .run = run,
+    .probe = probe,
+    .probe_addr = {0x1a},
 };
+
+static void run(const struct xmv200_sns_dev *d, int n,
+                const struct xmv200_sns_ctx *c) {
+  switch (n) {
+  case 0:
+    xmv200_sns_init_step(&xmv200_sns_imx335, d, c);
+    break;
+  case 1:
+    xmv200_sns_fps_step(&xmv200_sns_imx335, d, c);
+    break;
+  case 2:
+    xmv200_sns_ae_step(&xmv200_sns_imx335, d, c);
+    break;
+  case 3:
+    set_flip(d, 0, 0);
+    break;
+  }
+}

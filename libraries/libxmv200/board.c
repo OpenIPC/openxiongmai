@@ -284,12 +284,28 @@ static int chip_id(int bus, uint8_t addr, uint32_t *id) {
   return 0;
 }
 
+static const struct xmv200_sns *registered(uint32_t id, const char *family) {
+  for (int i = 0; i < xmv200_n_sensors; i++)
+    if (xmv200_sensors[i].chip_id == id &&
+        !strcmp(xmv200_sensors[i].tuning->chip, family))
+      return &xmv200_sensors[i];
+  return NULL;
+}
+
 static const struct xmv200_sns *probe(int bus, uint8_t addr,
                                       const char *family) {
   uint32_t id, ext;
 
-  if (chip_id(bus, addr, &id))
-    return NULL;
+  /* not a SmartSens part: the drivers' probes (the registry has the chip
+   * ID the driver gives) */
+  if (chip_id(bus, addr, &id) || !id || id == 0xffff) {
+    if (!(id = xmv200_sns_probe(bus, addr, family)))
+      return NULL;
+    if (!registered(id, family))
+      fprintf(stderr, "libxmv200: sensor %04x at %d-%02x: no %s tuning\n",
+              id, bus, addr, family);
+    return registered(id, family);
+  }
   /* SC2336, SC2336P and SC2337P all read 0xcb3a in standby: streaming,
    * the P parts read 0x9b3a, and 0x801e tells them apart (the vendor ISP's
    * test) */
@@ -350,14 +366,16 @@ static void sensor_clocks_on(const char *family) {
  * picture; each stream has a 640-wide one beside it. Without VPSS, the
  * first sensor alone. */
 static int auto_layout(struct xmv200_layout *l) {
-  static const uint8_t addrs[] = {0x30, 0x32};
+  uint8_t addrs[8] = {0x30, 0x32};
   const char *chip = xmv200_chip_name(), *family = family_of(chip);
   const struct xmv200_sns *s[2] = {NULL, NULL};
   const struct xmv200_chip *cp;
-  int n = 0;
+  int n = 0, na;
 
+  /* SmartSens' addresses, then the other sensors' */
+  na = 2 + xmv200_sns_probe_addrs(family, addrs + 2, 6);
   sensor_clocks_on(family);
-  for (int i = 0; i < 2; i++)
+  for (int i = 0; i < na && n < 2; i++)
     if ((s[n] = probe(0, addrs[i], family)) != NULL) {
       l->sensor[n] = (struct xmv200_layout_sensor){
           .model = s[n]->name, .bus = 0, .addr = addrs[i], .x0 = 1};
@@ -611,8 +629,9 @@ int xmv200_layout_start(const struct xmv200_layout *l,
   xmv200_reg_write(SYS + 0x11c, 1);
   isp_pll(chip, fd_sys, b->isp.tuning->pll[0], b->isp.tuning->n_pll[0]);
 
-  /* the sensors out of reset, each receiver's setup, each channel's VI */
-  for (int c = 0; c < n; c++) {
+  /* the sensors out of reset (SmartSens'; a driver of another's does its
+   * own), each receiver's setup, each channel's VI */
+  for (int c = 0; !(b->isp.drv && b->isp.drv->probe) && c < n; c++) {
     const struct xmv200_isp_sensor *s = &b->isp.sensor[c];
 
     xmv200_i2c_write(s->bus, s->addr, 0x0103, 2, 1, 1);

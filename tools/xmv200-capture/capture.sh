@@ -3,6 +3,8 @@
 # capture.sh CHIP_ID OUTDIR [GDB_PORT]
 #   MACHINE  qemu-bench machine (xm530v200); CAP_H / CAP_ISZ for another
 #            chip's modules (see cap.py)
+#   SENSOR_MODEL  another sensor model than SmartSens, qemu-bench's
+#            TYPE@ADDR (e.g. hisi-imx335@1a); CHIP_ID then only names it
 #
 # Runs a stock XM530V200 firmware image under qemu-bench with a SmartSens
 # sensor of CHIP_ID (e.g. cb3a) and records the reference gen_tuning.py
@@ -13,9 +15,10 @@ set -e
 ID=$1; O=$2; P=${3:-1234}
 : "${QEMU:?set QEMU to the qemu-bench qemu-system-arm}" "${IMAGE:?set IMAGE to the stock firmware}"
 D=$(cd "$(dirname "$0")" && pwd)
+SNS=sensor-id=$ID; [ -n "$SENSOR_MODEL" ] && SNS=sensor=$SENSOR_MODEL
 mkdir -p "$O"; rm -f "$O/merged.trace"; cp "$IMAGE" "$O/flash.bin"
 XM_REGTRACE="$O/merged.trace" timeout 500 "$QEMU" \
-    -M "${MACHINE:-xm530v200}",flash-file="$O/flash.bin",sensor-id="$ID" -m 128M \
+    -M "${MACHINE:-xm530v200}",flash-file="$O/flash.bin","$SNS" -m 128M \
     -nic user,restrict=on -display none -serial file:"$O/console.log" \
     -monitor none -gdb tcp::"$P" -S > "$O/qemu.out" 2>&1 &
 Q=$!; sleep 2

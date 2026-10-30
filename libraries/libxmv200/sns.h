@@ -83,6 +83,11 @@ struct xmv200_sns_drv {
   void (*set_gain)(const struct xmv200_sns_dev *d, uint32_t again_idx,
                    uint32_t dgain_reg);
   void (*set_flip)(const struct xmv200_sns_dev *d, int mirror, int flip);
+  /* sensors other than SmartSens: whether one answers at addr as this
+   * sensor, as the vendor's libsns probes it, and the addresses it probes
+   * (7-bit); the registry's chip ID if so, else 0 */
+  uint32_t (*probe)(int bus, uint8_t addr);
+  uint8_t probe_addr[2];
   /* a tuning's exp_lines is in exposure registers' units: lines <<
    * exp_shift (1: half lines) */
   int exp_shift;
@@ -103,6 +108,12 @@ const struct xmv200_sns_mode *
 xmv200_sns_mode_for(const struct xmv200_sns_drv *drv,
                     const struct xmv200_sns_attr *a,
                     const struct xmv200_sns_tuning *t);
+
+/* a sensor other than SmartSens at addr: the chip ID the registry has for
+ * it (the driver's probe), else 0 */
+uint32_t xmv200_sns_probe(int bus, uint8_t addr, const char *family);
+/* the addresses those sensors are probed at on a family, n at most */
+int xmv200_sns_probe_addrs(const char *family, uint8_t *addr, int n);
 
 /* the driver and mode a tuning was captured with: name's, or the driver
  * with a mode of the same registers; NULL if there is none */
