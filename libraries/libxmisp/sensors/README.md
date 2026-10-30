@@ -18,7 +18,7 @@ One directory per sensor, `<vendor>_<model>/`, containing:
 | `smartsens_sc1235` | 720p, 960p | no | no |
 | `smartsens_sc1245` | 720p | no | no |
 | `smartsens_sc2235` | 1080p (1136x1080) | no | no |
-| `onsemi_ar0130` | 720p | no | no |
+| `onsemi_ar0130` | 720p, 25 fps | yes | yes (53X13 XM510 board) |
 | `omnivision_ov9750` | 720p | no | no |
 | `omnivision_ov9732` | 720p | no | no |
 | `imagedesign_mis1002` | 720p | no | no |

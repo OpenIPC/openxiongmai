@@ -52,6 +52,7 @@ struct xmisp_sensor {
   uint32_t lines_min; /* exposure range in lines, within the frame */
   uint32_t lines_max;
   float gain_max;   /* the most gain AE may use; 1.0 = none */
+  float ae_target;  /* mean luma AE holds (8-bit, linear); 0: the SoC's */
   uint32_t line_ns; /* the mode's line time, for anti-flicker; 0 unknown */
   /* White balance gains relative to G that the sensor's grey can need,
    * from warm light (high blue) to shade (high red). */
@@ -102,5 +103,6 @@ unsigned xmisp_expand(const struct xmisp_op *soc,
 
 extern const struct xmisp_script xmisp_h62_720p;
 extern const struct xmisp_sensor xmisp_sensor_h62;
+extern const struct xmisp_sensor xmisp_sensor_ar0130;
 
 #endif

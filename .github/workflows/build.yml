@@ -182,7 +182,7 @@ jobs:
                 xmisp_sc1245_720p xmisp_sc2235_1080p xmisp_ar0130_720p \
                 xmisp_ov9750_720p xmisp_ov9732_720p xmisp_mis1002_720p \
                 xmisp_sc1135_720p xmisp_sc1135_960p xmisp_sc1235_960p \
-                xmisp_h65_960p xmisp_start_mode
+                xmisp_h65_960p xmisp_start_mode xmisp_sensor_ar0130
           exit $fail
 
       - name: Assert no vendor libs in NEEDED
