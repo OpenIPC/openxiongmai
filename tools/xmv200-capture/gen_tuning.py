@@ -267,7 +267,10 @@ for f in lines:
             op = 'XMV200_OP_VICU_IRQ(%d)' % v_
         if op and (not prog or prog[-1] != op):
             prog.append(op)
-        run = None
+        # a sensor run goes on across user writes that are not program
+        # steps: those can be another process's (Sofia's clocks)
+        if op:
+            run = None
     elif on and len(f) == 5 and f[2] == 'sensor':
         # channel 0's sensor: the first one the program writes
         a = int(f[3], 16)
@@ -314,12 +317,41 @@ for r in sruns:
     for a, v in r:
         if 0x3018 <= a <= 0x301a or 0x3020 <= a <= 0x3022:
             imx[a] = v
-if not expo and 0x3058 not in sony and 0x3020 in imx:
+if not expo and 0x3058 not in sony and 0x3020 in imx and 0x3100 not in [
+        a for r in sruns for a, v in r]:
     vmax = imx.get(0x301a, 0) << 16 | imx.get(0x3019, 0) << 8 | imx.get(0x3018, 0)
     shs = imx.get(0x3022, 0) << 16 | imx.get(0x3021, 0) << 8 | imx[0x3020]
     exp_lines = (vmax or 1125) - shs
+# GalaxyCore (0x0d03 high, 0x0d04 low) and MIS (0x3100, 0x3101): lines
+def pair(hi, lo):
+    d = {}
+    for r in sruns:
+        for a, v in r:
+            if a in (hi, lo):
+                d[a] = v
+    return d.get(hi, 0) << 8 | d.get(lo, 0) if lo in d else None
+eight = sruns and all(a < 0x100 for r in sruns for a, v in r)
+# (a SmartSens part's AE start writes its fine gain, 0x3e07)
+smartsens = any(a == 0x3e07 for r in sruns[1:] for a, v in r)
+if not smartsens and not sony:
+    for hi, lo in ((0x0d03, 0x0d04), (0x3100, 0x3101)):
+        if pair(hi, lo) is not None:
+            exp_lines = pair(hi, lo)
+            break
+# OmniVision OV2735: 8-bit registers in pages (0xfd), the exposure on page
+# 1 in 0x03 (high) and 0x04 (low)
+ov = eight and any(a == 0xfd for r in sruns for a, v in r)
+if ov:
+    page, d = 0, {}
+    for r in sruns:
+        for a, v in r:
+            if a == 0xfd:
+                page = v
+            elif page == 1 and a in (3, 4):
+                d[a] = v
+    exp_lines = d.get(3, 0) << 8 | d.get(4, 0)
 # SOI (JX): 8-bit registers, the exposure in 0x01 (low) and 0x02 (high)
-if sruns and all(a < 0x100 for r in sruns for a, v in r):
+if eight and not ov:
     jx = {}
     for r in sruns:
         pend = {}

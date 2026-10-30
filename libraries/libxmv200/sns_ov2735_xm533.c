@@ -147,7 +147,15 @@ static const struct xmv200_sns_mode modes[] = {
     {"1080p mipi", {0, 0, 0, 0}, xm533_ov2735_mipi, N(xm533_ov2735_mipi)},
 };
 
+/* the probe: page 0 (0xfd = 0), the chip ID at 0x02/0x03 */
+static uint32_t probe(int bus, uint8_t addr) {
+  xmv200_i2c_write(bus, addr, 0xfd, 1, 0, 1);
+  return xmv200_sns_id_pair(bus, addr, 1, 0x02, 0x03) == 0x2735 ? 0x2735 : 0;
+}
+
 const struct xmv200_sns_drv xmv200_sns_ov2735_xm533 = {
+    .probe = probe,
+    .probe_addr = {0x3c},
     .name = "OV2735",
     .family = "xm533",
     .modes = modes,

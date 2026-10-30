@@ -122,6 +122,14 @@ uint32_t xmv200_sns_probe(int bus, uint8_t addr, const char *family);
 /* an SOI (JX) sensor's ID as the vendor's libsns reads it: a soft reset
  * (0x12 = 0x80), then 0x0a << 8 | 0x0b; 0 if none answers */
 uint32_t xmv200_sns_soi_id(int bus, uint8_t addr);
+/* a chip ID in a pair of registers (high, low), with reg_bytes-wide
+ * register addresses; 0 if the reads fail */
+uint32_t xmv200_sns_id_pair(int bus, uint8_t addr, int reg_bytes, uint16_t hi,
+                            uint16_t lo);
+/* a MIS sensor's ID as the vendor's libsns reads it: 0x3006 = 1, 100 ms,
+ * then 0x3000/0x3001, or 0x3004/0x3005 where those are neither 0x2008 nor
+ * 0x1311 */
+uint32_t xmv200_sns_mis_id(int bus, uint8_t addr);
 /* the addresses those sensors are probed at on a family, n at most */
 int xmv200_sns_probe_addrs(const char *family, uint8_t *addr, int n);
 
@@ -147,6 +155,9 @@ extern void (*xmv200_i2c_divert)(uint32_t reg, uint32_t val);
 void xmv200_sns_run(const struct xmv200_sns_drv *drv,
                     const struct xmv200_sns_dev *d, int n,
                     const struct xmv200_sns_ctx *c);
+/* the runs most tunings of other sensors than SmartSens have: init, frame
+ * rate, the AE's start, flip */
+extern const char *const xmv200_sns_steps_ifap[4];
 /* the same without the driver's run hook: its steps, or the default */
 void xmv200_sns_run_steps(const struct xmv200_sns_drv *drv,
                           const struct xmv200_sns_dev *d, int n,

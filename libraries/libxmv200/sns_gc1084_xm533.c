@@ -178,7 +178,14 @@ static const struct xmv200_sns_mode modes[] = {
     {"720p mipi", {0, 0, 1, 0}, xm533_gc1084_mipi, N(xm533_gc1084_mipi)},
 };
 
+/* the probe: GalaxyCore: the chip ID at 0x3f0/0x3f1 */
+static uint32_t probe(int bus, uint8_t addr) {
+  return xmv200_sns_id_pair(bus, addr, 2, 0x3f0, 0x3f1) == 0x1084 ? 0x1084 : 0;
+}
+
 const struct xmv200_sns_drv xmv200_sns_gc1084_xm533 = {
+    .probe = probe,
+    .probe_addr = {0x37},
     .name = "GC1084",
     .family = "xm533",
     .modes = modes,

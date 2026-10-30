@@ -165,8 +165,17 @@ static const struct xmv200_sns_mode modes[] = {
     {"1080p mipi", {0, 0, 0, 0}, gc3003_mipi, N(gc3003_mipi)},
 };
 
+/* the probe: GalaxyCore: the chip ID at 0x3f0/0x3f1 */
+static uint32_t probe(int bus, uint8_t addr) {
+  return xmv200_sns_id_pair(bus, addr, 2, 0x3f0, 0x3f1) == 0x3003 ? 0x3003 : 0;
+}
+
 const struct xmv200_sns_drv xmv200_sns_gc3003 = {
+    .probe = probe,
+    .probe_addr = {0x37},
     .name = "GC3003",
+    .n_runs = 4,
+    .steps = xmv200_sns_steps_ifap,
     .modes = modes,
     .n_modes = N(modes),
     .init = init,

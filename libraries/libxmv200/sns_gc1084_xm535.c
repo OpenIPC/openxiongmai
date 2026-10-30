@@ -178,9 +178,18 @@ static const struct xmv200_sns_mode modes[] = {
     {"720p dvp", {1, 0, 1, 0}, xm535_gc1084_dvp, N(xm535_gc1084_dvp)},
 };
 
+/* the probe: GalaxyCore: the chip ID at 0x3f0/0x3f1 */
+static uint32_t probe(int bus, uint8_t addr) {
+  return xmv200_sns_id_pair(bus, addr, 2, 0x3f0, 0x3f1) == 0x1084 ? 0x1084 : 0;
+}
+
 const struct xmv200_sns_drv xmv200_sns_gc1084_xm535 = {
+    .probe = probe,
+    .probe_addr = {0x37},
     .name = "GC1084",
     .family = "xm535",
+    .n_runs = 4,
+    .steps = xmv200_sns_steps_ifap,
     .modes = modes,
     .n_modes = N(modes),
     .init = init,

@@ -172,8 +172,17 @@ static const struct xmv200_sns_mode modes[] = {
     {"the vendor's", {0, 0, 0, 0}, mis40c1, N(mis40c1)},
 };
 
+/* the probe: the vendor's MIS probe */
+static uint32_t probe(int bus, uint8_t addr) {
+  return xmv200_sns_mis_id(bus, addr) == 0x0004 ? 0x0004 : 0;
+}
+
 const struct xmv200_sns_drv xmv200_sns_mis40c1 = {
+    .probe = probe,
+    .probe_addr = {0x30, 0x31},
     .name = "MIS40C1",
+    .n_runs = 4,
+    .steps = xmv200_sns_steps_ifap,
     .modes = modes,
     .n_modes = N(modes),
     .init = init,
@@ -198,6 +207,8 @@ static const struct xmv200_sns_mode xm533_modes[] = {
 };
 
 const struct xmv200_sns_drv xmv200_sns_mis40c1_xm533 = {
+    .probe = probe,
+    .probe_addr = {0x30, 0x31},
     .name = "MIS40C1",
     .family = "xm533",
     .modes = xm533_modes,
@@ -248,6 +259,8 @@ static const struct xmv200_sns_mode xm535_modes[] = {
 };
 
 const struct xmv200_sns_drv xmv200_sns_mis40c1_xm535 = {
+    .probe = probe,
+    .probe_addr = {0x30, 0x31},
     .name = "MIS40C1",
     .family = "xm535",
     .modes = xm535_modes,

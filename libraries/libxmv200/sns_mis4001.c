@@ -199,7 +199,14 @@ static const struct xmv200_sns_mode modes[] = {
     {"4M 15fps", {0, 0, 0, 0}, mis4001_4m_15fps, N(mis4001_4m_15fps)},
 };
 
+/* the probe: the vendor's MIS probe (0x1311: MIS4001 unless the product says MIS5001) */
+static uint32_t probe(int bus, uint8_t addr) {
+  return xmv200_sns_mis_id(bus, addr) == 0x1311 ? 0x1311 : 0;
+}
+
 const struct xmv200_sns_drv xmv200_sns_mis4001 = {
+    .probe = probe,
+    .probe_addr = {0x30, 0x31},
     .name = "MIS4001",
     .modes = modes,
     .n_modes = N(modes),
@@ -288,6 +295,8 @@ static const struct xmv200_sns_mode xm533_modes[] = {
 };
 
 const struct xmv200_sns_drv xmv200_sns_mis4001_xm533 = {
+    .probe = probe,
+    .probe_addr = {0x30, 0x31},
     .name = "MIS4001",
     .family = "xm533",
     .modes = xm533_modes,
@@ -421,6 +430,8 @@ static void xm535_set_flip(const struct xmv200_sns_dev *d, int mirror,
 }
 
 const struct xmv200_sns_drv xmv200_sns_mis4001_xm535 = {
+    .probe = probe,
+    .probe_addr = {0x30, 0x31},
     .name = "MIS4001",
     .family = "xm535",
     .modes = xm535_modes,

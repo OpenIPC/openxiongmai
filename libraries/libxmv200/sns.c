@@ -454,3 +454,27 @@ uint32_t xmv200_sns_soi_id(int bus, uint8_t addr) {
     return 0;
   return (hi & 0xff) << 8 | (lo & 0xff);
 }
+
+const char *const xmv200_sns_steps_ifap[4] = {"i", "f", "a", "p"};
+
+uint32_t xmv200_sns_id_pair(int bus, uint8_t addr, int reg_bytes, uint16_t hi,
+                            uint16_t lo) {
+  uint32_t h, l;
+
+  if (xmv200_i2c_read(bus, addr, hi, reg_bytes, &h, 1) ||
+      xmv200_i2c_read(bus, addr, lo, reg_bytes, &l, 1))
+    return 0;
+  return (h & 0xff) << 8 | (l & 0xff);
+}
+
+uint32_t xmv200_sns_mis_id(int bus, uint8_t addr) {
+  uint32_t id;
+
+  if (xmv200_i2c_write(bus, addr, 0x3006, 2, 1, 1) < 0)
+    return 0;
+  usleep(100000);
+  id = xmv200_sns_id_pair(bus, addr, 2, 0x3000, 0x3001);
+  if (id != 0x2008 && id != 0x1311)
+    id = xmv200_sns_id_pair(bus, addr, 2, 0x3004, 0x3005);
+  return id;
+}
