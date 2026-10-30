@@ -169,8 +169,6 @@ static const struct xmisp_awb_cfg awb_xm510 = {
     .interval = 2,
 };
 
-const struct xmisp_script *const xmisp_scripts[] = {&xmisp_h62_720p, NULL};
-
 struct xmisp {
   int isp, i2c, vi, mmz, rgn, mem;
   volatile uint32_t *sysctl;
@@ -237,10 +235,11 @@ static int isp_r(struct xmisp *s, uint32_t addr, uint32_t *val) {
 }
 
 static int i2c(struct xmisp *s, int cmd, uint32_t reg, uint32_t *data) {
-  struct i2c_rec r = {s->script->i2c_dev, reg, 1, *data, 1};
+  const struct xmisp_script *sc = s->script;
+  struct i2c_rec r = {sc->i2c_dev, reg, sc->reg_bytes, *data, sc->data_bytes};
   if (ioctl(s->i2c, cmd, &r) < 0)
     return -1;
-  *data = r.data & 0xff;
+  *data = sc->data_bytes == 2 ? r.data & 0xffff : r.data & 0xff;
   return 0;
 }
 
@@ -347,6 +346,12 @@ static int run(struct xmisp *s, const struct xmisp_op *op) {
       /* Identified once the last ID register matches. */
       if (op[1].type != XMISP_I2C_EXPECT)
         probing = 0;
+      break;
+    case XMISP_I2C_R:
+      /* Replayed for its side effects; nothing uses the value, so a failed
+       * read doesn't stop the start-up. */
+      v = 0;
+      (void)i2c(s, I2C_READ, op->a, &v);
       break;
     case XMISP_VI_IOW:
       if (ioctl(s->vi, op->a, (void *)&args[op->b + 1]) < 0)
@@ -767,7 +772,15 @@ int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
   nr3d_off(s);
   for (; *scripts; scripts++) {
     s->script = *scripts;
-    int r = run(s, s->script->start);
+    const unsigned n = xmisp_expand(xmisp_xm510_start, s->script, NULL, 0);
+    struct xmisp_op *start = malloc(n * sizeof(*start));
+    if (!start) {
+      s->script = NULL;
+      return fail(s, "start-up of %u steps: %s", n, strerror(errno));
+    }
+    xmisp_expand(xmisp_xm510_start, s->script, start, n);
+    int r = run(s, start);
+    free(start);
     if (r > 0) {
       snprintf(why, sizeof(why), "%s", s->err);
       continue;

@@ -177,7 +177,9 @@ jobs:
                 xmisp_set_antiflicker xmisp_nr_strength xmisp_strength xmisp_lerp \
                 xmisp_awb_enabled xmisp_white_balance \
                 xmisp_awb_init xmisp_awb_update xmisp_awb_applied \
-                xmisp_awb_candidates
+                xmisp_awb_candidates xmisp_expand xmisp_xm510_start \
+                xmisp_h42_720p xmisp_h65_720p xmisp_sc1235_720p \
+                xmisp_sc1245_720p xmisp_sc2235_1080p xmisp_ar0130_720p
           exit $fail
 
       - name: Assert no vendor libs in NEEDED

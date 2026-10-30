@@ -53,7 +53,7 @@ XM510 only so far:
 - **`tune.c`: tuning by gain, independent of the SoC.** It gives a strength
   from 0 to 1, log-linear in gain between two gains, in steps, and
   interpolates register values by it. `make test` runs it on the host.
-- **`sensor_*.c`: what a sensor's 3A needs.** That's the exposure range,
+- **`sensors/<vendor>_<model>/sensor.c`: what a sensor's 3A needs.** That's the exposure range,
   the gain ceiling, the white balance gain range, its colour matrix, and
   reading and setting exposure and gain in its register encoding.
 - **`xm510.c`: the SoC.** Device access, the script interpreter, and the
@@ -97,42 +97,78 @@ XM510 only so far:
 
 ## Sensor scripts
 
-A script (`script.h`) is the start-up for one sensor and mode as a list of
-steps:
-- MMZ, VI and region resets;
-- system controller writes (the sensor PLL);
-- sensor register writes, and the chip ID it must read;
-- VI channel setup;
-- the "Isp" MMZ block;
-- ISP register writes, plus delays between them.
+The XM510 start-up is the same list of steps for every sensor the vendor
+daemon supports, with the sensor's parts in five places. `xm510_start.c`
+is that list, the SoC's template, with an `XMISP_SENSOR` slot for each
+part:
+
+| Step | Whose |
+|---|---|
+| MMZ, VI and region resets; the first PLL setup | SoC |
+| chip ID probe | sensor: `probe` |
+| the sensor's clock (system controller) | sensor: `pll` |
+| VI store setup | SoC |
+| VI channel ioctls and the VI writes after them | sensor: `vi` |
+| sensor register writes | sensor: `init` |
+| ISP writes, the "Isp" MMZ block | SoC |
+| sensor register writes | sensor: `post` |
+| ISP writes | SoC |
+
+A script (`script.h`) is one sensor and mode:
+- its I2C bus: the address, and 1 or 2 bytes of register and data;
+- its five parts;
+- the ISP values it needs other than the template's, mostly frame size,
+  black level and tuning, along with the "Isp" block's size if it differs;
+- a fixed 3A state applied once after the start-up;
+- its 3A driver (`struct xmisp_sensor`), if it has one.
+
+An override replaces the register's last write in the template. Where the
+template writes a register twice, the first write is a default that is the
+same for every sensor. `xmisp_expand()` puts a script's parts and values
+into the template. `xmisp_start()` runs that for each script in
+`xmisp_scripts` (`scripts.c`) until a probe's chip ID matches. A sensor that
+doesn't answer at all before its ID is read counts as a miss too.
 
 Registers that hold addresses in the MMZ block are written relative to
 wherever MMZ puts it, in 8-byte units from DDR (`0x80000000`).
-`xmisp_start()` runs each script in `xmisp_scripts` until one sensor answers
-with its chip ID. A sensor that doesn't answer at all before its ID is read
-counts as a miss too.
 
 Before the first script, `xmisp_start()` turns 3D noise reduction off and
 waits two frames. A daemon killed without its way out leaves 3D-NR writing
 into the "Isp" block, and the MMZ and VI resets would hand that memory on. A
 start that fails part way turns 3D-NR off again.
 
-Generated scripts are clang-format (LLVM) output, so run clang-format after
-`extract.py`.
+`tools/xm-isp-trace/extract.py` generates the template and the scripts
+from traces of the vendor daemon, and checks every value: the template with
+a script's parts and values must give that trace's start-up. Run
+clang-format (LLVM) on what it writes. `make test` checks the result: every
+script expands and probes a chip ID, and the JX-H62's start-up is step for
+step the one its trace gave before the template was split out
+(`test/h62_720p_flat.c`). `sensors/README.md` covers adding a sensor.
 
-`tools/xm-isp-trace/extract.py` generates a script from a trace:
+| Script | Sensor (I2C, ID) | Mode | 3A driver | Source |
+|---|---|---|---|---|
+| `sensors/soi_jxh62/jxh62_720p.c` | JX-H62 (`0x30`, `0xa062`) | 1280x720 | yes | lab XM510 |
+| `sensors/soi_jxh42/h42_720p.c` | JX-H42 (`0x30`, `0xa042`) | 1280x720 | no | emulated |
+| `sensors/soi_jxh65/h65_720p.c` | JX-H65 (`0x30`, `0x0a65`) | 1280x720 | no | emulated |
+| `sensors/smartsens_sc1235/sc1235_720p.c` | SC1235 (`0x30`, `0x1235`) | 1280x720 | no | emulated |
+| `sensors/smartsens_sc1245/sc1245_720p.c` | SC1245 (`0x30`, `0x1245`) | 1280x720 | no | emulated |
+| `sensors/smartsens_sc2235/sc2235_1080p.c` | SC2235 (`0x30`, `0x2235`) | 1136x1080 | no | emulated |
+| `sensors/onsemi_ar0130/ar0130_720p.c` | AR0130 (`0x10`, `0x2402`) | 1280x720 | no | emulated |
 
-```sh
-extract.py trace.bin h62_720p "JX-H62 720p25" --fixed 500-510 \
-    --sensor h62 -m libraries/isp/include/xm/xm510_isp.h > h62_720p.c
-```
+The mode is VI channel 0's size; the JX-H62's runs at 25 fps, and the
+others' frame rate hasn't been measured. The fixed state
+is one frame of the vendor's 3A in the light of the capture, and AE and AWB
+start from it.
 
-| Script | Sensor | Mode | Trace |
-|---|---|---|---|
-| `h62_720p.c` | JX-H62 (I2C `0x30`, ID `0xa062`), `sensor_h62.c` | 1280x720, 25 fps | lab XM510, vendor daemon under majestic |
-
-The fixed state is one converged frame of the vendor's 3A in the light of
-the capture, and AE and AWB start from it.
+"Emulated" means traced from the vendor daemon in qemu-bench (`xm510`
+machine, a lab camera's flash dump, the generic `xm-sensor` showing the
+sensor's chip ID). None of the six has run on hardware yet, and without a
+3A driver xmispd holds the fixed state. Two kinds of value can't be traced
+there:
+- the ISP values the daemon computes from what it reads of the hardware
+  (`0x4005104c`, `0x40040148`), which keep the JX-H62's;
+- sensor writes computed from a sensor read, which the model answers with
+  what was written, or 0.
 
 ## JX-H62
 
