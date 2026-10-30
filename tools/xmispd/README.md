@@ -18,6 +18,14 @@ as `/api/v1/config.schema.json` describes it). The daemon reads it from
 majestic logs `isp.antiFlicker (changed)` and, on this platform, restarts
 itself, and with it the daemon.
 
+The sensor mode follows the vendor daemon's own configuration,
+`/mnt/mtd/Config/Json/format`: with `Profile=960` there (majestic writes
+it for `video0.size: 1280x960`) the sensor's 960P script is preferred, and
+a sensor without one starts in its 720P mode. The daemon reports the script
+that started as the vendor's does its sensor, `<name> sensor init OK`; a
+960P script's name carries `960p`, and majestic sizes the main stream by
+it.
+
 Its output uses the vendor daemon's format (`\033[0;32;32mDEBUG: ...`,
 `\033[0;32;31mERR: ...`), which majestic forwards to its log. It holds
 `/tmp/Isplock` like the vendor daemon, so two can't run.

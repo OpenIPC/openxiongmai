@@ -14,14 +14,15 @@ One directory per sensor, `<vendor>_<model>/`, containing:
 |---|---|---|---|
 | `soi_jxh62` | 720p, 25 fps | yes | yes (lab XM510) |
 | `soi_jxh42` | 720p | no | no |
-| `soi_jxh65` | 720p | no | no |
-| `smartsens_sc1235` | 720p | no | no |
+| `soi_jxh65` | 720p, 960p | no | no |
+| `smartsens_sc1235` | 720p, 960p | no | no |
 | `smartsens_sc1245` | 720p | no | no |
 | `smartsens_sc2235` | 1080p (1136x1080) | no | no |
 | `onsemi_ar0130` | 720p | no | no |
 | `omnivision_ov9750` | 720p | no | no |
 | `omnivision_ov9732` | 720p | no | no |
 | `imagedesign_mis1002` | 720p | no | no |
+| `smartsens_sc1135` | 720p, 960p | no | no |
 
 ## Clean room
 
@@ -84,6 +85,12 @@ Add the object to `SENSORS` in `../Makefile` and the script to
 - the export check in `.github/workflows/build.yml` needs the new symbol.
 
 Then run `make -C libraries/libxmisp test`.
+
+A sensor's other mode is another script, traced with the daemon in that
+mode: for 960P write `Profile=960` to `/mnt/mtd/Config/Json/format` on the
+camera (or in QEMU) before it starts. Name it with the mode (`sc1235_960p`,
+"SC1235 960p"): xmispd reports it by that name, and majestic sizes the
+main stream from "960p" in it.
 
 ### 4. 3A driver
 

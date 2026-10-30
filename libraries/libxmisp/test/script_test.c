@@ -85,13 +85,20 @@ int main(void) {
               count(sc->part[XMISP_PART_VI], XMISP_VI_IOW) > 0,
           sc->name, "no VI setup");
     check(sc->i2c_dev && sc->i2c_dev < 0x80, sc->name, "7-bit I2C address");
+    check(sc->width >= 640 && sc->height >= 480 && sc->width <= 2048 &&
+              sc->height <= 1536,
+          sc->name, "a picture size VI channel 0 can have");
+    /* A 960p mode is chosen by its lines and found by its name. */
+    check((sc->height == 960) == (strstr(sc->name, "960p") != NULL), sc->name,
+          "960p in the name if and only if 960 lines");
     check((sc->reg_bytes == 1 || sc->reg_bytes == 2) &&
               (sc->data_bytes == 1 || sc->data_bytes == 2),
           sc->name, "register and data widths of 1 or 2 bytes");
     for (const struct xmisp_isp_val *v = sc->isp; v && v->addr; v++)
       check(template_writes(v->addr), sc->name,
             "an ISP value for a register the template doesn't write");
-    printf("%-24s %4u steps, %3u sensor writes, ISP values %u\n", sc->name, n,
+    printf("%-24s %4ux%-4u %4u steps, %3u sensor writes, ISP values %u\n",
+           sc->name, sc->width, sc->height, n,
            count(sc->part[XMISP_PART_INIT], XMISP_I2C_W) +
                count(sc->part[XMISP_PART_POST], XMISP_I2C_W),
            isp_count(sc));

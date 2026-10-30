@@ -192,6 +192,8 @@ static const struct xmisp_op fixed[] = {
 
 const struct xmisp_script xmisp_sc1235_720p = {
     .name = "SC1235 720p",
+    .width = 1280,
+    .height = 720,
     .i2c_dev = 0x30,
     .reg_bytes = 2,
     .data_bytes = 1,
