@@ -295,9 +295,13 @@ static void xm535_init(const struct xmv200_sns_dev *d,
   usleep(20000);
 }
 
-#define XM535_DRV(nm)                                                          \
+#define XM535_DRV(nm, pr)                                                      \
   {.name = nm,                                                                 \
    .family = "xm535",                                                          \
+   .n_runs = 4,                                                                \
+   .steps = steps,                                                             \
+   .probe = pr,                                                                \
+   .probe_addr = {0x40, 0x42},                                                 \
    .modes = xm535_modes,                                                       \
    .n_modes = N(xm535_modes),                                                  \
    .init = xm535_init,                                                         \
@@ -310,5 +314,6 @@ static void xm535_init(const struct xmv200_sns_dev *d,
    .set_gain = set_gain,                                                       \
    .set_flip = set_flip}
 
-const struct xmv200_sns_drv xmv200_sns_h63p_xm535 = XM535_DRV("H63P");
-const struct xmv200_sns_drv xmv200_sns_h63_xm535 = XM535_DRV("H63");
+const struct xmv200_sns_drv xmv200_sns_h63p_xm535 =
+    XM535_DRV("H63P", h63p_probe);
+const struct xmv200_sns_drv xmv200_sns_h63_xm535 = XM535_DRV("H63", h63_probe);
