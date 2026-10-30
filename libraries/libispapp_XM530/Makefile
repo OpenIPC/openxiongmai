@@ -22,7 +22,8 @@ OBJECTS = \
 	mcu.o \
 	sample_common.o \
 	uart.o \
-	vda_sample.o
+	vda_sample.o \
+	video_size.o
 
 all: libispapp_XM530.so
 

@@ -68,7 +68,7 @@ Some of the per-sensor code sits inside `#if (defined SOC_SYSTEM) || (defined SO
 
 ### `libispapp_XM530`
 
-`libispapp_XM530` is the ISP application layer. It handles PLL and VI window setup per resolution, product info, the ISP run loop (`ISP_Run_SocSystem`), the UART/MCU link and VDA. It contains the I2C implementation (`i2c.c`) that the sensor libraries call.
+`libispapp_XM530` is the ISP application layer. It handles PLL and VI window setup per resolution, product info, the ISP run loop (`ISP_Run_SocSystem`), the UART/MCU link and VDA. It contains the I2C implementation (`i2c.c`) that the sensor libraries call. majestic starts it through `ispApp()` with `-r 0 -e 0 -i 0` whatever it encodes; `video_size.c` takes the sensor mode (`gstParamIn.enRslt`, a `PROFILE`) from `video0.size` in `/etc/majestic.yaml` by its lines (720, 960, 1080, 1296/1536 → 3M, 1440/1520 → 4M, 1920/1944 → 5M, 2160 → 4K), for the sensors whose case reads it (SC5239, SC5332, SC5235, K03, IMX335/SC335E through `sensor_set_reslotionType`, AUGE, APOLLO). IMX335 at 2560x1440 runs its 4M mode, 20 fps instead of 15 (checked on the lab XM550).
 
 ### `libxmvenc` and `tools/xmvenc-test`
 

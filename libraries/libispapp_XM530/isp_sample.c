@@ -47,6 +47,7 @@
 #include "ispMsg.h"
 #include "mpi_phyvi.h"
 #include "mpi_vo.h"
+#include "video_size.h"
 XM_U8 gu8PclkEdge = 1; // 0:	Rising edge	1:Falling edge
 
 ISP_DEV gIspDevApp = 0;
@@ -3070,6 +3071,11 @@ int main(int argc, char *argv[])
   ispMsgInit();
   if (usage(argc, argv) < 0) {
     goto RET;
+  }
+  /* majestic passes -r 0 whatever it encodes: its video0.size decides. */
+  const int s32Profile = video_size_profile();
+  if (s32Profile >= 0) {
+    gstParamIn.enRslt = (PROFILE)s32Profile;
   }
   if (SocSystem_Init() != 0) {
     goto RET;
