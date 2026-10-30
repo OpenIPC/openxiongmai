@@ -74,7 +74,7 @@ static void sc2336_init(const struct xmv200_sns_dev *d,
   table(d, m);
   if (m->regs == sc2336_mipi) {
     usleep(100);
-    if (a->fps == 25) { /* the 25 fps line timing */
+    if (a->vmode == 25) { /* the 25 fps line timing */
       w(d, 0x3222, 0x02);
       w(d, 0x322e, 0x08);
       w(d, 0x322f, 0xc6);

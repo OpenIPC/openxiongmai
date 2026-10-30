@@ -323,6 +323,24 @@ void xmv200_sns_run(const struct xmv200_sns_drv *drv,
     drv->run(d, n, c);
     return;
   }
+  if (drv->steps) {
+    for (const char *p = n < drv->n_runs ? drv->steps[n] : ""; *p; p++)
+      switch (*p) {
+      case 'i':
+        xmv200_sns_init_step(drv, d, c);
+        break;
+      case 'f':
+        xmv200_sns_fps_step(drv, d, c);
+        break;
+      case 'a':
+        xmv200_sns_ae_step(drv, d, c);
+        break;
+      case 'p':
+        drv->set_flip(d, 0, 0);
+        break;
+      }
+    return;
+  }
   switch (n) {
   case 0:
     xmv200_sns_init_step(drv, d, c);

@@ -223,8 +223,13 @@ static const struct xmv200_sns_mode h63p_modes[] = {
     {"720p dvp", {1, 0, 1, 0}, h63p_dvp, N(h63p_dvp)},
 };
 
+/* the tuning's runs: init, frame rate, the AE's start, and the flip */
+static const char *const steps[] = {"i", "f", "a", "p"};
+
 #define DRV(nm, md, fps)                                                       \
   {.name = nm,                                                                 \
+   .n_runs = 4,                                                                \
+   .steps = steps,                                                             \
    .modes = md,                                                                \
    .n_modes = N(md),                                                           \
    .init = init,                                                               \

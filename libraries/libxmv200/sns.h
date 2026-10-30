@@ -31,6 +31,10 @@ struct xmv200_sns_attr {
   int one_lane; /* MIPI on one lane */
   int p720;     /* 1280x720, where the sensor has it */
   uint32_t fps;
+  /* the product's attribute byte the vendor's inits also read (its record's
+   * +0x20): 25 for some sensors' 25 fps table, 21, 100 ("car"), frame sync
+   * bits on the XM535; 0 for none of these */
+  uint32_t vmode;
 };
 
 struct xmv200_sns_mode {
@@ -94,6 +98,9 @@ struct xmv200_sns_drv {
   /* the tuning's sensor runs: how many the vendor's libsns makes, and
    * what each is (NULL: init, frame rate, the AE's start) */
   int n_runs; /* 0: 3 */
+  /* or the runs as steps, one string a run: 'i' init, 'f' frame rate, 'a'
+   * the AE's start, 'p' flip (mirror and flip off); NULL: "i", "f", "a" */
+  const char *const *steps;
   void (*run)(const struct xmv200_sns_dev *d, int n,
               const struct xmv200_sns_ctx *c);
 };

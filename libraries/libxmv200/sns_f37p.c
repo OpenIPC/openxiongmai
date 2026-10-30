@@ -52,7 +52,7 @@ static void init(const struct xmv200_sns_dev *d,
 
   if (d->chn < MAX_CHN)
     memset(&st[d->chn], 0, sizeof(st[d->chn]));
-  if (!m->attr.dvp && a->fps == 25)
+  if (!m->attr.dvp && a->vmode == 25)
     t = f37p_mipi_25fps, n = N(f37p_mipi_25fps);
   for (int i = 0; i < n; i++)
     w(d, t[i].reg, t[i].val);
@@ -142,7 +142,12 @@ static const struct xmv200_sns_mode modes[] = {
     {"1080p dvp", {1, 0, 0, 0}, f37p_dvp, N(f37p_dvp)},
 };
 
+/* the tuning's runs: init, frame rate, the AE's start, and the flip */
+static const char *const steps[] = {"i", "f", "a", "p"};
+
 const struct xmv200_sns_drv xmv200_sns_f37p = {
+    .n_runs = 4,
+    .steps = steps,
     .name = "F37P",
     .modes = modes,
     .n_modes = N(modes),

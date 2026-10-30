@@ -196,8 +196,14 @@ static const struct xmv200_sns_mode q03p_modes[] = {
     {"2304x1296 mipi", {0, 0, 0, 0}, q03p_mipi, N(q03p_mipi)},
 };
 
+/* the tuning's runs: init, then the frame rate and the AE's start
+ * together, then the flip */
+static const char *const steps[] = {"i", "fa", "p"};
+
 #define DRV(nm, md, aed, fps, vts)                                             \
   {.name = nm,                                                                 \
+   .n_runs = 3,                                                                \
+   .steps = steps,                                                             \
    .modes = md,                                                                \
    .n_modes = N(md),                                                           \
    .init = init,                                                               \

@@ -63,7 +63,7 @@ static void init(const struct xmv200_sns_dev *d,
   } else {
     table(d, sc1346_dvp, N(sc1346_dvp));
     usleep(100);
-    if (a->fps == 21)
+    if (a->vmode == 21)
       w(d, 0x3641, 0x02);
   }
   usleep(20000);
@@ -237,7 +237,7 @@ static void w1_init(const struct xmv200_sns_dev *d,
   } else {
     table(d, xm535w1_sc1346_dvp, N(xm535w1_sc1346_dvp));
     usleep(100);
-    if (a->fps == 21)
+    if (a->vmode == 21)
       w(d, 0x3641, 0x02);
   }
   usleep(20000);
@@ -306,7 +306,7 @@ static void xm535_init(const struct xmv200_sns_dev *d,
   if (m->regs == xm535_sc1346_dvp) {
     table(d, m->regs, m->n);
     usleep(100);
-    if (a->fps == 21)
+    if (a->vmode == 21)
       w(d, 0x3641, 0x02);
     return;
   }

@@ -3,7 +3,13 @@
  * tools/xmv200-capture/gen_all.sh. Do not edit. */
 #include "sns_tuning.h"
 
+extern const struct xmv200_sns_tuning xmv200_tuning_f37p;
+extern const struct xmv200_sns_tuning xmv200_tuning_h63;
+extern const struct xmv200_sns_tuning xmv200_tuning_h63p;
+extern const struct xmv200_sns_tuning xmv200_tuning_imx307;
 extern const struct xmv200_sns_tuning xmv200_tuning_imx335;
+extern const struct xmv200_sns_tuning xmv200_tuning_q03;
+extern const struct xmv200_sns_tuning xmv200_tuning_q03p;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1336;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1345;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1346;
@@ -56,7 +62,13 @@ extern const struct xmv200_sns_tuning xmv200_tuning_sc3338_xm535w1;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc500ai_xm535w1;
 
 const struct xmv200_sns xmv200_sensors[] = {
+    {0x0841, "F37P", &xmv200_tuning_f37p},
+    {0x0a63, "H63", &xmv200_tuning_h63},
+    {0x0848, "H63P", &xmv200_tuning_h63p},
+    {0xa0b2, "IMX307", &xmv200_tuning_imx307},
     {0x0335, "IMX335", &xmv200_tuning_imx335},
+    {0x0507, "Q03", &xmv200_tuning_q03},
+    {0x0843, "Q03P", &xmv200_tuning_q03p},
     {0xca3f, "SC1336", &xmv200_tuning_sc1336},
     {0xda23, "SC1345", &xmv200_tuning_sc1345},
     {0xda4d, "SC1346", &xmv200_tuning_sc1346},

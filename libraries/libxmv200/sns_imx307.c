@@ -144,7 +144,10 @@ static const struct xmv200_sns_mode modes[] = {
      N(imx307_mipi_4lane)},
 };
 
+/* the tuning has init and frame rate: the AE's writes go to the ISP's
+ * per-frame update */
 const struct xmv200_sns_drv xmv200_sns_imx307 = {
+    .n_runs = 2,
     .name = "IMX307",
     .modes = modes,
     .n_modes = N(modes),

@@ -2,8 +2,8 @@
 /*
  * check [FAMILY]: each tuning's sensor runs, done by its sensor driver
  * with the I2C recorded, against the runs the tuning recorded from the
- * vendor's ISP. Reads answer 0, as qemu-bench's sensor does for registers
- * it does not model. Exit 1 if a driver's writes differ.
+ * vendor's ISP. A read answers what was last written there, else 0, as
+ * qemu-bench's sensors do. Exit 1 if a driver's writes differ.
  */
 #include <stdio.h>
 #include <string.h>
@@ -18,8 +18,12 @@ static int n_wr;
 
 void (*xmv200_i2c_divert)(uint32_t reg, uint32_t val);
 
+/* the sensor's registers, as written */
+static uint8_t regs[0x10000];
+
 int xmv200_i2c_write(int bus, uint8_t dev, uint32_t reg, int reg_bytes,
                      uint32_t val, int val_bytes) {
+  regs[reg & 0xffff] = val;
   if (xmv200_i2c_divert) {
     xmv200_i2c_divert(reg, val);
     return 0;
@@ -34,7 +38,7 @@ int xmv200_i2c_write(int bus, uint8_t dev, uint32_t reg, int reg_bytes,
 
 int xmv200_i2c_read(int bus, uint8_t dev, uint32_t reg, int reg_bytes,
                     uint32_t *val, int val_bytes) {
-  *val = 0;
+  *val = regs[reg & 0xffff];
   return 0;
 }
 
@@ -82,6 +86,7 @@ int main(int argc, char **argv) {
 
     if (family && strcmp(t->chip, family))
       continue;
+    memset(regs, 0, sizeof(regs));
     m = xmv200_sns_find(s->name, t, &drv);
     printf("%-9s %-9s ", t->chip, s->name);
     if (!m) {
