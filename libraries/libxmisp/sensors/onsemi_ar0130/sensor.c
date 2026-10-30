@@ -13,7 +13,7 @@
  *   0x100 the picture goes black, so 0xff is the most it takes;
  * - the 720p25 script sets 750 lines a frame (0x300a = 0x2ee, 0x300c =
  *   0x780), which VI counts too: a line is 1 s / (25 x 750) = 53.33 us.
- * Gain is analogue first, which adds the least noise, then digital.
+ * Gain is analogue first, which adds the least noise, then digital, to 32x.
  */
 #include "script.h"
 #include "xmisp_priv.h"
@@ -71,11 +71,31 @@ static const int16_t ccm_ar0130[9] = {
     -14,  -197, 467, /* B */
 };
 
+/* Noise reduction by gain, measured on the 53X13 board in the dark lab
+ * under dimmed 4000 K bulbs (noise in the chart's grey patches, detail on
+ * the chair mesh). The AR0130 is far quieter than the JX-H62 at the same
+ * gain: at 16x, with noise reduction off, temporal noise 1.0 and luma 3.4
+ * (JX-H62: 12.6); at 32x 2.4 and 4.6; at 64x 3.6 and 5.0. So its gain goes
+ * to 32x (16x left a dim room at half the target brightness), and the
+ * schedule's 4x-16x becomes 8x-32x. At 32x the JX-H62's high set takes
+ * temporal noise from 2.4 to 1.4 and luma from 4.6 to 4.0 for 5% of the
+ * mesh's detail; the 3D strength makes no measurable difference here. The
+ * colour matrix is not eased: its chroma noise at 32x is 3.1 unshrunk
+ * (JX-H62 eased at 15x: 2.8), and easing it (a quarter, Cb/Cr 0.8) took it
+ * to 2.2 for 4 more dE on the chart (13.2 to 17.2). */
+static const struct xmisp_nr_tune nr_ar0130 = {
+    .gain_lo = 8.0f,
+    .gain_hi = 32.0f,
+    .high = {0x10, 0x2f, 0x82, 0x70, 6, 0x26, 0x20, 0x17},
+    .ccm_ease = 0.0f,
+    .cbcr = 0x100,
+};
+
 const struct xmisp_sensor xmisp_sensor_ar0130 = {
     .lines_min = 1,
     .lines_max = 746, /* a few lines short of the 750-line frame */
     .line_ns = 53333,
-    .gain_max = 16.0f, /* 8x analogue, 2x digital: noise over brightness */
+    .gain_max = 32.0f, /* 8x analogue, 4x digital (nr_ar0130) */
     /* The vendor daemon holds this sensor brighter than the JX-H62: a mean
      * of 58 in the same statistics (4000 K bulbs and daylight, 746 lines,
      * digital gain 1.28), against 37.5. */
@@ -91,6 +111,7 @@ const struct xmisp_sensor xmisp_sensor_ar0130 = {
     .awb_b_min = 1.8f,
     .awb_b_max = 2.9f,
     .ccm = ccm_ar0130,
+    .nr = &nr_ar0130,
     .get_exposure = get_exposure,
     .set_exposure = set_exposure,
 };

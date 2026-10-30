@@ -132,9 +132,8 @@ static const struct xmisp_ae_cfg ae_xm510 = {
  * detail at 2.5 (vendor's set: 0.8, 2.3); at 3x it would over-smooth
  * (detail 26 to 15), so the strength stays 0 up to 4x and reaches 1 at
  * 16x: at 9x it halves the noise (5.0 to 2.5) and keeps detail at 20 of
- * 26. The low set is the script's, read at start. */
-#define NR_GAIN_LO 4.0f
-#define NR_GAIN_HI 16.0f
+ * 26. The low set is the script's, read at start. This is the default; a
+ * sensor's driver can carry its own (xmisp_sensor.nr). */
 #define NR_STEPS 8
 #define NR_3D_STRENGTH 0x0fu /* of NR_3D_YCTRL_ERR70 */
 static const uint32_t nr_regs[] = {
@@ -148,6 +147,8 @@ static const uint32_t nr_regs[] = {
     0x40075174, /* SHARPEN_KH0 */
 };
 #define NR_REGS (sizeof(nr_regs) / sizeof(nr_regs[0]))
+/* xmisp_nr_tune.high[] holds one value for each of these. */
+typedef char nr_tune_fits[NR_REGS == 8 ? 1 : -1];
 /* Chroma noise at high gain comes from the colour matrix and the Cb/Cr
  * gain, which amplify it. At 15x (JX-H62, chart under dimmed bulbs, AWB
  * converged) chroma noise in the grey patches went from 5.4 to 2.8 with the
@@ -155,11 +156,14 @@ static const uint32_t nr_regs[] = {
  * CIELAB dE (20.6 to 23.3); Cb/Cr alone at 0.7 gave 3.1 for the same dE.
  * Turning SHARPEN_CBCR_ENABLE off raises chroma noise (5.1 to 7.7), so it
  * stays. Both follow the noise reduction's strength. */
-#define CCM_EASE_HIGH 0.25f
-#define CBCR_HIGH 0xcd /* 0.8 */
-#define NR_3D 4        /* index of NR_3D_YCTRL_ERR70 */
-static const uint32_t nr_high[NR_REGS] = {0x10, 0x2f, 0x82, 0x70,
-                                          6,    0x26, 0x20, 0x17};
+#define NR_3D 4 /* index of NR_3D_YCTRL_ERR70 */
+static const struct xmisp_nr_tune nr_xm510 = {
+    .gain_lo = 4.0f,
+    .gain_hi = 16.0f,
+    .high = {0x10, 0x2f, 0x82, 0x70, 6, 0x26, 0x20, 0x17},
+    .ccm_ease = 0.25f,
+    .cbcr = 0xcd, /* 0.8 */
+};
 
 static const struct xmisp_awb_cfg awb_xm510 = {
     .points_min = 300,
@@ -663,21 +667,23 @@ static int color_set(struct xmisp *s, float ease, uint32_t cbcr);
 static int nr_frame(struct xmisp *s) {
   if (!s->nr_on)
     return 0;
-  const float n = xmisp_strength(s->gain, NR_GAIN_LO, NR_GAIN_HI, NR_STEPS);
+  const struct xmisp_nr_tune *t =
+      s->script->sensor->nr ? s->script->sensor->nr : &nr_xm510;
+  const float n = xmisp_strength(s->gain, t->gain_lo, t->gain_hi, NR_STEPS);
   if (n == s->nr_strength)
     return 0;
   for (unsigned i = 0; i < NR_REGS; i++) {
     uint32_t v;
     if (i == NR_3D) /* the strength bits only */
       v = (s->nr_low[i] & ~NR_3D_STRENGTH) |
-          xmisp_lerp(s->nr_low[i] & NR_3D_STRENGTH, nr_high[i], n);
+          xmisp_lerp(s->nr_low[i] & NR_3D_STRENGTH, t->high[i], n);
     else
-      v = xmisp_lerp(s->nr_low[i], nr_high[i], n);
+      v = xmisp_lerp(s->nr_low[i], t->high[i], n);
     if (isp_w(s, nr_regs[i], v) < 0)
       return fail(s, "noise reduction: %s", strerror(errno));
   }
   if (s->color_on &&
-      color_set(s, CCM_EASE_HIGH * n, xmisp_lerp(CBCR_ONE, CBCR_HIGH, n)) < 0)
+      color_set(s, t->ccm_ease * n, xmisp_lerp(CBCR_ONE, t->cbcr, n)) < 0)
     return -1;
   s->nr_strength = n;
   return 1;

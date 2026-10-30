@@ -48,6 +48,18 @@ struct xmisp_op {
 struct xmisp;
 
 /* What the 3A needs of a sensor, beyond its script. */
+/* Noise reduction and sharpening by gain, for one sensor: its strength goes
+ * from 0 at gain_lo to 1 at gain_hi, taking the ISP from the script's
+ * values to high[] (XM510 order: 2D NR BASE, THDH, COEF, DELTA_THD, the 3D
+ * NR strength, SHARPEN_KD, KM0, KH0), and easing the colour matrix towards
+ * identity by up to ccm_ease with the Cb/Cr gain going to cbcr (0x100 = 1). */
+struct xmisp_nr_tune {
+  float gain_lo, gain_hi;
+  uint32_t high[8];
+  float ccm_ease;
+  uint32_t cbcr;
+};
+
 struct xmisp_sensor {
   uint32_t lines_min; /* exposure range in lines, within the frame */
   uint32_t lines_max;
@@ -62,6 +74,9 @@ struct xmisp_sensor {
    * three in units of 256, each row summing to 256 so grey stays grey;
    * NULL keeps the script's. */
   const int16_t *ccm;
+  /* Noise reduction and sharpening by gain; NULL for the SoC's, chosen on
+   * the JX-H62. */
+  const struct xmisp_nr_tune *nr;
   /* The exposure the sensor has now. 0 or -1. */
   int (*get_exposure)(struct xmisp *isp, uint32_t *lines, float *gain);
   /* Sets it; *gain comes back as the step the sensor took. 0 or -1. */
