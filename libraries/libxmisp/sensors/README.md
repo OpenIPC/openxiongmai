@@ -20,6 +20,8 @@ One directory per sensor, `<vendor>_<model>/`, containing:
 | `smartsens_sc2235` | 1080p (1136x1080) | no | no |
 | `onsemi_ar0130` | 720p | no | no |
 | `omnivision_ov9750` | 720p | no | no |
+| `omnivision_ov9732` | 720p | no | no |
+| `imagedesign_mis1002` | 720p | no | no |
 
 ## Clean room
 
@@ -49,7 +51,11 @@ it in qemu-bench instead:
   qemu-bench's `docs/xiongmai.md`).
 
 The daemon logs `[X1x]<name> sensor init OK` when it takes the sensor. With
-`sensor=none` its I2C traffic in the trace shows the probes it tries.
+`sensor=none` its I2C traffic in the trace shows the probes it tries. The
+sensors it knows are named in its log strings (`strings /usr/bin/isp`);
+their chip IDs come from public tables (ipctool) or a sweep of the probe in
+QEMU, and a probe that reads one more register once the ID matches (OV9732:
+`0x302a`) shows that in the `xm-sensor` log.
 
 ### 2. Generate the script
 

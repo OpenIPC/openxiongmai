@@ -155,6 +155,8 @@ step the one its trace gave before the template was split out
 | `sensors/smartsens_sc2235/sc2235_1080p.c` | SC2235 (`0x30`, `0x2235`) | 1136x1080 | no | emulated |
 | `sensors/onsemi_ar0130/ar0130_720p.c` | AR0130 (`0x10`, `0x2402`) | 1280x720 | no | emulated |
 | `sensors/omnivision_ov9750/ov9750_720p.c` | OV9750 (`0x36`, `0x9750` at `0x300b`) | 1280x720 | no | emulated |
+| `sensors/omnivision_ov9732/ov9732_720p.c` | OV9732 (`0x36`, `0x9732` at `0x300a`, `0x302a` = `0xa0`) | 1280x720 | no | emulated |
+| `sensors/imagedesign_mis1002/mis1002_720p.c` | MIS1002 (`0x30`, `0x2f` = `0x02`) | 1280x720 | no | emulated |
 
 The mode is VI channel 0's size; the JX-H62's runs at 25 fps, and the
 others' frame rate hasn't been measured. The fixed state
@@ -163,7 +165,7 @@ start from it.
 
 "Emulated" means traced from the vendor daemon in qemu-bench (`xm510`
 machine, a lab camera's flash dump, the generic `xm-sensor` showing the
-sensor's chip ID). None of the seven has run on hardware yet, and without a
+sensor's chip ID). None of the nine has run on hardware yet, and without a
 3A driver xmispd holds the fixed state. Two kinds of value can't be traced
 there:
 - the ISP values the daemon computes from what it reads of the hardware
