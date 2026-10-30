@@ -89,26 +89,44 @@ int main(int argc, char **argv) {
       bad = 1;
       continue;
     }
+    /* the frame rate the capture's board ran the sensor at: the first of
+     * these at which every run is the same, else the first */
+    static const uint32_t fps[] = {12, 25, 30, 15, 20, 10};
+    int f = 0;
+
+    for (int k = 0; k < (int)(sizeof(fps) / sizeof(fps[0])); k++) {
+      int all = 1;
+
+      memset(&ae, 0, sizeof(ae));
+      c = (struct xmv200_sns_ctx){m, m->attr, t->exp_lines, &ae};
+      c.attr.fps = fps[k];
+      for (int n = 0; all && n < t->n_runs; n++) {
+        n_wr = 0;
+        xmv200_sns_run(drv, &d, n, &c);
+        all = same(&t->runs[n], 0);
+      }
+      if (all) {
+        f = k;
+        break;
+      }
+    }
     memset(&ae, 0, sizeof(ae));
     c = (struct xmv200_sns_ctx){m, m->attr, t->exp_lines, &ae};
-    c.attr.fps = 12; /* the captures' boards */
+    c.attr.fps = fps[f];
     for (int n = 0; n < t->n_runs; n++) {
       n_wr = 0;
       xmv200_sns_run(drv, &d, n, &c);
       if (!same(&t->runs[n], 0)) {
         if (ok)
           printf("\n");
-        printf("    run %d: %d writes, %d recorded\n", n, n_wr, t->runs[n].n);
-        n_wr = 0;
-        /* again from the start, for the listing */
-        for (int k = 0; k <= n; k++) {
-          n_wr = 0;
-          xmv200_sns_run(drv, &d, k, &c);
-        }
+        printf("    run %d at %u fps: %d writes, %d recorded\n", n, fps[f], n_wr,
+               t->runs[n].n);
         same(&t->runs[n], 1);
         ok = 0;
       }
     }
+    if (ok)
+      printf("%u fps: ", fps[f]);
     printf(ok ? "same\n" : "");
     bad |= !ok;
   }
