@@ -9,20 +9,30 @@ checked by its MD5. Each table is register/value pairs of 16 bits each.
 
 BUILD/SENSOR.tab lists the sensor's tables in that build, one a line: the
 array's name, the address, the number of pairs (the vendor's init loop's),
-and what the vendor logs for it.
+and what the vendor logs for it. A name ending in :u8 or :u32 is a plain
+array of that many bytes or words instead (gain tables), from the text or
+the data segment.
 """
 import hashlib
 import os
 import struct
 import sys
 
-# md5: the build's directory here, and its text segment's address (at file
-# offset 0)
+# md5: the build's directory here, and its segments (address, file offset,
+# size)
 BUILDS = {
     # the XM530V200's ("[libsns]:Nov 20 2024 21:07:23 e89d30f"), from the
     # X6C-WEQ's V5.04.R02.20241125 firmware
-    "7d3a3a1ffcc84eb6d7bf3c41b8b9c2c8": ("xm530v200", 0x8000),
+    "7d3a3a1ffcc84eb6d7bf3c41b8b9c2c8": (
+        "xm530v200", [(0x8000, 0, 0x9666C), (0xA7000, 0x97000, 0x60C0)]),
 }
+
+
+def offset(segs, addr):
+    for va, off, size in segs:
+        if va <= addr < va + size:
+            return addr - va + off
+    sys.exit("%x is in no segment" % addr)
 
 
 def main():
@@ -31,7 +41,7 @@ def main():
     md5 = hashlib.md5(data).hexdigest()
     if md5 not in BUILDS:
         sys.exit("%s: unknown build %s" % (isp, md5))
-    build, base = BUILDS[md5]
+    build, segs = BUILDS[md5]
     tab = os.path.join(os.path.dirname(os.path.abspath(__file__)), build,
                        sensor + ".tab")
     print("/* SPDX-License-Identifier: MIT */")
@@ -45,9 +55,23 @@ def main():
         name, addr, n, what = line.split(None, 3)
         addr, n = int(addr, 0), int(n, 0)
         print("\n/* %s */" % what.strip())
+        if name.endswith(":u8") or name.endswith(":u32"):
+            name, kind = name.split(":")
+            size = 1 if kind == "u8" else 4
+            vals = struct.unpack_from("<%d%s" % (n, "B" if size == 1 else "I"),
+                                      data, offset(segs, addr))
+            print("const %s %s[%d] = {" %
+                  ("uint8_t" if size == 1 else "uint32_t", name, n))
+            per = 12 if size == 1 else 6
+            for i in range(0, n, per):
+                print("    " + " ".join(("0x%02x," if size == 1 else "0x%x,") % v
+                                        for v in vals[i:i + per]))
+            print("};")
+            continue
         print("const struct xmv200_sns_reg %s[%d] = {" % (name, n))
         for i in range(n):
-            reg, val = struct.unpack_from("<HH", data, addr - base + i * 4)
+            reg, val = struct.unpack_from("<HH", data,
+                                          offset(segs, addr) + i * 4)
             if val > 0xff:
                 sys.exit("%s: %04x = %x is not a byte" % (name, reg, val))
             print("    {0x%04x, 0x%02x}," % (reg, val))
