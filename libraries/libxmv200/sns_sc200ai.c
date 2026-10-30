@@ -409,3 +409,128 @@ static void w1_run(const struct xmv200_sns_dev *d, int n,
     break;
   }
 }
+
+/* ---- XM535 ---- */
+
+/*
+ * The XM535D1's libsns (Aug 12 2025 d2db8e4): 1080p and 720p MIPI, linear.
+ * Its gain leaves the short frame's registers alone, its AE starts without
+ * a short exposure, and its frame rates are 25 (the rest), 26, 30 and 31.
+ * Exposure, frame length, the gain's steps and flip are the XM530V200's.
+ */
+extern const struct xmv200_sns_reg xm535_sc200ai_mipi[111],
+    xm535_sc200ai_720p_mipi[132];
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    MODE("1080p mipi", 0, 0, xm535_sc200ai_mipi),
+    MODE("720p mipi", 0, 1, xm535_sc200ai_720p_mipi),
+};
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
+  for (int i = 0; i < m->n; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  usleep(20000);
+}
+
+static void xm535_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t hts, vts;
+
+  switch (fps) {
+  case 30:
+    if (a->p720) {
+      w(d, 0x330b, 0x8b);
+      vts = 0x2ee, hts = 2000;
+    } else {
+      vts = 0x465, hts = 0x898;
+    }
+    break;
+  case 31: /* 30 */
+    vts = 0x466, hts = 0x898;
+    break;
+  case 26: /* 25 */
+    vts = 0x466, hts = 0xa50;
+    break;
+  default: /* 25 */
+    if (a->p720) {
+      w(d, 0x330b, 0x88);
+      vts = 0x2ee, hts = 0x960;
+    } else {
+      vts = 0x465, hts = 0xa50;
+    }
+  }
+  ae->full_lines = vts;
+  ae->max_lines = vts - 4;
+  w(d, 0x320c, hts >> 9);
+  w(d, 0x320d, hts >> 1 & 0xfc);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xef);
+  if (d->chn < MAX_CHN)
+    st[d->chn].vts = vts;
+}
+
+static void xm535_set_gain(const struct xmv200_sns_dev *d, uint32_t again,
+                           uint32_t dreg) {
+  uint32_t coarse = ((again & 0xffff) >> 8) << 2 | (again >> 31 ? 0x23 : 3);
+
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].valid & 2 && st[d->chn].again == again &&
+        st[d->chn].dgain == dreg)
+      return;
+    st[d->chn].again = again;
+    st[d->chn].dgain = dreg;
+    st[d->chn].valid |= 2;
+  }
+  w(d, 0x3e08, coarse);
+  w(d, 0x3e09, again & 0xff);
+  w(d, 0x3e06, (dreg & 0xffff) >> 8);
+  w(d, 0x3e07, dreg & 0xff);
+}
+
+static void xm535_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c);
+
+const struct xmv200_sns_drv xmv200_sns_sc200ai_xm535 = {
+    .name = "SC200AI",
+    .family = "xm535",
+    .exp_shift = 1,
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = xm535_init,
+    .ae_default = ae_default,
+    .set_fps = xm535_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = xm535_set_gain,
+    .set_flip = set_flip,
+    .run = xm535_run,
+};
+
+/* the AE starts from half the tuning's exposure (half lines) */
+static void xm535_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c) {
+  const struct xmv200_sns_drv *drv = &xmv200_sns_sc200ai_xm535;
+  uint32_t idx, reg, real;
+
+  switch (n) {
+  case 0:
+    xmv200_sns_init_step(drv, d, c);
+    break;
+  case 1:
+    xmv200_sns_fps_step(drv, d, c);
+    break;
+  case 2:
+    set_exposure(d, c->exp_lines / 2);
+    again_calc(0x20, &idx, &real);
+    dgain_calc(0x20, &reg, &real);
+    xm535_set_gain(d, idx, reg);
+    break;
+  }
+}

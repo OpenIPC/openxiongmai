@@ -241,3 +241,122 @@ static void run(const struct xmv200_sns_dev *d, int n,
   dgain_calc(0x20, &reg, &real);
   set_gain(d, idx, reg);
 }
+
+/* ---- XM535 ---- */
+
+/*
+ * The XM535D1's libsns (Aug 12 2025 d2db8e4): exposure in whole lines
+ * (0x3e02 holds (lines & 0xf) << 4), its own frame rates (10, 12, 15, 20,
+ * 30 and 66000 / fps line lengths at 1125 lines), the frame length's low
+ * byte masked with 0xef, and flip without turning a channel round. The
+ * gain, its temperature cap and steps are the XM530V200's. The 2-lane
+ * frame-sync (+0x20 0x19) master/slave writes are not done.
+ */
+extern const struct xmv200_sns_reg xm535_sc2331_mipi_1lane[140],
+    xm535_sc2331_mipi[129], xm535_sc2331_dvp[139];
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    MODE("1080p mipi 1 lane", 0, 1, xm535_sc2331_mipi_1lane),
+    MODE("1080p mipi", 0, 0, xm535_sc2331_mipi),
+    MODE("1080p dvp", 1, 0, xm535_sc2331_dvp),
+};
+
+static void xm535_set_exposure(const struct xmv200_sns_dev *d,
+                               uint32_t lines) {
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].valid & 1 && st[d->chn].exposure == lines)
+      return;
+    st[d->chn].exposure = lines;
+    st[d->chn].valid |= 1;
+  }
+  w(d, 0x3e02, (lines & 0xf) << 4);
+  w(d, 0x3e01, (lines & 0xfff) >> 4);
+  w(d, 0x3e00, (lines & 0xffff) >> 12);
+}
+
+static void xm535_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t hts, vts = 1125;
+
+  switch (fps) {
+  case 15:
+    if (a->one_lane)
+      w(d, 0x301f, 0x78);
+    hts = 2200, vts = 2250;
+    break;
+  case 10:
+    if (a->one_lane)
+      w(d, 0x301f, 0x78);
+    hts = 3300, vts = 2250;
+    break;
+  case 12:
+    if (a->one_lane)
+      w(d, 0x301f, 0x79);
+    hts = 2640, vts = 2250;
+    break;
+  case 20:
+    if (a->one_lane)
+      w(d, 0x301f, 0x79);
+    hts = 3300;
+    break;
+  case 30:
+    if (a->one_lane)
+      w(d, 0x301f, 0x78);
+    hts = 2200;
+    break;
+  default:
+    hts = 66000 / (fps ? fps : 1);
+  }
+  ae->full_lines = vts;
+  ae->max_lines = vts - 7;
+  if (d->chn < MAX_CHN && st[d->chn].valid & 1 &&
+      ae->max_lines < st[d->chn].exposure)
+    xm535_set_exposure(d, ae->max_lines);
+  w(d, 0x320c, hts >> 8);
+  w(d, 0x320d, hts & 0xff);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xef);
+  if (d->chn < MAX_CHN)
+    st[d->chn].vts = vts;
+}
+
+static void xm535_set_vts(const struct xmv200_sns_dev *d, uint32_t vts,
+                          struct xmv200_sns_ae *ae) {
+  if (d->chn < MAX_CHN && st[d->chn].vts == vts)
+    return;
+  if (d->chn < MAX_CHN)
+    st[d->chn].vts = vts;
+  ae->full_lines = vts;
+  ae->max_lines = vts - 7;
+  if (d->chn < MAX_CHN && st[d->chn].valid & 1 &&
+      ae->max_lines < st[d->chn].exposure)
+    xm535_set_exposure(d, ae->max_lines);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xff);
+}
+
+static void xm535_set_flip(const struct xmv200_sns_dev *d, int mirror,
+                           int flip) {
+  uint32_t v = r(d, 0x3221);
+
+  v = mirror ? v | 0x06 : v & ~0x06u;
+  v = flip ? v | 0x60 : v & ~0x60u;
+  w(d, 0x3221, v);
+}
+
+const struct xmv200_sns_drv xmv200_sns_sc2331_xm535 = {
+    .name = "SC2331",
+    .family = "xm535",
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = xm535_set_fps,
+    .set_vts = xm535_set_vts,
+    .set_exposure = xm535_set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = xm535_set_flip,
+};

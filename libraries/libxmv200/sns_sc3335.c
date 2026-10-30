@@ -336,3 +336,67 @@ static void w1_run(const struct xmv200_sns_dev *d, int n,
     break;
   }
 }
+
+/* ---- XM535 ---- */
+
+/*
+ * The XM535D1's libsns (Aug 12 2025 d2db8e4): one mode (its MIPI "Test"
+ * table, 1350 lines), no frame rate function (the vendor's returns at
+ * once), the gain's two settings in one row of the XM530V200's levels
+ * (its 3 MP one). Exposure, the gain's steps, frame length and flip are
+ * the XM530V200's. The tuning recorded the init alone.
+ */
+extern const struct xmv200_sns_reg xm535_sc3335_mipi[113];
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    MODE("3 MP mipi", 0, 0, xm535_sc3335_mipi),
+};
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  struct xmv200_sns_attr a3 = *a;
+
+  a3.p720 = 0; /* the gain's settings: the 3 MP row */
+  init(d, m, &a3);
+}
+
+static void xm535_ae_default(const struct xmv200_sns_attr *a,
+                             struct xmv200_sns_ae *ae) {
+  ae->full_lines = 1350;
+  ae->max_lines = 1345;
+  ae->again_min = 0x400 >> 5;
+  ae->again_max = 0x3f00 >> 5;
+  ae->dgain_min = 0x80 >> 2;
+  ae->dgain_max = 0xfc0 >> 2;
+}
+
+static void xm535_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+}
+
+static void xm535_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c) {
+  if (n == 0)
+    xm535_init(d, c->mode, &c->attr);
+}
+
+const struct xmv200_sns_drv xmv200_sns_sc3335_xm535 = {
+    .name = "SC3335",
+    .family = "xm535",
+    .exp_shift = 1,
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = xm535_init,
+    .ae_default = xm535_ae_default,
+    .set_fps = xm535_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+    .n_runs = 1,
+    .run = xm535_run,
+};

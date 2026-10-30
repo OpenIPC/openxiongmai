@@ -265,3 +265,112 @@ static const struct xmv200_sns_mode w1_modes[] = {
 
 const struct xmv200_sns_drv xmv200_sns_sc1346_xm535w1 = W1_DRV("SC1346");
 const struct xmv200_sns_drv xmv200_sns_sc1a4t_xm535w1 = W1_DRV("SC1A4T");
+
+/* ---- XM535 ---- */
+
+/*
+ * The XM535D1's libsns (Aug 12 2025 d2db8e4): the table by the interface,
+ * and on a frame-synced board (cmos_set_sns_attr's +0x20 with 0x11)
+ * channel 0 the slave (0x3211, 0x3222, 0x3224 and 0x322e..0x3231 after its
+ * table), the others the master (0x300a = 0x24). The synced mode's
+ * registers are channel 0's; a tuning picks it by them. A frame rate sets
+ * the line length unmasked, does not shorten the exposure, and on the
+ * slave also 0x322e/0x322f = VTS - 4. The "alt" table is the vendor's for
+ * a channel whose word at 0xa9ecc is 1; its line lengths are 33/40 of the
+ * others. Exposure, gain and frame length are the XM530V200's.
+ */
+extern const struct xmv200_sns_reg xm535_sc1346_mipi_sync[138],
+    xm535_sc1346_mipi[131], xm535_sc1346_mipi_alt[112], xm535_sc1346_dvp[140];
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    {"720p mipi, frame sync", {0, 0, 1, 0}, xm535_sc1346_mipi_sync,
+     N(xm535_sc1346_mipi_sync)},
+    {"720p mipi", {0, 0, 1, 0}, xm535_sc1346_mipi, N(xm535_sc1346_mipi)},
+    {"720p mipi alt", {0, 0, 1, 0}, xm535_sc1346_mipi_alt,
+     N(xm535_sc1346_mipi_alt)},
+    {"720p dvp", {1, 0, 1, 0}, xm535_sc1346_dvp, N(xm535_sc1346_dvp)},
+};
+
+static struct {
+  int sync, alt;
+} xm535_st[MAX_CHN];
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN) {
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
+    xm535_st[d->chn].sync = m == &xm535_modes[0];
+    xm535_st[d->chn].alt = m == &xm535_modes[2];
+  }
+  if (m->regs == xm535_sc1346_dvp) {
+    table(d, m->regs, m->n);
+    usleep(100);
+    if (a->fps == 21)
+      w(d, 0x3641, 0x02);
+    return;
+  }
+  if (m->regs == xm535_sc1346_mipi_sync && d->chn) {
+    table(d, m->regs, 130);
+    w(d, 0x300a, 0x24);
+    w(d, 0x0100, 0x01);
+    return;
+  }
+  table(d, m->regs, m->n);
+}
+
+static void xm535_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t hts = 2000, vts;
+
+  switch (fps) {
+  case 20:
+    vts = 1125;
+    break;
+  case 10:
+    vts = 4500;
+    break;
+  case 12:
+    hts = 2400, vts = 1500;
+    break;
+  case 25:
+    hts = 2400, vts = 750;
+    break;
+  case 30:
+    vts = 750;
+    break;
+  default:
+    vts = 22500 / (int)(fps ? fps : 1);
+  }
+  if (d->chn < MAX_CHN && xm535_st[d->chn].alt)
+    hts = hts * 33 / 40;
+  ae->full_lines = vts;
+  ae->max_lines = vts - 6;
+  w(d, 0x320c, hts >> 8);
+  w(d, 0x320d, hts & 0xff);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xff);
+  if (d->chn == 0 && xm535_st[0].sync) {
+    w(d, 0x322e, (vts - 4) >> 8);
+    w(d, 0x322f, (vts - 4) & 0xff);
+  }
+}
+
+#define XM535_DRV(nm)                                                          \
+  {.name = nm,                                                                 \
+   .family = "xm535",                                                          \
+   .modes = xm535_modes,                                                       \
+   .n_modes = N(xm535_modes),                                                  \
+   .init = xm535_init,                                                         \
+   .ae_default = ae_default,                                                   \
+   .set_fps = xm535_set_fps,                                                   \
+   .set_vts = set_vts,                                                         \
+   .set_exposure = set_exposure,                                               \
+   .again_calc = again_calc,                                                   \
+   .dgain_calc = dgain_calc,                                                   \
+   .set_gain = set_gain,                                                       \
+   .set_flip = set_flip}
+
+const struct xmv200_sns_drv xmv200_sns_sc1346_xm535 = XM535_DRV("SC1346");
+const struct xmv200_sns_drv xmv200_sns_sc1a4t_xm535 = XM535_DRV("SC1A4T");

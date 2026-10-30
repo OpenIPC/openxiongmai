@@ -265,3 +265,40 @@ static void w1_run(const struct xmv200_sns_dev *d, int n,
     break;
   }
 }
+
+/* ---- XM535 ---- */
+
+/*
+ * The XM535D1's libsns (Aug 12 2025 d2db8e4): the XM530V200's functions
+ * with its own table. The tuning recorded the init alone.
+ */
+extern const struct xmv200_sns_reg xm535_sc401ai_mipi[122];
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    {"4 MP mipi", {0, 0, 0, 0}, xm535_sc401ai_mipi, N(xm535_sc401ai_mipi)},
+};
+
+static void xm535_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c) {
+  if (n == 0)
+    init(d, c->mode, &c->attr);
+}
+
+const struct xmv200_sns_drv xmv200_sns_sc401ai_xm535 = {
+    .name = "SC401AI",
+    .family = "xm535",
+    .exp_shift = 1,
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+    .n_runs = 1,
+    .run = xm535_run,
+};

@@ -202,3 +202,86 @@ static void run(const struct xmv200_sns_dev *d, int n,
   else if (n == 3)
     set_flip(d, 0, 0);
 }
+
+/* ---- XM535 ---- */
+
+/*
+ * The XM535D1's libsns (Aug 12 2025 d2db8e4), unchecked (no tuning): its
+ * table, line lengths for 12, 15, 20 (the rest), 25 and 30 fps, written
+ * only when the rate changes, and flip without 0x3211. Exposure, gain and
+ * frame length are the XM530V200's.
+ */
+extern const struct xmv200_sns_reg xm535_sc4336_4m[149];
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    {"4m mipi", {0, 0, 0, 0}, xm535_sc4336_4m, N(xm535_sc4336_4m)},
+};
+
+static uint32_t xm535_fps; /* the vendor's one for all channels */
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  xm535_fps = 0;
+  init(d, m, a);
+}
+
+static void xm535_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t hts;
+
+  switch (fps) {
+  case 15:
+    hts = 5600;
+    break;
+  case 12:
+    hts = 6720;
+    break;
+  case 25:
+    hts = 3360;
+    break;
+  case 30:
+    hts = 2800;
+    break;
+  default:
+    hts = 4200, fps = 20;
+  }
+  if (fps == xm535_fps)
+    return;
+  xm535_fps = fps;
+  ae->full_lines = 1500;
+  ae->max_lines = 1490;
+  if (d->chn < MAX_CHN && st[d->chn].valid & 1 &&
+      ae->max_lines < st[d->chn].exposure)
+    set_exposure(d, ae->max_lines);
+  w(d, 0x320c, hts >> 8);
+  w(d, 0x320d, hts & 0xf8);
+  w(d, 0x320e, 0x05);
+  w(d, 0x320f, 0xdc);
+}
+
+static void xm535_set_flip(const struct xmv200_sns_dev *d, int mirror,
+                           int flip) {
+  uint32_t v = r(d, 0x3221);
+
+  v = mirror ? v | 0x06 : v & ~0x06u;
+  v = flip ? v | 0x60 : v & ~0x60u;
+  w(d, 0x3221, v);
+}
+
+const struct xmv200_sns_drv xmv200_sns_sc4336_xm535 = {
+    .name = "SC4336",
+    .family = "xm535",
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = xm535_init,
+    .ae_default = ae_default,
+    .set_fps = xm535_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = xm535_set_flip,
+};
