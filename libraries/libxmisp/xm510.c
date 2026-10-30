@@ -765,12 +765,16 @@ static void nr3d_off(struct xmisp *s) {
   delay_ms(NR_3D_STOP_MS);
 }
 
-int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
-  char why[sizeof(s->err)] = "";
-  /* A daemon that died without its way out left 3D-NR writing to the "Isp"
-   * block: stop it before the MMZ and VI resets hand that memory on. */
-  nr3d_off(s);
+/* Runs the scripts that are (or, with mode < 0, are not) of this height, in
+ * order, until one's sensor answers. 0 once one has started, -1 if one
+ * failed part way, 1 if none of their sensors answered (why says the last
+ * miss). */
+static int try_scripts(struct xmisp *s,
+                       const struct xmisp_script *const *scripts,
+                       unsigned height, int mode, char *why, size_t len) {
   for (; *scripts; scripts++) {
+    if (height && ((*scripts)->height == height) != (mode > 0))
+      continue;
     s->script = *scripts;
     const unsigned n = xmisp_expand(xmisp_xm510_start, s->script, NULL, 0);
     struct xmisp_op *start = malloc(n * sizeof(*start));
@@ -782,7 +786,7 @@ int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
     int r = run(s, start);
     free(start);
     if (r > 0) {
-      snprintf(why, sizeof(why), "%s", s->err);
+      snprintf(why, len, "%s", s->err);
       continue;
     }
     if (r == 0)
@@ -805,7 +809,25 @@ int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
     return -1;
   }
   s->script = NULL;
+  return 1;
+}
+
+int xmisp_start_mode(struct xmisp *s, const struct xmisp_script *const *scripts,
+                     unsigned height) {
+  char why[sizeof(s->err)] = "";
+  /* A daemon that died without its way out left 3D-NR writing to the "Isp"
+   * block: stop it before the MMZ and VI resets hand that memory on. */
+  nr3d_off(s);
+  int r = try_scripts(s, scripts, height, 1, why, sizeof(why));
+  if (r > 0 && height)
+    r = try_scripts(s, scripts, height, -1, why, sizeof(why));
+  if (r <= 0)
+    return r;
   return fail(s, "no sensor script fits (last: %s)", why[0] ? why : "none");
+}
+
+int xmisp_start(struct xmisp *s, const struct xmisp_script *const *scripts) {
+  return xmisp_start_mode(s, scripts, 0);
 }
 
 const struct xmisp_script *xmisp_script(const struct xmisp *s) {

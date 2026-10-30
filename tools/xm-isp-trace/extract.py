@@ -236,6 +236,17 @@ class Trace:
                 self.fail(f"no sensor {name}")
         self.segs = segs
 
+    def frame(self):
+        """VI channel 0's size, from its _IOW('V', 1, 12) setup {chn, w, h}:
+        the main picture, so the mode."""
+        for name, steps in self.segs:
+            for s in steps:
+                if s[0] == "XMISP_VI_IOW" and s[1] == 0x400C5601:
+                    n, chn, w, h = self.args[s[2] : s[2] + 4]
+                    if n >= 3 and chn == 0:
+                        return w, h
+        self.fail("no VI channel 0 setup")
+
     def bus(self):
         buses = {tuple(s[4]) for name, st in self.segs if name in ("init", "post")
                  for s in st if s[4]}
@@ -424,6 +435,8 @@ def main():
     sensor = f"\n    .sensor = &xmisp_sensor_{a.sensor}," if a.sensor else ""
     print(f"""const struct xmisp_script xmisp_{name} = {{
     .name = "{desc}",{sensor}
+    .width = {tr.frame()[0]},
+    .height = {tr.frame()[1]},
     .i2c_dev = {bus[0]:#x},
     .reg_bytes = {bus[1]},
     .data_bytes = {bus[2]},

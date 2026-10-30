@@ -196,6 +196,8 @@ static const struct xmisp_op fixed[] = {
 
 const struct xmisp_script xmisp_h65_720p = {
     .name = "JX-H65 720p",
+    .width = 1280,
+    .height = 720,
     .i2c_dev = 0x30,
     .reg_bytes = 1,
     .data_bytes = 1,

@@ -157,6 +157,18 @@ step the one its trace gave before the template was split out
 | `sensors/omnivision_ov9750/ov9750_720p.c` | OV9750 (`0x36`, `0x9750` at `0x300b`) | 1280x720 | no | emulated |
 | `sensors/omnivision_ov9732/ov9732_720p.c` | OV9732 (`0x36`, `0x9732` at `0x300a`, `0x302a` = `0xa0`) | 1280x720 | no | emulated |
 | `sensors/imagedesign_mis1002/mis1002_720p.c` | MIS1002 (`0x30`, `0x2f` = `0x02`) | 1280x720 | no | emulated |
+| `sensors/smartsens_sc1135/sc1135_720p.c`, `sc1135_960p.c` | SC1135 (`0x30`, `0x3008`/`0x3005` = `0x60`/`0x22`) | 1280x720, 1280x960 | no | emulated |
+| `sensors/smartsens_sc1235/sc1235_960p.c` | SC1235 | 1280x960 | no | emulated |
+| `sensors/soi_jxh65/h65_960p.c` | JX-H65 | 1280x960 | no | emulated |
+
+A sensor's modes are separate scripts, each with its picture size
+(`width`, `height`: VI channel 0). `xmisp_start_mode()` tries the scripts
+of the lines asked for first and the rest after, so a sensor without that
+mode starts in its other one. The vendor daemon takes the mode from
+`Profile=960` in its own configuration, `/mnt/mtd/Config/Json/format`
+(`KEY=VALUE` lines; it starts SC1135, SC1235 and JX-H65 in 960P with it,
+OV9750 stays 720P), which majestic writes from `video0.size`; xmispd reads
+the same file.
 
 The mode is VI channel 0's size; the JX-H62's runs at 25 fps, and the
 others' frame rate hasn't been measured. The fixed state
@@ -165,7 +177,7 @@ start from it.
 
 "Emulated" means traced from the vendor daemon in qemu-bench (`xm510`
 machine, a lab camera's flash dump, the generic `xm-sensor` showing the
-sensor's chip ID). None of the nine has run on hardware yet, and without a
+sensor's chip ID). None of the emulated ones has run on hardware yet, and without a
 3A driver xmispd holds the fixed state. Two kinds of value can't be traced
 there:
 - the ISP values the daemon computes from what it reads of the hardware

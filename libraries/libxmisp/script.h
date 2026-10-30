@@ -79,6 +79,7 @@ struct xmisp_isp_val {
 struct xmisp_script {
   const char *name;
   const struct xmisp_sensor *sensor; /* NULL: the fixed state only */
+  uint16_t width, height;            /* VI channel 0: the main picture */
   uint8_t i2c_dev;                   /* 7-bit sensor address */
   uint8_t reg_bytes;                 /* 1 or 2 */
   uint8_t data_bytes;                /* 1 or 2 */

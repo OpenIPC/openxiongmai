@@ -22,6 +22,13 @@ struct xmisp *xmisp_open(void);
  * script's fixed 3A state. 0, or -1 with xmisp_error() saying why. */
 int xmisp_start(struct xmisp *isp, const struct xmisp_script *const *scripts);
 
+/* As xmisp_start(), preferring the scripts whose picture is this many lines
+ * (a sensor's 960P mode for 960): those are tried first, and the rest only
+ * if none of their sensors answers. 0 tries them all in order. */
+int xmisp_start_mode(struct xmisp *isp,
+                     const struct xmisp_script *const *scripts,
+                     unsigned height);
+
 /* The script that started, or NULL. */
 const struct xmisp_script *xmisp_script(const struct xmisp *isp);
 

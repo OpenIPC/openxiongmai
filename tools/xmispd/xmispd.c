@@ -14,6 +14,13 @@
  * start and again on SIGHUP. XMISPD_ANTIFLICKER in the environment (0, 50
  * or 60) overrides it.
  *
+ * The sensor mode follows the vendor daemon's own configuration, which
+ * majestic writes from its video0.size: "Profile=960" in ISP_CONFIG prefers
+ * a sensor's 960P script (1280x960). The script that started is reported as
+ * the vendor daemon reports its sensor, "<name> sensor init OK", the name
+ * carrying the mode ("SC1235 960p"), which is how majestic sizes the main
+ * stream.
+ *
  * Output follows the vendor daemon's format, which the streamer forwards to
  * its log: "\033[0;32;32mDEBUG: ..." or "\033[0;32;31mERR: ...", each line
  * followed by "\033[m".
@@ -34,6 +41,8 @@
 
 #define LOCK_FILE "/tmp/Isplock"
 #define MAJESTIC_YAML "/etc/majestic.yaml"
+/* The vendor daemon's configuration, at the path its binary fixes. */
+#define ISP_CONFIG "/mnt/mtd/Config/Json/format"
 
 static void say(const char *kind, const char *fmt, ...) {
   va_list ap;
@@ -100,6 +109,21 @@ static void antiflicker(struct xmisp *isp) {
           500.0 / hz);
 }
 
+/* The picture's lines ISP_CONFIG asks for: 960 for "Profile=960", else 0
+ * (the sensor's first script). */
+static unsigned profile_height(void) {
+  FILE *f = fopen(ISP_CONFIG, "r");
+  if (!f)
+    return 0;
+  char line[128];
+  unsigned h = 0;
+  while (fgets(line, sizeof(line), f))
+    if (!strncmp(line, "Profile=", 8) && atoi(line + 8) == 960)
+      h = 960;
+  fclose(f);
+  return h;
+}
+
 int main(void) {
   /* One daemon at a time, as the vendor's lock file has it. */
   const int lock = open(LOCK_FILE, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
@@ -123,11 +147,12 @@ int main(void) {
     error("cannot open the ISP devices: %s", strerror(errno));
     return 1;
   }
-  if (xmisp_start(isp, xmisp_scripts) < 0) {
+  if (xmisp_start_mode(isp, xmisp_scripts, profile_height()) < 0) {
     error("%s", xmisp_error(isp));
     xmisp_close(isp);
     return 1;
   }
+  debug("%s sensor init OK", xmisp_script(isp)->name);
   debug("%s up: open ISP, %s, %s", xmisp_script(isp)->name,
         xmisp_ae_enabled(isp) ? "auto-exposure"
                               : "fixed exposure (no driver for the sensor)",
