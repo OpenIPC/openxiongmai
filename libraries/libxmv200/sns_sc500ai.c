@@ -259,3 +259,54 @@ static void run(const struct xmv200_sns_dev *d, int n,
     xmv200_sns_ae_step(&xmv200_sns_sc500ai, d, &x);
   }
 }
+
+/* ---- XM535 ---- */
+
+/*
+ * The XM535D1's libsns (Aug 12 2025 d2db8e4), unchecked (no tuning): its
+ * tables (4 lanes where the vendor's lane field is 2), and its gain
+ * without the XM530V200's 0x5799 and temperature settings. Exposure,
+ * frame rate, frame length, the gain's steps and flip are the XM530V200's.
+ */
+extern const struct xmv200_sns_reg xm535_sc500ai_5m_2lane[126],
+    xm535_sc500ai_5m_4lane[125];
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    {"5m mipi 2 lanes", {0, 0, 0, 0}, xm535_sc500ai_5m_2lane,
+     N(xm535_sc500ai_5m_2lane)},
+    {"5m mipi 4 lanes", {0, 0, 0, 0}, xm535_sc500ai_5m_4lane,
+     N(xm535_sc500ai_5m_4lane)},
+};
+
+static void xm535_set_gain(const struct xmv200_sns_dev *d, uint32_t again,
+                           uint32_t dgain) {
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].valid && st[d->chn].again == again &&
+        st[d->chn].dgain == dgain)
+      return;
+    st[d->chn].again = again;
+    st[d->chn].dgain = dgain;
+    st[d->chn].valid = 1;
+  }
+  w(d, 0x3e08, ((again & 0xffff) >> 8) << 2 | (again >> 31 ? 0x23 : 0x03));
+  w(d, 0x3e09, again & 0xff);
+  w(d, 0x3e06, (dgain & 0xffff) >> 8);
+  w(d, 0x3e07, dgain & 0xff);
+}
+
+const struct xmv200_sns_drv xmv200_sns_sc500ai_xm535 = {
+    .name = "SC500AI",
+    .family = "xm535",
+    .exp_shift = 1,
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = xm535_set_gain,
+    .set_flip = set_flip,
+};

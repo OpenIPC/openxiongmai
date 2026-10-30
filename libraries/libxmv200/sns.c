@@ -59,6 +59,9 @@ extern const struct xmv200_sns_drv xmv200_sns_sc223ap_xm535;
 extern const struct xmv200_sns_drv xmv200_sns_sc2331_xm535;
 extern const struct xmv200_sns_drv xmv200_sns_sc3335_xm535;
 extern const struct xmv200_sns_drv xmv200_sns_sc401ai_xm535;
+extern const struct xmv200_sns_drv xmv200_sns_sc4336_xm535;
+extern const struct xmv200_sns_drv xmv200_sns_sc500ai_xm535;
+extern const struct xmv200_sns_drv xmv200_sns_sc3338_xm535;
 
 static const struct xmv200_sns_drv *const drivers[] = {
     &xmv200_sns_sc2336,
@@ -111,6 +114,9 @@ static const struct xmv200_sns_drv *const drivers[] = {
     &xmv200_sns_sc2331_xm535,
     &xmv200_sns_sc3335_xm535,
     &xmv200_sns_sc401ai_xm535,
+    &xmv200_sns_sc4336_xm535,
+    &xmv200_sns_sc500ai_xm535,
+    &xmv200_sns_sc3338_xm535,
 };
 
 static const char *family_of(const struct xmv200_sns_drv *drv) {
