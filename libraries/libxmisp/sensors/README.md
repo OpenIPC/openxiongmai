@@ -13,16 +13,16 @@ One directory per sensor, `<vendor>_<model>/`, containing:
 | Directory | Modes | 3A driver | Tested on hardware |
 |---|---|---|---|
 | `soi_jxh62` | 720p, 25 fps | yes | yes (lab XM510) |
-| `soi_jxh42` | 720p | no | no |
-| `soi_jxh65` | 720p, 960p | no | no |
-| `smartsens_sc1235` | 720p, 960p | no | no |
-| `smartsens_sc2145h` | 720p | no | no |
-| `smartsens_sc2235` | 1080p (1136x1080) | no | no |
+| `soi_jxh42` | 720p | from the trace | no |
+| `soi_jxh65` | 720p, 960p | from the trace | no |
+| `smartsens_sc1235` | 720p, 960p | from the trace | no |
+| `smartsens_sc2145h` | 720p | from the trace | no |
+| `smartsens_sc2235` | 1080p (1136x1080) | from the trace | no |
 | `onsemi_ar0130` | 720p, 25 fps | yes | yes (53X13 XM510 board) |
-| `omnivision_ov9750` | 720p | no | no |
-| `omnivision_ov9732` | 720p | no | no |
+| `omnivision_ov9750` | 720p | from the trace | no |
+| `omnivision_ov9732` | 720p | from the trace | no |
 | `imagedesign_mis1002` | 720p | no | no |
-| `smartsens_sc1135` | 720p, 960p | no | no |
+| `smartsens_sc1135` | 720p, 960p | from the trace | no |
 
 ## Clean room
 
@@ -96,7 +96,14 @@ main stream from "960p" in it.
 
 ### 4. 3A driver
 
-Measure these on the hardware, or take them from the datasheet:
+A trace of the vendor daemon in the dark (or emulated, where the statistics
+read 0) shows its AE taking exposure to its longest and gain up through the
+same gains on every sensor (`../README.md`, "3A drivers from emulated
+traces"): that gives the registers, the codes for known gains, the gain
+ceiling, the settings written with the gain, and the white balance range
+its AWB searches. Add the ramp to `../test/sensor_test.c`.
+
+Better, measure these on the hardware, or take them from the datasheet:
 - the exposure registers and the line range;
 - the gain register's encoding and its steps. The JX-H62's was found by
   stepping the register and reading the AE statistics (`../README.md`,

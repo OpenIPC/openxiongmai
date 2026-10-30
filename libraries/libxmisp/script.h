@@ -119,5 +119,16 @@ unsigned xmisp_expand(const struct xmisp_op *soc,
 extern const struct xmisp_script xmisp_h62_720p;
 extern const struct xmisp_sensor xmisp_sensor_h62;
 extern const struct xmisp_sensor xmisp_sensor_ar0130;
+extern const struct xmisp_sensor xmisp_sensor_h42;
+extern const struct xmisp_sensor xmisp_sensor_h65_720p;
+extern const struct xmisp_sensor xmisp_sensor_h65_960p;
+extern const struct xmisp_sensor xmisp_sensor_sc1135_720p;
+extern const struct xmisp_sensor xmisp_sensor_sc1135_960p;
+extern const struct xmisp_sensor xmisp_sensor_sc1235_720p;
+extern const struct xmisp_sensor xmisp_sensor_sc1235_960p;
+extern const struct xmisp_sensor xmisp_sensor_sc2145h;
+extern const struct xmisp_sensor xmisp_sensor_sc2235;
+extern const struct xmisp_sensor xmisp_sensor_ov9750;
+extern const struct xmisp_sensor xmisp_sensor_ov9732;
 
 #endif
