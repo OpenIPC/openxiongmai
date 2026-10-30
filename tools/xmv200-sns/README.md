@@ -38,7 +38,7 @@ Every family's tunings give the same writes through their drivers (`make check`)
 
 | Family | Tuned sensors |
 |--------|---------------|
-| xm530v200 | 19 |
+| xm530v200 | 26: the 19 SmartSens, and IMX307, IMX335, F37P, Q03, Q03P, H63, H63P, captured with qemu-bench's Sony and SOI models |
 | xm533 | 11 |
 | xm535 | 9 (SC1336, SC1345, SC307C and SC3235 have no D1 driver: its libsns only logs them) |
 | xm535w1 | 7 |
@@ -60,7 +60,9 @@ The XM530V200's:
 | MIS2009, MIS4001, MIS40C1, MIS5001 | MIS | no tuning |
 | F37P, Q03, Q03P, H63, H63P | SOI (JX) | no tuning |
 
-GC2083's chip ID is in the probe, but this build has no driver for it. libxmv200 probes only SmartSens IDs (`board.c`). Each other driver's comment says how the vendor probes that sensor: the I2C address, the register widths, and the chip ID's registers.
+GC2083's chip ID is in the probe, but this build has no driver for it.
+
+`board.c` reads a SmartSens chip ID first. Where none it knows answers, it tries the drivers' probes (`probe`, `probe_addr`), each as the vendor's libsns probes that sensor. Such a sensor's tuning is registered under the ID its probe gives: Sony 0xa0b2 (IMX307) and 0x0335 (IMX335), SOI's own ID. To capture one: `capture.sh` with `SENSOR_MODEL=hisi-imx335@1a` (qemu-bench's `sensor=` machine property; write a second address after `,,`), then `gen_tuning.py`.
 
 Not in the interface yet:
 

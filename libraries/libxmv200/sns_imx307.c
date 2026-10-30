@@ -144,10 +144,28 @@ static const struct xmv200_sns_mode modes[] = {
      N(imx307_mipi_4lane)},
 };
 
+/* the vendor's probe: 0x3003 = 1, 50 ms, then 0x3008 << 8 | 0x301e is
+ * 0xa0b2 and 0x31dc & 6 is 4 */
+static uint32_t probe(int bus, uint8_t addr) {
+  uint32_t hi, lo, v;
+
+  if (xmv200_i2c_write(bus, addr, 0x3003, 2, 1, 1) < 0)
+    return 0;
+  usleep(50000);
+  if (xmv200_i2c_read(bus, addr, 0x3008, 2, &hi, 1) ||
+      xmv200_i2c_read(bus, addr, 0x301e, 2, &lo, 1) ||
+      ((hi & 0xff) << 8 | (lo & 0xff)) != 0xa0b2 ||
+      xmv200_i2c_read(bus, addr, 0x31dc, 2, &v, 1) || (v & 6) != 4)
+    return 0;
+  return 0xa0b2;
+}
+
 /* the tuning has init and frame rate: the AE's writes go to the ISP's
  * per-frame update */
 const struct xmv200_sns_drv xmv200_sns_imx307 = {
     .n_runs = 2,
+    .probe = probe,
+    .probe_addr = {0x1a},
     .name = "IMX307",
     .modes = modes,
     .n_modes = N(modes),

@@ -4,7 +4,10 @@
 #include <string.h>
 #include <strings.h>
 
+#include <unistd.h>
+
 #include "sns.h"
+#include "xmv200.h"
 
 /* one line a driver (sns_<sensor>.c) */
 extern const struct xmv200_sns_drv xmv200_sns_sc2336;
@@ -433,4 +436,16 @@ int xmv200_sns_probe_addrs(const char *family, uint8_t *addr, int n) {
         addr[k++] = a;
     }
   return k;
+}
+
+uint32_t xmv200_sns_soi_id(int bus, uint8_t addr) {
+  uint32_t hi, lo;
+
+  if (xmv200_i2c_write(bus, addr, 0x12, 1, 0x80, 1) < 0)
+    return 0;
+  usleep(5000);
+  if (xmv200_i2c_read(bus, addr, 0x0a, 1, &hi, 1) ||
+      xmv200_i2c_read(bus, addr, 0x0b, 1, &lo, 1))
+    return 0;
+  return (hi & 0xff) << 8 | (lo & 0xff);
 }

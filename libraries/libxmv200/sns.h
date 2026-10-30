@@ -119,6 +119,9 @@ xmv200_sns_mode_for(const struct xmv200_sns_drv *drv,
 /* a sensor other than SmartSens at addr: the chip ID the registry has for
  * it (the driver's probe), else 0 */
 uint32_t xmv200_sns_probe(int bus, uint8_t addr, const char *family);
+/* an SOI (JX) sensor's ID as the vendor's libsns reads it: a soft reset
+ * (0x12 = 0x80), then 0x0a << 8 | 0x0b; 0 if none answers */
+uint32_t xmv200_sns_soi_id(int bus, uint8_t addr);
 /* the addresses those sensors are probed at on a family, n at most */
 int xmv200_sns_probe_addrs(const char *family, uint8_t *addr, int n);
 

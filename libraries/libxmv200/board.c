@@ -296,15 +296,18 @@ static const struct xmv200_sns *probe(int bus, uint8_t addr,
                                       const char *family) {
   uint32_t id, ext;
 
-  /* not a SmartSens part: the drivers' probes (the registry has the chip
-   * ID the driver gives) */
-  if (chip_id(bus, addr, &id) || !id || id == 0xffff) {
-    if (!(id = xmv200_sns_probe(bus, addr, family)))
+  /* not a SmartSens part (no chip ID there the registry knows): the
+   * drivers' probes, the registry has the chip ID the driver gives */
+  if (chip_id(bus, addr, &id) ||
+      (id != 0xcb3a && id != 0x9b3a && !registered(id, family))) {
+    uint32_t other = xmv200_sns_probe(bus, addr, family);
+
+    if (!other)
       return NULL;
-    if (!registered(id, family))
+    if (!registered(other, family))
       fprintf(stderr, "libxmv200: sensor %04x at %d-%02x: no %s tuning\n",
-              id, bus, addr, family);
-    return registered(id, family);
+              other, bus, addr, family);
+    return registered(other, family);
   }
   /* SC2336, SC2336P and SC2337P all read 0xcb3a in standby: streaming,
    * the P parts read 0x9b3a, and 0x801e tells them apart (the vendor ISP's

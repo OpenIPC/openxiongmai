@@ -196,12 +196,23 @@ static const struct xmv200_sns_mode q03p_modes[] = {
     {"2304x1296 mipi", {0, 0, 0, 0}, q03p_mipi, N(q03p_mipi)},
 };
 
+/* the vendor's probe: at 0x40, or 0x44 for channel 0 of two */
+static uint32_t q03_probe(int bus, uint8_t addr) {
+  return xmv200_sns_soi_id(bus, addr) == 0x0507 ? 0x0507 : 0;
+}
+
+static uint32_t q03p_probe(int bus, uint8_t addr) {
+  return xmv200_sns_soi_id(bus, addr) == 0x0843 ? 0x0843 : 0;
+}
+
 /* the tuning's runs: init, then the frame rate and the AE's start
  * together, then the flip */
 static const char *const steps[] = {"i", "fa", "p"};
 
-#define DRV(nm, md, aed, fps, vts)                                             \
+#define DRV(nm, md, aed, fps, vts, pr)                                         \
   {.name = nm,                                                                 \
+   .probe = pr,                                                                \
+   .probe_addr = {0x44, 0x40},                                                 \
    .n_runs = 3,                                                                \
    .steps = steps,                                                             \
    .modes = md,                                                                \
@@ -217,6 +228,8 @@ static const char *const steps[] = {"i", "fa", "p"};
    .set_flip = set_flip}
 
 const struct xmv200_sns_drv xmv200_sns_q03 =
-    DRV("Q03", q03_modes, q03_ae_default, q03_set_fps, q03_set_vts);
+    DRV("Q03", q03_modes, q03_ae_default, q03_set_fps, q03_set_vts,
+        q03_probe);
 const struct xmv200_sns_drv xmv200_sns_q03p =
-    DRV("Q03P", q03p_modes, q03p_ae_default, q03p_set_fps, q03p_set_vts);
+    DRV("Q03P", q03p_modes, q03p_ae_default, q03p_set_fps, q03p_set_vts,
+        q03p_probe);

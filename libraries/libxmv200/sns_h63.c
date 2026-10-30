@@ -223,11 +223,22 @@ static const struct xmv200_sns_mode h63p_modes[] = {
     {"720p dvp", {1, 0, 1, 0}, h63p_dvp, N(h63p_dvp)},
 };
 
+/* the vendor's probe: at 0x40, or 0x42 for channel 1 of two */
+static uint32_t h63_probe(int bus, uint8_t addr) {
+  return xmv200_sns_soi_id(bus, addr) == 0x0a63 ? 0x0a63 : 0;
+}
+
+static uint32_t h63p_probe(int bus, uint8_t addr) {
+  return xmv200_sns_soi_id(bus, addr) == 0x0848 ? 0x0848 : 0;
+}
+
 /* the tuning's runs: init, frame rate, the AE's start, and the flip */
 static const char *const steps[] = {"i", "f", "a", "p"};
 
-#define DRV(nm, md, fps)                                                       \
+#define DRV(nm, md, fps, pr)                                                   \
   {.name = nm,                                                                 \
+   .probe = pr,                                                                \
+   .probe_addr = {0x40, 0x42},                                                 \
    .n_runs = 4,                                                                \
    .steps = steps,                                                             \
    .modes = md,                                                                \
@@ -242,9 +253,10 @@ static const char *const steps[] = {"i", "f", "a", "p"};
    .set_gain = set_gain,                                                       \
    .set_flip = set_flip}
 
-const struct xmv200_sns_drv xmv200_sns_h63 = DRV("H63", h63_modes, h63_set_fps);
+const struct xmv200_sns_drv xmv200_sns_h63 =
+    DRV("H63", h63_modes, h63_set_fps, h63_probe);
 const struct xmv200_sns_drv xmv200_sns_h63p =
-    DRV("H63P", h63p_modes, h63p_set_fps);
+    DRV("H63P", h63p_modes, h63p_set_fps, h63p_probe);
 
 /* ---- XM535 ----
  *

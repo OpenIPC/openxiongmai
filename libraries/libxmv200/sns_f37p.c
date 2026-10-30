@@ -142,12 +142,19 @@ static const struct xmv200_sns_mode modes[] = {
     {"1080p dvp", {1, 0, 0, 0}, f37p_dvp, N(f37p_dvp)},
 };
 
+/* the vendor's probe: at 0x40, or 0x44 for channel 0 of two */
+static uint32_t probe(int bus, uint8_t addr) {
+  return xmv200_sns_soi_id(bus, addr) == 0x0841 ? 0x0841 : 0;
+}
+
 /* the tuning's runs: init, frame rate, the AE's start, and the flip */
 static const char *const steps[] = {"i", "f", "a", "p"};
 
 const struct xmv200_sns_drv xmv200_sns_f37p = {
     .n_runs = 4,
     .steps = steps,
+    .probe = probe,
+    .probe_addr = {0x44, 0x40},
     .name = "F37P",
     .modes = modes,
     .n_modes = N(modes),
