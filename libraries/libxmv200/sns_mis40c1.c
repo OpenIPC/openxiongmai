@@ -186,3 +186,29 @@ const struct xmv200_sns_drv xmv200_sns_mis40c1 = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM533 ---- */
+
+/* the XM533 libsns's: its own table (sns_mis40c1_xm533_regs.c), the same
+ * functions. Unverified: there is no capture of it. */
+extern const struct xmv200_sns_reg xm533_mis40c1[268];
+
+static const struct xmv200_sns_mode xm533_modes[] = {
+    {"4M mipi", {0, 0, 0, 0}, xm533_mis40c1, N(xm533_mis40c1)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_mis40c1_xm533 = {
+    .name = "MIS40C1",
+    .family = "xm533",
+    .modes = xm533_modes,
+    .n_modes = N(xm533_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+};

@@ -208,3 +208,51 @@ const struct xmv200_sns_drv xmv200_sns_mis2009 = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM533 ---- */
+
+/*
+ * The XM533 libsns's: one table (1080p linear 25 fps) and a flip that sets
+ * 0x3007's bits to mirror and flip, the same on every channel; the rest is
+ * the XM530V200's. Unverified: there is no capture of it.
+ */
+extern const struct xmv200_sns_reg xm533_mis2009_mipi[160];
+
+static void xm533_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
+  for (int i = 0; i < m->n; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  usleep(20000);
+}
+
+static void xm533_set_flip(const struct xmv200_sns_dev *d, int mirror,
+                           int flip) {
+  uint32_t v = r(d, 0x3007);
+
+  v = mirror ? v | 1 : v & ~1u;
+  v = flip ? v | 2 : v & ~2u;
+  w(d, 0x3007, v);
+}
+
+static const struct xmv200_sns_mode xm533_modes[] = {
+    {"1080p mipi", {0, 0, 0, 0}, xm533_mis2009_mipi, N(xm533_mis2009_mipi)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_mis2009_xm533 = {
+    .name = "MIS2009",
+    .family = "xm533",
+    .modes = xm533_modes,
+    .n_modes = N(xm533_modes),
+    .init = xm533_init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = xm533_set_flip,
+};

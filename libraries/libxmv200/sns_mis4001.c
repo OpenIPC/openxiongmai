@@ -213,3 +213,92 @@ const struct xmv200_sns_drv xmv200_sns_mis4001 = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM533 ---- */
+
+/*
+ * The XM533 libsns's: one 4M table, the frame length from a table for 12
+ * .. 30 fps (1500 lines otherwise), no 0x4240 around it, and no channel 1
+ * flip. Exposure and gain are the XM530V200's. Unverified: there is no
+ * capture of it.
+ */
+extern const struct xmv200_sns_reg xm533_mis4001_4m[200];
+
+static const uint16_t xm533_vts[19] = {
+    0xbb8, 0x5dc, 0x5dc, 0x9c4, 0x5dc, 0x5dc, 0x5dc, 0x5dc, 0x753, 0x5dc,
+    0x5dc, 0x5dc, 0x5dc, 0x5dc, 0x5dc, 0x5dc, 0x5dc, 0x5dc, 0x4e2};
+
+static void xm533_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
+  for (int i = 0; i < m->n; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  usleep(20000);
+}
+
+static void xm533_ae_default(const struct xmv200_sns_attr *a,
+                             struct xmv200_sns_ae *ae) {
+  ae->full_lines = 0x5dc;
+  ae->max_lines = 0x5d6;
+  ae->again_min = 0x400 >> 5;
+  ae->again_max = 0x3e00 >> 5;
+  ae->dgain_min = 0x20;
+  ae->dgain_max = 0x20;
+}
+
+static void xm533_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint8_t i = fps - 12;
+  uint32_t vts = i < 19 ? xm533_vts[i] : 0x5dc;
+
+  ae->full_lines = vts;
+  ae->max_lines = vts - 6;
+  if (d->chn < MAX_CHN)
+    st[d->chn].vts = vts;
+  frame_length(d, vts);
+}
+
+static void xm533_set_vts(const struct xmv200_sns_dev *d, uint32_t vts,
+                          struct xmv200_sns_ae *ae) {
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].vts == vts)
+      return;
+    st[d->chn].vts = vts;
+  }
+  ae->full_lines = vts;
+  ae->max_lines = vts - 6;
+  clamp_exposure(d, ae);
+  frame_length(d, vts);
+}
+
+static void xm533_set_flip(const struct xmv200_sns_dev *d, int mirror,
+                           int flip) {
+  uint32_t v = r(d, 0x3007);
+
+  v = mirror ? v & ~1u : v | 1;
+  v = flip ? v & ~2u : v | 2;
+  w(d, 0x3007, v);
+}
+
+static const struct xmv200_sns_mode xm533_modes[] = {
+    {"4M mipi", {0, 0, 0, 0}, xm533_mis4001_4m, N(xm533_mis4001_4m)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_mis4001_xm533 = {
+    .name = "MIS4001",
+    .family = "xm533",
+    .modes = xm533_modes,
+    .n_modes = N(xm533_modes),
+    .init = xm533_init,
+    .ae_default = xm533_ae_default,
+    .set_fps = xm533_set_fps,
+    .set_vts = xm533_set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = xm533_set_flip,
+};

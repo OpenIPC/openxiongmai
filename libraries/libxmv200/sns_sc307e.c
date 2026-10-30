@@ -264,3 +264,55 @@ const struct xmv200_sns_drv xmv200_sns_sc307e = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM533 ---- */
+
+/*
+ * The XM533 libsns's: the same tables and functions but 1080p's frame
+ * rate: 15 and 12 fps at longer frames (2250 and 2343 lines), 20 and 30
+ * fps by line length, 25 otherwise. Unverified: there is no capture of it.
+ */
+static void xm533_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t hts = 0xa50, vts = 0x465;
+
+  if (a->p720) {
+    set_fps(d, a, fps, ae);
+    return;
+  }
+  if (fps == 15)
+    hts = 0x898, vts = 0x8ca;
+  else if (fps == 12)
+    vts = 0x927;
+  else if (fps == 20)
+    hts = 0xce4;
+  else if (fps == 30)
+    hts = 0x898;
+  ae->full_lines = vts;
+  ae->max_lines = vts - 4;
+  clamp_exposure(d, ae);
+  w(d, 0x320c, hts >> 8);
+  w(d, 0x320d, hts & 0xfc);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xef);
+  if (d->chn < MAX_CHN)
+    st[d->chn].vts = vts;
+}
+
+const struct xmv200_sns_drv xmv200_sns_sc307e_xm533 = {
+    .name = "SC307E",
+    .family = "xm533",
+    .exp_shift = 1,
+    .modes = modes,
+    .n_modes = N(modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = xm533_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+};
