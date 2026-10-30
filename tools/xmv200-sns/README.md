@@ -8,7 +8,7 @@ The vendor's sensor library, libsns, is built into its `isp` daemon. For each se
 ./extract.py isp sc2336 > ../../libraries/libxmv200/sns_sc2336_regs.c
 ```
 
-`xm530v200/sc2336.tab` lists those tables for the XM530V200 build, one per line: the array, its address, the number of pairs the vendor's init loop writes, and what the vendor logs for the mode.
+`xm530v200/sc2336.tab` lists those tables for the XM530V200 build, one per line: the array, its address, the number of pairs the vendor's init loop writes, and what the vendor logs for the mode. A `+ REG VAL` line appends a pair the vendor's init writes after the table. SC223AP's "mipi max" mode, for one, is its MIPI table and then 0x3650/0x3651.
 
 The X6C-WEQ's firmware (V5.04.R02.20241125) has the XM530V200 `isp`. Its libsns:
 

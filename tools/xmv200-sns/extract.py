@@ -11,7 +11,9 @@ BUILD/SENSOR.tab lists the sensor's tables in that build, one a line: the
 array's name, the address, the number of pairs (the vendor's init loop's),
 and what the vendor logs for it. A line "format u8u8" makes the tables
 after it pairs of bytes (sensors with 8-bit register addresses); the
-default is "format u16u16".
+default is "format u16u16". A line "+ REG VAL" after a table appends a
+pair the vendor's init writes right after it, for a mode that is the
+table and those writes together.
 """
 import hashlib
 import os
@@ -42,18 +44,26 @@ def main():
     print(" * tools/xmv200-sns/extract.py from the vendor isp %s */" % md5)
     print('#include "sns.h"')
     fmt, size = "<HH", 4
+    tables = []
     for line in open(tab):
         if not line.strip() or line.startswith("#"):
             continue
         if line.split()[0] == "format":
             fmt, size = {"u16u16": ("<HH", 4), "u8u8": ("<BB", 2)}[line.split()[1]]
             continue
+        if line.startswith("+"):
+            _, reg, val = line.split()
+            tables[-1][2].append((int(reg, 0), int(val, 0)))
+            continue
         name, addr, n, what = line.split(None, 3)
         addr, n = int(addr, 0), int(n, 0)
-        print("\n/* %s */" % what.strip())
-        print("const struct xmv200_sns_reg %s[%d] = {" % (name, n))
-        for i in range(n):
-            reg, val = struct.unpack_from(fmt, data, addr - base + i * size)
+        pairs = [struct.unpack_from(fmt, data, addr - base + i * size)
+                 for i in range(n)]
+        tables.append((name, what.strip(), pairs))
+    for name, what, pairs in tables:
+        print("\n/* %s */" % what)
+        print("const struct xmv200_sns_reg %s[%d] = {" % (name, len(pairs)))
+        for reg, val in pairs:
             if val > 0xff:
                 sys.exit("%s: %04x = %x is not a byte" % (name, reg, val))
             print("    {0x%04x, 0x%02x}," % (reg, val))

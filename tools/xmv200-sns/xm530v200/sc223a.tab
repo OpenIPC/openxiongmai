@@ -1,0 +1,7 @@
+# name address pairs what-the-vendor-logs
+sc223a_dvp 0x7cd9c 180 SC223A (@20230323_dvp)
+sc223a_720p_mipi 0x7d06c 187 SC223A (@20230908_mipi 1M)
+sc223a_mipi 0x7d358 174 SC223A (@202107_mipi)
+sc223a_mipi_max 0x7d358 174 SC223A (@202107_mipi), mipi max
++ 0x3650 0x33
++ 0x3651 0x7f
