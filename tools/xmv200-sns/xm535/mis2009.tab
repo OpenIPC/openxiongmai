@@ -1,0 +1,3 @@
+# name address pairs what-the-vendor-logs
+xm535_mis2009_mipi 0x87f9a 161 mis2009_1080P (@20240802_mipi)
+xm535_mis2009_dvp 0x8821e 161 mis2009_1080P (@20241206_dvp)

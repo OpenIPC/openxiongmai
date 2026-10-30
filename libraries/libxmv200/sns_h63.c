@@ -245,3 +245,58 @@ static const char *const steps[] = {"i", "f", "a", "p"};
 const struct xmv200_sns_drv xmv200_sns_h63 = DRV("H63", h63_modes, h63_set_fps);
 const struct xmv200_sns_drv xmv200_sns_h63p =
     DRV("H63P", h63p_modes, h63p_set_fps);
+
+/* ---- XM535 ----
+ *
+ * The XM535D1 libsns's (Aug 2025), unverified. Its probe: I2C address
+ * 0x40 (a product preset may give another), 8-bit registers and values;
+ * 0x12 = 0x80, 5 ms, chip ID 0x0a << 8 | 0x0b: 0x848 H63P, and 0xa63 H63,
+ * which the D1 drives with H63P's driver too. Its own tables; on a
+ * frame-synced board (cmos_set_sns_attr's +0x20 with 0x11, the "frame
+ * sync" mode here) the MIPI init also writes 0x80 = 1, 0x1e = 4, 0x66 =
+ * 0x73 on every channel. The rest is the XM530V200 H63P's.
+ */
+
+extern const struct xmv200_sns_reg xm535_h63p_dvp[98], xm535_h63p_mipi[106];
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    {"720p mipi", {0, 0, 1, 0}, xm535_h63p_mipi, N(xm535_h63p_mipi)},
+    {"720p mipi, frame sync", {0, 0, 1, 0}, xm535_h63p_mipi,
+     N(xm535_h63p_mipi)},
+    {"720p dvp", {1, 0, 1, 0}, xm535_h63p_dvp, N(xm535_h63p_dvp)},
+};
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN)
+    st[d->chn].valid = 0;
+  for (int i = 0; i < m->n; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  if (m->attr.dvp)
+    return;
+  if (m == &xm535_modes[1]) {
+    w(d, 0x80, 1);
+    w(d, 0x1e, 4);
+    w(d, 0x66, 0x73);
+  }
+  usleep(20000);
+}
+
+#define XM535_DRV(nm)                                                          \
+  {.name = nm,                                                                 \
+   .family = "xm535",                                                          \
+   .modes = xm535_modes,                                                       \
+   .n_modes = N(xm535_modes),                                                  \
+   .init = xm535_init,                                                         \
+   .ae_default = ae_default,                                                   \
+   .set_fps = h63p_set_fps,                                                    \
+   .set_vts = set_vts,                                                         \
+   .set_exposure = set_exposure,                                               \
+   .again_calc = again_calc,                                                   \
+   .dgain_calc = dgain_calc,                                                   \
+   .set_gain = set_gain,                                                       \
+   .set_flip = set_flip}
+
+const struct xmv200_sns_drv xmv200_sns_h63p_xm535 = XM535_DRV("H63P");
+const struct xmv200_sns_drv xmv200_sns_h63_xm535 = XM535_DRV("H63");

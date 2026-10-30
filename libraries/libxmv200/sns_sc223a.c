@@ -565,3 +565,50 @@ static void xm533_run(const struct xmv200_sns_dev *d, int n,
     xmv200_sns_ae_step(&xmv200_sns_sc223a_xm533, d, &x);
   }
 }
+
+/* ---- XM535 ----
+ *
+ * The XM535D1 libsns's (Aug 2025), unverified (no tuning). Its probe: I2C
+ * address 0x30 (0x32 on channel 1), 16-bit registers, 8-bit values, chip
+ * ID 0x3107 << 8 | 0x3108 = 0xcb3e with 0x801b reading 0 (else SC223AP).
+ * Its functions are the XM535W1's (init, AE limits, frame rate, gain
+ * without the short frame, flip without turning channel 1 round); the
+ * tables are its own (DVP, 720p "1M" and 1080p MIPI).
+ */
+
+extern const struct xmv200_sns_reg xm535_sc223a_dvp[195],
+    xm535_sc223a_720p_mipi[187], xm535_sc223a_mipi[173];
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
+  table(d, m->regs, m->n);
+  if (m->regs != xm535_sc223a_dvp)
+    usleep(20000);
+}
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    {"1080p mipi", {0, 0, 0, 0}, xm535_sc223a_mipi, N(xm535_sc223a_mipi)},
+    {"720p mipi", {0, 0, 1, 0}, xm535_sc223a_720p_mipi,
+     N(xm535_sc223a_720p_mipi)},
+    {"1080p dvp", {1, 0, 0, 0}, xm535_sc223a_dvp, N(xm535_sc223a_dvp)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_sc223a_xm535 = {
+    .name = "SC223A",
+    .family = "xm535",
+    .exp_shift = 1,
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = xm535_init,
+    .ae_default = w1_ae_default,
+    .set_fps = w1_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = w1_set_gain,
+    .set_flip = w1_set_flip,
+};

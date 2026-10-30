@@ -256,3 +256,92 @@ const struct xmv200_sns_drv xmv200_sns_mis2009_xm533 = {
     .set_gain = set_gain,
     .set_flip = xm533_set_flip,
 };
+
+/* ---- XM535 ----
+ *
+ * The XM535D1 libsns's (Aug 2025), unverified. Probe as above (I2C
+ * address 0x30 unless a product preset gives another; 0x3006 written,
+ * 100 ms; chip ID 0x2008). Its MIPI and DVP tables (DVP then 0x3008 =
+ * 0xff, without the pause), its frame rate (15 fps on 1875 lines with the
+ * longer line on channel 2, 20 fps 1406 lines; the frame length unmasked,
+ * no 0x3303) and a flip that does not turn channel 1 round. The rest is
+ * the XM530V200's.
+ */
+
+extern const struct xmv200_sns_reg xm535_mis2009_mipi[161],
+    xm535_mis2009_dvp[161];
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
+  for (int i = 0; i < m->n; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  if (m->regs == xm535_mis2009_dvp)
+    w(d, 0x3008, 0xff);
+  else
+    usleep(20000);
+}
+
+static void xm535_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t hts, vts;
+
+  switch (fps) {
+  case 15:
+    if (d->chn == 2)
+      hts = 0xa80, vts = 0x753;
+    else
+      hts = 0x8c0, vts = 0x8ca;
+    break;
+  case 20:
+    hts = 0xa80, vts = 0x57e;
+    break;
+  case 12:
+    hts = 0xa80, vts = 0x8ca;
+    break;
+  default:
+    hts = 0x10680 / (fps ? fps : 1), vts = 0x465;
+  }
+  ae->full_lines = vts;
+  ae->max_lines = vts - 2;
+  if (d->chn < MAX_CHN)
+    st[d->chn].vts = vts;
+  clamp_exposure(d, ae);
+  w(d, 0x3203, hts & 0xff);
+  w(d, 0x3202, (hts & 0xffff) >> 8);
+  w(d, 0x3201, vts & 0xff);
+  w(d, 0x3200, vts >> 8);
+}
+
+static void xm535_set_flip(const struct xmv200_sns_dev *d, int mirror,
+                           int flip) {
+  uint32_t v = r(d, 0x3007);
+
+  v = mirror ? v & ~1u : v | 1;
+  v = flip ? v & ~2u : v | 2;
+  w(d, 0x3007, v);
+}
+
+static const struct xmv200_sns_mode xm535_modes[] = {
+    {"1080p mipi", {0, 0, 0, 0}, xm535_mis2009_mipi, N(xm535_mis2009_mipi)},
+    {"1080p dvp", {1, 0, 0, 0}, xm535_mis2009_dvp, N(xm535_mis2009_dvp)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_mis2009_xm535 = {
+    .name = "MIS2009",
+    .family = "xm535",
+    .modes = xm535_modes,
+    .n_modes = N(xm535_modes),
+    .init = xm535_init,
+    .ae_default = ae_default,
+    .set_fps = xm535_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = xm535_set_flip,
+};
