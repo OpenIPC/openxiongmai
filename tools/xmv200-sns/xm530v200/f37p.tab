@@ -1,0 +1,5 @@
+# name address pairs what-the-vendor-logs
+format u8u8
+f37p_dvp 0x8c6c6 111 F37P_DVP
+f37p_mipi_25fps 0x8c7a4 129 F37P_MIPI (25 fps)
+f37p_mipi 0x8c8a6 129 F37P_MIPI
