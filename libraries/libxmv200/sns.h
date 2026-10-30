@@ -80,6 +80,9 @@ struct xmv200_sns_drv {
   void (*set_gain)(const struct xmv200_sns_dev *d, uint32_t again_idx,
                    uint32_t dgain_reg);
   void (*set_flip)(const struct xmv200_sns_dev *d, int mirror, int flip);
+  /* a tuning's exp_lines is in exposure registers' units: lines <<
+   * exp_shift (1: half lines) */
+  int exp_shift;
   /* the tuning's sensor runs: how many the vendor's libsns makes, and
    * what each is (NULL: init, frame rate, the AE's start) */
   int n_runs; /* 0: 3 */
@@ -101,6 +104,16 @@ xmv200_sns_mode_for(const struct xmv200_sns_drv *drv,
 const struct xmv200_sns_mode *
 xmv200_sns_find(const char *name, const struct xmv200_sns_tuning *t,
                 const struct xmv200_sns_drv **drv);
+
+/* the frame rate a tuning's frame-rate run was recorded at, found by
+ * doing it without writing; fallback if no rate gives the same writes */
+uint32_t xmv200_sns_capture_fps(const struct xmv200_sns_drv *drv,
+                                const struct xmv200_sns_mode *m,
+                                const struct xmv200_sns_tuning *t,
+                                const struct xmv200_sns_dev *d,
+                                uint32_t fallback);
+/* while set, xmv200_i2c_write gives the writes to it instead of the bus */
+extern void (*xmv200_i2c_divert)(uint32_t reg, uint32_t val);
 
 /* the tuning's sensor run n, by the driver; the default: run 0 the mode's
  * init, run 1 the frame rate, run 2 the exposure the tuning starts from and

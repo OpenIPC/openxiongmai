@@ -455,9 +455,14 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
   b->fps = l->fps ? l->fps : 12;
   /* the sensor's driver, in the mode the tuning is of */
   b->isp.mode = xmv200_sns_find(model, t, &b->isp.drv);
-  if (b->isp.mode)
+  if (b->isp.mode) {
+    struct xmv200_sns_dev d = {b->isp.sensor[0].bus, b->isp.sensor[0].addr, 0};
+
     b->isp.attr = b->isp.mode->attr;
-  b->isp.attr.fps = b->fps;
+    /* the frame rate the tuning's ISP program is for */
+    b->isp.attr.fps = xmv200_sns_capture_fps(b->isp.drv, b->isp.mode, t, &d,
+                                             b->fps);
+  }
   for (int s = 0; s < l->n_streams; s++) {
     uint32_t w = l->stream[s].width, h = l->stream[s].height;
     uint32_t g = l->stream[s].sensors & ((1u << l->n_sensors) - 1);

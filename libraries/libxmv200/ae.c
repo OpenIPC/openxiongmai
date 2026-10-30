@@ -67,16 +67,21 @@ void xmv200_ae_init(const struct xmv200_isp_cfg *c,
   drv = c->drv;
   for (int i = 0; i < n_sns; i++)
     st[i] = (struct ae_state){.where = where[i],
-                              /* the frame length less the sensor's margin
-                               * (the driver's: the vendor's 6) */
-                              .max_lines =
-                                  drv && xmv200_isp_full_lines(where[i].isp_chn)
-                                      ? xmv200_isp_full_lines(where[i].isp_chn) - 6
-                                      : t->chn_attr[2] - 4,
+                              /* the frame length less the sensor's margin */
+                              .max_lines = t->chn_attr[2] - 4,
                               .lines = t->exp_lines,
                               .dgain = 0x100,
                               .r = 0x100,
                               .b = 0x100};
+  /* with a driver: its exposure limit for the frame rate it set, and the
+   * tuning's start in lines */
+  for (int i = 0; drv && i < n_sns; i++) {
+    uint32_t max = xmv200_isp_max_lines(where[i].isp_chn);
+
+    if (max)
+      st[i].max_lines = max;
+    st[i].lines >>= drv->exp_shift;
+  }
   open_devs();
 }
 

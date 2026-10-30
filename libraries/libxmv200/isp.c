@@ -433,6 +433,6 @@ void xmv200_isp_stop(void) {
   }
 }
 
-uint32_t xmv200_isp_full_lines(uint32_t chn) {
-  return chn < 3 ? sns_ae[chn].full_lines : 0;
+uint32_t xmv200_isp_max_lines(uint32_t chn) {
+  return chn < 3 ? sns_ae[chn].max_lines : 0;
 }

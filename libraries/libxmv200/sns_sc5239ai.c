@@ -218,6 +218,7 @@ static const struct xmv200_sns_mode modes[] = {
 
 const struct xmv200_sns_drv xmv200_sns_sc5239ai = {
     .name = "SC5239AI",
+    .exp_shift = 1,
     .modes = modes,
     .n_modes = N(modes),
     .init = init,

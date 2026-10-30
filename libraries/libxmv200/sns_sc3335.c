@@ -229,6 +229,7 @@ static const struct xmv200_sns_mode modes[] = {
 
 const struct xmv200_sns_drv xmv200_sns_sc3335 = {
     .name = "SC3335",
+    .exp_shift = 1,
     .modes = modes,
     .n_modes = N(modes),
     .init = init,

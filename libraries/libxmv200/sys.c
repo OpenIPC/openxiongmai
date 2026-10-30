@@ -97,6 +97,8 @@ static int i2c_open(int bus) {
   return open_once(&i2c_fd[bus], path);
 }
 
+void (*xmv200_i2c_divert)(uint32_t reg, uint32_t val);
+
 int xmv200_i2c_write(int bus, uint8_t dev, uint32_t reg, int reg_bytes,
                      uint32_t val, int val_bytes) {
   struct i2c_rec r = {.dev = dev,
@@ -104,7 +106,13 @@ int xmv200_i2c_write(int bus, uint8_t dev, uint32_t reg, int reg_bytes,
                       .reg_bytes = reg_bytes,
                       .val = val,
                       .val_bytes = val_bytes};
-  int fd = i2c_open(bus);
+  int fd;
+
+  if (xmv200_i2c_divert) {
+    xmv200_i2c_divert(reg, val);
+    return 0;
+  }
+  fd = i2c_open(bus);
 
   if (fd < 0)
     return -1;

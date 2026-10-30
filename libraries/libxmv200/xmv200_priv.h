@@ -87,8 +87,9 @@ struct xmv200_ae_sensor {
 
 /* a layout board's sensors, where[] by channel; handoff: the digital gain
  * goes to the frame thread (frame_answer) */
-/* the frame length a channel's sensor driver set, or 0 */
-uint32_t xmv200_isp_full_lines(uint32_t chn);
+/* the longest exposure a channel's sensor driver allows for the frame rate
+ * it set, or 0 */
+uint32_t xmv200_isp_max_lines(uint32_t chn);
 void xmv200_ae_init(const struct xmv200_isp_cfg *cfg,
                     const struct xmv200_ae_sensor *where, int handoff);
 #endif

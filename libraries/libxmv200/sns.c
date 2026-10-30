@@ -137,6 +137,12 @@ xmv200_sns_find(const char *name, const struct xmv200_sns_tuning *t,
                 const struct xmv200_sns_drv **drv) {
   const struct xmv200_sns_mode *m;
 
+  /* the drivers are the XM530V200 libsns's; the other chips' have their
+   * own, and their tunings stay with the recorded runs */
+  *drv = NULL;
+  if (!t || strcmp(t->chip, "xm530v200"))
+    return NULL;
+
   *drv = xmv200_sns_driver(name);
   if ((m = xmv200_sns_mode_for(*drv, NULL, t)))
     return m;
@@ -193,4 +199,51 @@ void xmv200_sns_run(const struct xmv200_sns_drv *drv,
     xmv200_sns_ae_step(drv, d, c);
     break;
   }
+}
+
+static struct {
+  uint16_t reg;
+  uint8_t val;
+} rec[512];
+static int n_rec;
+
+static void record(uint32_t reg, uint32_t val) {
+  if (n_rec < (int)(sizeof(rec) / sizeof(rec[0]))) {
+    rec[n_rec].reg = reg;
+    rec[n_rec].val = val;
+  }
+  n_rec++;
+}
+
+uint32_t xmv200_sns_capture_fps(const struct xmv200_sns_drv *drv,
+                                const struct xmv200_sns_mode *m,
+                                const struct xmv200_sns_tuning *t,
+                                const struct xmv200_sns_dev *d,
+                                uint32_t fallback) {
+  static const uint32_t rates[] = {12, 25, 30, 15, 20, 10, 24};
+  uint32_t found = fallback;
+
+  if (!drv || !m || t->n_runs < 2)
+    return fallback;
+  for (unsigned i = 0; i < sizeof(rates) / sizeof(rates[0]); i++) {
+    struct xmv200_sns_ae ae = {0};
+    struct xmv200_sns_ctx c = {m, m->attr, t->exp_lines, &ae};
+    const struct xmv200_sns_run *r = &t->runs[1];
+    int same;
+
+    c.attr.fps = rates[i];
+    xmv200_i2c_divert = record;
+    xmv200_sns_run(drv, d, 0, &c);
+    n_rec = 0;
+    xmv200_sns_run(drv, d, 1, &c);
+    xmv200_i2c_divert = NULL;
+    same = n_rec == r->n;
+    for (int k = 0; same && k < n_rec; k++)
+      same = rec[k].reg == r->regs[k].reg && rec[k].val == r->regs[k].val;
+    if (same) {
+      found = rates[i];
+      break;
+    }
+  }
+  return found;
 }

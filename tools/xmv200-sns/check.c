@@ -16,8 +16,14 @@ static struct {
 } wr[8192];
 static int n_wr;
 
+void (*xmv200_i2c_divert)(uint32_t reg, uint32_t val);
+
 int xmv200_i2c_write(int bus, uint8_t dev, uint32_t reg, int reg_bytes,
                      uint32_t val, int val_bytes) {
+  if (xmv200_i2c_divert) {
+    xmv200_i2c_divert(reg, val);
+    return 0;
+  }
   if (n_wr < (int)(sizeof(wr) / sizeof(wr[0]))) {
     wr[n_wr].reg = reg;
     wr[n_wr].val = val;
@@ -89,44 +95,27 @@ int main(int argc, char **argv) {
       bad = 1;
       continue;
     }
-    /* the frame rate the capture's board ran the sensor at: the first of
-     * these at which every run is the same, else the first */
-    static const uint32_t fps[] = {12, 25, 30, 15, 20, 10};
-    int f = 0;
+    /* the frame rate the capture's board ran the sensor at, as the
+     * pipeline finds it (and with the driver's state after that) */
+    uint32_t fps = xmv200_sns_capture_fps(drv, m, t, &d, 12);
 
-    for (int k = 0; k < (int)(sizeof(fps) / sizeof(fps[0])); k++) {
-      int all = 1;
-
-      memset(&ae, 0, sizeof(ae));
-      c = (struct xmv200_sns_ctx){m, m->attr, t->exp_lines, &ae};
-      c.attr.fps = fps[k];
-      for (int n = 0; all && n < t->n_runs; n++) {
-        n_wr = 0;
-        xmv200_sns_run(drv, &d, n, &c);
-        all = same(&t->runs[n], 0);
-      }
-      if (all) {
-        f = k;
-        break;
-      }
-    }
     memset(&ae, 0, sizeof(ae));
     c = (struct xmv200_sns_ctx){m, m->attr, t->exp_lines, &ae};
-    c.attr.fps = fps[f];
+    c.attr.fps = fps;
     for (int n = 0; n < t->n_runs; n++) {
       n_wr = 0;
       xmv200_sns_run(drv, &d, n, &c);
       if (!same(&t->runs[n], 0)) {
         if (ok)
           printf("\n");
-        printf("    run %d at %u fps: %d writes, %d recorded\n", n, fps[f], n_wr,
+        printf("    run %d at %u fps: %d writes, %d recorded\n", n, fps, n_wr,
                t->runs[n].n);
         same(&t->runs[n], 1);
         ok = 0;
       }
     }
     if (ok)
-      printf("%u fps: ", fps[f]);
+      printf("%u fps: ", fps);
     printf(ok ? "same\n" : "");
     bad |= !ok;
   }
