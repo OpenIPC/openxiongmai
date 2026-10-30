@@ -1,0 +1,3 @@
+# name address pairs what-the-vendor-logs
+imx335_mipi_4lane 0x9d362 160 IMX335 5M 15fps init ok! (@201801228_158x4)
+imx335_gain:u32 0x9d030 141 the gain's 0.3 dB steps (1/1024)
