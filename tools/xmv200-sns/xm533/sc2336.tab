@@ -1,0 +1,5 @@
+# name address pairs what-the-vendor-logs
+xm533_sc2336_dvp 0x50b9e 158 SC2336 (@202207_dvp)
+xm533_sc2336_mipi 0x50e16 145 SC2336_1080P (@202106_mipi)
+xm533_sc2336p_dvp 0x52202 159 SC2336P_1080P (dvp)
+xm533_sc2337p_mipi 0x533ca 152 SC2337P_1080P (mipi)

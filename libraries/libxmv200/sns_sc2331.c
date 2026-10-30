@@ -360,3 +360,36 @@ const struct xmv200_sns_drv xmv200_sns_sc2331_xm535 = {
     .set_gain = set_gain,
     .set_flip = xm535_set_flip,
 };
+
+/* ---- XM533 ---- */
+
+/*
+ * The XM533 libsns's: its own MIPI and DVP tables (sns_sc2331_xm533_regs.c)
+ * and the same functions; its frame rate writes no 0x301f, which the
+ * driver's only does on one lane.
+ */
+extern const struct xmv200_sns_reg xm533_sc2331_dvp[139],
+    xm533_sc2331_mipi[128];
+
+static const struct xmv200_sns_mode xm533_modes[] = {
+    MODE("1080p mipi", 0, 0, xm533_sc2331_mipi),
+    MODE("1080p dvp", 1, 0, xm533_sc2331_dvp),
+};
+
+const struct xmv200_sns_drv xmv200_sns_sc2331_xm533 = {
+    .name = "SC2331",
+    .family = "xm533",
+    .exp_shift = 1,
+    .modes = xm533_modes,
+    .n_modes = N(xm533_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+    .run = run,
+};

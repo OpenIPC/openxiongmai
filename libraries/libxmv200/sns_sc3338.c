@@ -353,3 +353,107 @@ const struct xmv200_sns_drv xmv200_sns_sc3338_xm535 = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM533 ---- */
+
+/*
+ * The XM533 libsns's: the same table, a seventh analog gain step (48.6x,
+ * 0x5f) and its frame rate by line length alone at 1350 lines (12 fps
+ * 0x186a, 15 fps 5000, else 0xea6). Before that it takes the exposure the
+ * sensor holds down to the frame's. The tuning's second run is the frame
+ * rate and the AE's start together.
+ */
+static const uint32_t xm533_again_val[7] = {0x20,  0x31,  0x62, 0xc3,
+                                            0x186, 0x30b, 0x615};
+static const uint8_t xm533_again_reg[7] = {0x00, 0x40, 0x48, 0x49,
+                                           0x4b, 0x4f, 0x5f};
+
+static void xm533_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t held = (r(d, 0x3e02) >> 4 | (r(d, 0x3e00) << 8 | r(d, 0x3e01)) << 4);
+  uint32_t hts = fps == 12 ? 0x186a : fps == 15 ? 5000 : 0xea6;
+
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].valid & 8 && st[d->chn].fps == fps)
+      return;
+    st[d->chn].fps = fps;
+    st[d->chn].valid |= 8;
+  }
+  ae->full_lines = 0x546;
+  ae->max_lines = 0x53e;
+  if (held > 0x53e)
+    set_exposure(d, 0x53e);
+  w(d, 0x320c, hts >> 9);
+  w(d, 0x320d, hts >> 1 & 0xf7);
+  w(d, 0x320e, 0x05);
+  w(d, 0x320f, 0x46);
+}
+
+static void xm533_again_calc(uint32_t gain, uint32_t *idx, uint32_t *real) {
+  uint32_t i = 1;
+
+  if (gain < 0x20)
+    gain = 0x20;
+  else if (gain > 0x614)
+    gain = 0x615;
+  while (i < 7 && gain >= xm533_again_val[i])
+    i++;
+  *idx = i - 1;
+  *real = xm533_again_val[i - 1];
+}
+
+static void xm533_set_gain(const struct xmv200_sns_dev *d, uint32_t idx,
+                           uint32_t dreg) {
+  if (r(d, 0x3e09) < 0x4b) {
+    w(d, 0x57aa, 0x2a);
+    w(d, 0x57ad, 0x0d);
+  } else {
+    w(d, 0x57aa, 0xcd);
+    w(d, 0x57ad, 0x00);
+  }
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].valid & 2 && st[d->chn].again == idx &&
+        st[d->chn].dgain == dreg)
+      return;
+    st[d->chn].again = idx;
+    st[d->chn].dgain = dreg;
+    st[d->chn].valid |= 2;
+  }
+  w(d, 0x3e09, xm533_again_reg[idx < 7 ? idx : 6]);
+  w(d, 0x3e06, (dreg & 0xffffff) >> 16);
+  w(d, 0x3e07, dreg & 0xff);
+}
+
+static void xm533_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c);
+
+const struct xmv200_sns_drv xmv200_sns_sc3338_xm533 = {
+    .name = "SC3338",
+    .family = "xm533",
+    .modes = modes,
+    .n_modes = N(modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = xm533_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = xm533_again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = xm533_set_gain,
+    .set_flip = set_flip,
+    .n_runs = 2,
+    .run = xm533_run,
+};
+
+static void xm533_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c) {
+  const struct xmv200_sns_drv *drv = &xmv200_sns_sc3338_xm533;
+
+  if (n == 0) {
+    xmv200_sns_init_step(drv, d, c);
+  } else if (n == 1) {
+    xmv200_sns_fps_step(drv, d, c);
+    xmv200_sns_ae_step(drv, d, c);
+  }
+}

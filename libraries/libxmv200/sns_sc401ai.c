@@ -302,3 +302,24 @@ const struct xmv200_sns_drv xmv200_sns_sc401ai_xm535 = {
     .n_runs = 1,
     .run = xm535_run,
 };
+
+/* ---- XM533 ---- */
+
+/* the XM533 libsns's: the same table and functions */
+const struct xmv200_sns_drv xmv200_sns_sc401ai_xm533 = {
+    .name = "SC401AI",
+    .family = "xm533",
+    .exp_shift = 1,
+    .modes = modes,
+    .n_modes = N(modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+    .run = run,
+};

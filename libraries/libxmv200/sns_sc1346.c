@@ -374,3 +374,47 @@ static void xm535_set_fps(const struct xmv200_sns_dev *d,
 
 const struct xmv200_sns_drv xmv200_sns_sc1346_xm535 = XM535_DRV("SC1346");
 const struct xmv200_sns_drv xmv200_sns_sc1a4t_xm535 = XM535_DRV("SC1A4T");
+
+/* ---- XM533 ---- */
+
+/*
+ * The XM533 libsns's: the same tables and functions but the frame rate's,
+ * 12 and 15 fps at twice the frame length and the others by line length
+ * (60000 / fps) at 750 lines.
+ */
+static void xm533_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  uint32_t hts, vts;
+
+  if (fps == 12)
+    hts = 0x960, vts = 0x5dc;
+  else if (fps == 15)
+    hts = 2000, vts = 0x5dc;
+  else
+    hts = 60000 / (fps ? fps : 1), vts = 0x2ee;
+  ae->full_lines = vts;
+  ae->max_lines = vts - 6;
+  w(d, 0x320c, hts >> 8);
+  w(d, 0x320d, hts & 0xff);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xff);
+}
+
+#define XM533_DRV(nm)                                                          \
+  {.name = nm,                                                                 \
+   .family = "xm533",                                                          \
+   .modes = modes,                                                             \
+   .n_modes = N(modes),                                                        \
+   .init = init,                                                               \
+   .ae_default = ae_default,                                                   \
+   .set_fps = xm533_set_fps,                                                   \
+   .set_vts = set_vts,                                                         \
+   .set_exposure = set_exposure,                                               \
+   .again_calc = again_calc,                                                   \
+   .dgain_calc = dgain_calc,                                                   \
+   .set_gain = set_gain,                                                       \
+   .set_flip = set_flip}
+
+const struct xmv200_sns_drv xmv200_sns_sc1346_xm533 = XM533_DRV("SC1346");
+const struct xmv200_sns_drv xmv200_sns_sc1a4t_xm533 = XM533_DRV("SC1A4T");

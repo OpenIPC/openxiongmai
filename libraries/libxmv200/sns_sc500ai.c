@@ -403,3 +403,59 @@ const struct xmv200_sns_drv xmv200_sns_sc500ai_xm535 = {
     .set_gain = xm535_set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM533 ---- */
+
+/* The XM533 libsns's: the same tables and functions, but a gain write
+ * without the 0x5799 and temperature settings. */
+static void xm533_set_gain(const struct xmv200_sns_dev *d, uint32_t again,
+                           uint32_t dgain) {
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].valid && st[d->chn].again == again &&
+        st[d->chn].dgain == dgain)
+      return;
+    st[d->chn].again = again;
+    st[d->chn].dgain = dgain;
+    st[d->chn].valid = 1;
+  }
+  w(d, 0x3e08, ((again & 0xffff) >> 8) << 2 | (again >> 31 ? 0x23 : 0x03));
+  w(d, 0x3e09, again & 0xff);
+  w(d, 0x3e06, (dgain & 0xffff) >> 8);
+  w(d, 0x3e07, dgain & 0xff);
+}
+
+static void xm533_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c);
+
+const struct xmv200_sns_drv xmv200_sns_sc500ai_xm533 = {
+    .name = "SC500AI",
+    .family = "xm533",
+    .exp_shift = 1,
+    .modes = modes,
+    .n_modes = N(modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = xm533_set_gain,
+    .set_flip = set_flip,
+    .run = xm533_run,
+};
+
+/* the tuning's exposure is the register's count, in half lines */
+static void xm533_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c) {
+  struct xmv200_sns_ctx x = *c;
+
+  if (n == 0) {
+    xmv200_sns_init_step(&xmv200_sns_sc500ai_xm533, d, c);
+  } else if (n == 1) {
+    xmv200_sns_fps_step(&xmv200_sns_sc500ai_xm533, d, c);
+  } else if (n == 2) {
+    x.exp_lines = c->exp_lines / 2;
+    xmv200_sns_ae_step(&xmv200_sns_sc500ai_xm533, d, &x);
+  }
+}

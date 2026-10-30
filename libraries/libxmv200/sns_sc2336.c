@@ -652,3 +652,161 @@ const struct xmv200_sns_drv xmv200_sns_sc2336p_xm535 =
     XM535_DRV("SC2336P", xm535_sc2336p_modes);
 const struct xmv200_sns_drv xmv200_sns_sc2337p_xm535 =
     XM535_DRV("SC2337P", xm535_sc2336p_modes);
+
+/* ---- XM533 ---- */
+
+/*
+ * The XM533 libsns's sc2336_cmos.c, which its probe takes for 0x9b3a parts
+ * that are neither SC2336P nor SC2337P (the X3-WQ-B's tuning, its probe's
+ * "SC2337P"): its own MIPI and DVP tables, the frame rate's 12/15/25/30
+ * fps cases with 0x301f on DVP, and a flip that does not turn channel 1's
+ * sensor round. The rest is the SC2336's.
+ */
+extern const struct xmv200_sns_reg xm533_sc2336_dvp[158],
+    xm533_sc2336_mipi[145];
+
+static void xm533_sc2336_set_fps(const struct xmv200_sns_dev *d,
+                                 const struct xmv200_sns_attr *a, uint32_t fps,
+                                 struct xmv200_sns_ae *ae) {
+  uint32_t hts, vts = 0x465;
+
+  switch (fps) {
+  case 15:
+    if (a->dvp)
+      w(d, 0x301f, 0x0e);
+    hts = 0x898, vts = 0x8ca;
+    break;
+  case 12:
+    if (a->dvp)
+      w(d, 0x301f, 0x0f);
+    hts = 0xa50, vts = 0x8ca;
+    break;
+  case 25:
+    if (a->dvp)
+      w(d, 0x301f, 0x0f);
+    hts = 0xa50;
+    break;
+  case 30:
+    if (a->dvp)
+      w(d, 0x301f, 0x0e);
+    hts = 0x898;
+    break;
+  default:
+    hts = 66000 / (fps ? fps : 1);
+  }
+  timing(d, hts, vts, 0xff, 0xef, ae);
+}
+
+static void xm533_set_flip(const struct xmv200_sns_dev *d, int mirror,
+                           int flip) {
+  uint32_t v = r(d, 0x3221);
+
+  v = mirror ? v | 0x06 : v & ~0x06u;
+  v = flip ? v | 0x60 : v & ~0x60u;
+  w(d, 0x3221, v);
+}
+
+static const struct xmv200_sns_mode xm533_sc2336_modes[] = {
+    MODE("1080p mipi", 0, 0, 0, xm533_sc2336_mipi),
+    MODE("1080p dvp", 1, 0, 0, xm533_sc2336_dvp),
+};
+
+const struct xmv200_sns_drv xmv200_sns_sc2336_xm533 = {
+    .name = "SC2336",
+    .family = "xm533",
+    .modes = xm533_sc2336_modes,
+    .n_modes = N(xm533_sc2336_modes),
+    .init = sc2336p_init,
+    .ae_default = sc2336_ae_default,
+    .set_fps = xm533_sc2336_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = sc2336_set_gain,
+    .set_flip = xm533_set_flip,
+};
+
+/*
+ * The XM533 libsns's SC2336P and SC2337P (sc2336p_cmos.c, sc2337p_cmos.c):
+ * line and frame length from a table for 12 .. 30 fps (12 and 15 fps at
+ * twice the frame length, 30 fps the shorter line), the SC2336's gain with
+ * the temperature cap (the vendor also keeps 0x3974/0x3975 as it goes), no
+ * channel 1 flip. The SC2337P's init writes nothing but on 1080p MIPI.
+ */
+extern const struct xmv200_sns_reg xm533_sc2336p_dvp[159],
+    xm533_sc2337p_mipi[152];
+
+static void xm533_p_set_fps(const struct xmv200_sns_dev *d,
+                            const struct xmv200_sns_attr *a, uint32_t fps,
+                            struct xmv200_sns_ae *ae) {
+  uint8_t i = fps - 12;
+  uint32_t vts = 0x465, hts = 0xa50;
+
+  if (i < 19) {
+    vts = i == 0 || i == 3 ? 0x8ca : 0x465;
+    hts = i == 3 || i == 18 ? 0x898 : 0xa50;
+  }
+  timing(d, hts, vts, 0xff, 0xff, ae);
+}
+
+static void xm533_p_set_gain(const struct xmv200_sns_dev *d, uint32_t idx,
+                             uint32_t dreg) {
+  r(d, 0x3974);
+  r(d, 0x3975);
+  sc2336_set_gain(d, idx, dreg);
+}
+
+static void xm533_sc2337p_ae_default(const struct xmv200_sns_attr *a,
+                                     struct xmv200_sns_ae *ae) {
+  ae_limits(ae, 1125, 0x45f);
+}
+
+static void xm533_sc2337p_init(const struct xmv200_sns_dev *d,
+                               const struct xmv200_sns_mode *m,
+                               const struct xmv200_sns_attr *a) {
+  reset_state(d->chn);
+  if (a->dvp || a->p720)
+    return;
+  table(d, m);
+  usleep(20000);
+}
+
+static const struct xmv200_sns_mode xm533_sc2336p_modes[] = {
+    MODE("1080p mipi", 0, 0, 0, sc2336p_mipi),
+    MODE("1080p dvp", 1, 0, 0, xm533_sc2336p_dvp),
+};
+static const struct xmv200_sns_mode xm533_sc2337p_modes[] = {
+    MODE("1080p mipi", 0, 0, 0, xm533_sc2337p_mipi),
+};
+
+const struct xmv200_sns_drv xmv200_sns_sc2336p_xm533 = {
+    .name = "SC2336P",
+    .family = "xm533",
+    .modes = xm533_sc2336p_modes,
+    .n_modes = N(xm533_sc2336p_modes),
+    .init = sc2336p_init,
+    .ae_default = sc2336_ae_default,
+    .set_fps = xm533_p_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = xm533_p_set_gain,
+    .set_flip = xm533_set_flip,
+};
+const struct xmv200_sns_drv xmv200_sns_sc2337p_xm533 = {
+    .name = "SC2337P",
+    .family = "xm533",
+    .modes = xm533_sc2337p_modes,
+    .n_modes = N(xm533_sc2337p_modes),
+    .init = xm533_sc2337p_init,
+    .ae_default = xm533_sc2337p_ae_default,
+    .set_fps = xm533_p_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = xm533_p_set_gain,
+    .set_flip = xm533_set_flip,
+};
