@@ -223,3 +223,67 @@ const struct xmv200_sns_drv xmv200_sns_sc3338 = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM535W1 ----
+ *
+ * The XM535W1 libsns's (Apr 2024): its own table, and a frame rate that
+ * only sets line and frame length (the XM530V200's writes the table again).
+ */
+
+extern const struct xmv200_sns_reg xm535w1_sc3338_mipi[144];
+
+static void w1_set_fps(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_attr *a, uint32_t fps,
+                       struct xmv200_sns_ae *ae) {
+  uint32_t hts = 0xea6, vts = 0x546;
+
+  switch (fps) {
+  case 12:
+    hts = 3000, vts = 0xa8c;
+    break;
+  case 10:
+    vts = 0xa8c;
+    break;
+  case 15:
+    vts = 0x708;
+    break;
+  case 25:
+    hts = 3000;
+    break;
+  }
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].valid & 8 && st[d->chn].fps == fps)
+      return;
+    st[d->chn].fps = fps;
+    st[d->chn].valid |= 8;
+  }
+  ae->full_lines = vts;
+  ae->max_lines = vts - 8;
+  if (d->chn < MAX_CHN && st[d->chn].valid & 1 &&
+      ae->max_lines < st[d->chn].exposure)
+    set_exposure(d, ae->max_lines);
+  w(d, 0x320c, hts >> 9);
+  w(d, 0x320d, hts >> 1 & 0xdf);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xce);
+}
+
+static const struct xmv200_sns_mode w1_modes[] = {
+    {"3 MP mipi", {0, 0, 0, 0}, xm535w1_sc3338_mipi, N(xm535w1_sc3338_mipi)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_sc3338_xm535w1 = {
+    .name = "SC3338",
+    .family = "xm535w1",
+    .modes = w1_modes,
+    .n_modes = N(w1_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = w1_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+};

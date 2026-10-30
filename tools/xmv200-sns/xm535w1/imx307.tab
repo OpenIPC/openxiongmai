@@ -1,0 +1,3 @@
+# name address pairs what-the-vendor-logs
+xm535w1_imx307_mipi_4lane 0x61ba2 57 IMX307 2M init ok! (@20210319) 4lane
+xm535w1_imx307_mipi_2lane 0x61c86 67 IMX307 2M init ok! (@20210319) 2lane

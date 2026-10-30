@@ -259,3 +259,96 @@ static void run(const struct xmv200_sns_dev *d, int n,
     xmv200_sns_ae_step(&xmv200_sns_sc500ai, d, &x);
   }
 }
+
+/* ---- XM535W1 ----
+ *
+ * The XM535W1 libsns's (Apr 2024): its own tables; the gain without the
+ * temperature and 0x5799 writes, remembered per channel; the high gain's
+ * part found by the vendor's multiply. Frame rate, exposure and the
+ * digital gain are the XM530V200's.
+ */
+
+extern const struct xmv200_sns_reg xm535w1_sc500ai_5m_2lane[126],
+    xm535w1_sc500ai_5m_4lane[125];
+
+static void w1_again_calc(uint32_t gain, uint32_t *idx, uint32_t *real) {
+  uint32_t g = gain << 5, f, bits = 0, k = 0, v;
+  int high = g > 0x60f;
+
+  f = high ? (uint32_t)((uint64_t)((g & 0x3ffffff) << 2) * 0x54741fb >> 33)
+           : g >> 4;
+  if (f < 0x40)
+    f = 0x40;
+  while (k < 4 && f >= 0x80) {
+    k++;
+    f >>= 1;
+    bits = bits << 1 | 1;
+  }
+  *idx = bits << 8 | (uint32_t)high << 31 | f;
+  v = f << (k + 4);
+  if (high)
+    v = (uint32_t)((uint64_t)v * 0x610 >> 10);
+  *real = v >> 5;
+}
+
+static void w1_set_gain(const struct xmv200_sns_dev *d, uint32_t again,
+                        uint32_t dgain) {
+  uint32_t v;
+
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].valid && st[d->chn].again == again &&
+        st[d->chn].dgain == dgain)
+      return;
+    st[d->chn].again = again;
+    st[d->chn].dgain = dgain;
+    st[d->chn].valid = 1;
+  }
+  v = ((again & 0xffff) >> 8) << 2 | (again >> 31 ? 0x23 : 0x03);
+  w(d, 0x3e08, v);
+  w(d, 0x3e09, again & 0xff);
+  w(d, 0x3e06, (dgain & 0xffff) >> 8);
+  w(d, 0x3e07, dgain & 0xff);
+}
+
+static void w1_run(const struct xmv200_sns_dev *d, int n,
+                   const struct xmv200_sns_ctx *c);
+
+static const struct xmv200_sns_mode w1_modes[] = {
+    {"5m mipi 2 lanes", {0, 0, 0, 0}, xm535w1_sc500ai_5m_2lane,
+     N(xm535w1_sc500ai_5m_2lane)},
+    {"5m mipi 4 lanes", {0, 0, 0, 0}, xm535w1_sc500ai_5m_4lane,
+     N(xm535w1_sc500ai_5m_4lane)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_sc500ai_xm535w1 = {
+    .name = "SC500AI",
+    .family = "xm535w1",
+    .exp_shift = 1,
+    .modes = w1_modes,
+    .n_modes = N(w1_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = w1_again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = w1_set_gain,
+    .set_flip = set_flip,
+    .run = w1_run,
+};
+
+/* the AE starts from half the tuning's exposure (half lines) */
+static void w1_run(const struct xmv200_sns_dev *d, int n,
+                   const struct xmv200_sns_ctx *c) {
+  struct xmv200_sns_ctx x = *c;
+
+  if (n == 2)
+    x.exp_lines = c->exp_lines / 2;
+  if (n == 0)
+    xmv200_sns_init_step(&xmv200_sns_sc500ai_xm535w1, d, &x);
+  else if (n == 1)
+    xmv200_sns_fps_step(&xmv200_sns_sc500ai_xm535w1, d, &x);
+  else if (n == 2)
+    xmv200_sns_ae_step(&xmv200_sns_sc500ai_xm535w1, d, &x);
+}

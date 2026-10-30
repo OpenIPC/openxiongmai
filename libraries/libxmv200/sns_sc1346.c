@@ -217,3 +217,51 @@ static const struct xmv200_sns_mode modes[] = {
 
 const struct xmv200_sns_drv xmv200_sns_sc1346 = DRV("SC1346");
 const struct xmv200_sns_drv xmv200_sns_sc1a4t = DRV("SC1A4T");
+
+/* ---- XM535W1 ----
+ *
+ * The XM535W1 libsns's (Apr 2024): the XM530V200's functions with its own
+ * tables, the table again by channel.
+ */
+
+extern const struct xmv200_sns_reg xm535w1_sc1346_mipi[130],
+    xm535w1_sc1346_dvp[140];
+
+static void w1_init(const struct xmv200_sns_dev *d,
+                    const struct xmv200_sns_mode *m,
+                    const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
+  if (!d->chn) {
+    table(d, xm535w1_sc1346_mipi, N(xm535w1_sc1346_mipi));
+  } else {
+    table(d, xm535w1_sc1346_dvp, N(xm535w1_sc1346_dvp));
+    usleep(100);
+    if (a->fps == 21)
+      w(d, 0x3641, 0x02);
+  }
+  usleep(20000);
+}
+
+static const struct xmv200_sns_mode w1_modes[] = {
+    {"720p mipi", {0, 0, 1, 0}, xm535w1_sc1346_mipi, N(xm535w1_sc1346_mipi)},
+    {"720p dvp", {1, 0, 1, 0}, xm535w1_sc1346_dvp, N(xm535w1_sc1346_dvp)},
+};
+
+#define W1_DRV(nm)                                                             \
+  {.name = nm,                                                                 \
+   .family = "xm535w1",                                                        \
+   .modes = w1_modes,                                                          \
+   .n_modes = N(w1_modes),                                                     \
+   .init = w1_init,                                                            \
+   .ae_default = ae_default,                                                   \
+   .set_fps = set_fps,                                                         \
+   .set_vts = set_vts,                                                         \
+   .set_exposure = set_exposure,                                               \
+   .again_calc = again_calc,                                                   \
+   .dgain_calc = dgain_calc,                                                   \
+   .set_gain = set_gain,                                                       \
+   .set_flip = set_flip}
+
+const struct xmv200_sns_drv xmv200_sns_sc1346_xm535w1 = W1_DRV("SC1346");
+const struct xmv200_sns_drv xmv200_sns_sc1a4t_xm535w1 = W1_DRV("SC1A4T");

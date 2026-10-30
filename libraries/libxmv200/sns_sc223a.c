@@ -292,3 +292,123 @@ const struct xmv200_sns_drv xmv200_sns_sc223a = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM535W1 ----
+ *
+ * The XM535W1 libsns's (Apr 2024), unverified (no tuning): its tables
+ * (DVP, 720p and 1080p MIPI), no short frame, flip without turning channel
+ * 1 round, and its frame rates. Exposure, frame length and the gain steps
+ * are the XM530V200's.
+ */
+
+extern const struct xmv200_sns_reg xm535w1_sc223a_dvp[195],
+    xm535w1_sc223a_720p_mipi[187], xm535w1_sc223a_mipi[173];
+
+static void w1_init(const struct xmv200_sns_dev *d,
+                    const struct xmv200_sns_mode *m,
+                    const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
+  table(d, m->regs, m->n);
+  if (m->regs != xm535w1_sc223a_dvp)
+    usleep(20000);
+}
+
+static void w1_ae_default(const struct xmv200_sns_attr *a,
+                          struct xmv200_sns_ae *ae) {
+  ae->full_lines = a->p720 ? 750 : 1125;
+  ae->max_lines = ae->full_lines - 5;
+  ae->again_min = 0x20;
+  ae->again_max = 0x73e;
+  ae->dgain_min = 0x20;
+  ae->dgain_max = 0x40;
+}
+
+/* 6 fps by line and frame length from 25; 26 and 31 the vendor's
+ * alternative 25 and 30 fps timings */
+static void w1_set_fps(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_attr *a, uint32_t fps,
+                       struct xmv200_sns_ae *ae) {
+  uint32_t hts, vts;
+
+  switch (fps) {
+  case 26:
+    w(d, 0x301f, 0x68);
+    w(d, 0x3690, 0x62);
+    w(d, 0x3691, 0x63);
+    w(d, 0x3724, 0x41);
+    w(d, 0x3725, 0xc4);
+    w(d, 0x37b2, 0x09);
+    w(d, 0x450d, 0x11);
+    hts = 0x948, vts = 0x4e2;
+    break;
+  case 31:
+    hts = 0x898, vts = 0x464;
+    break;
+  case 6:
+    hts = 0x14a0, vts = 0x8ca;
+    break;
+  default:
+    if (!fps)
+      fps = 1;
+    if (a->p720)
+      hts = 60000 / fps, vts = 750;
+    else
+      hts = 66000 / fps, vts = 0x465;
+  }
+  ae->full_lines = vts;
+  ae->max_lines = vts - 5;
+  w(d, 0x320c, hts >> 8 & 0xff);
+  w(d, 0x320d, hts & 0xff);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xef);
+  if (d->chn < MAX_CHN)
+    st[d->chn].vts = vts;
+}
+
+static void w1_set_gain(const struct xmv200_sns_dev *d, uint32_t idx,
+                        uint32_t dreg) {
+  if (d->chn < MAX_CHN) {
+    if (st[d->chn].valid & 2 && st[d->chn].again == idx &&
+        st[d->chn].dgain == dreg)
+      return;
+    st[d->chn].again = idx;
+    st[d->chn].dgain = dreg;
+    st[d->chn].valid |= 2;
+  }
+  w(d, 0x3e09, again_reg[idx < 7 ? idx : 6]);
+  w(d, 0x3e06, (dreg & 0xffffff) >> 16);
+  w(d, 0x3e07, dreg & 0xff);
+}
+
+static void w1_set_flip(const struct xmv200_sns_dev *d, int mirror, int flip) {
+  uint32_t v = r(d, 0x3221);
+
+  v = mirror ? v | 0x06 : v & ~0x06u;
+  v = flip ? v | 0xe0 : v & ~0xe0u;
+  w(d, 0x3221, v);
+}
+
+static const struct xmv200_sns_mode w1_modes[] = {
+    {"1080p mipi", {0, 0, 0, 0}, xm535w1_sc223a_mipi, N(xm535w1_sc223a_mipi)},
+    {"720p mipi", {0, 0, 1, 0}, xm535w1_sc223a_720p_mipi,
+     N(xm535w1_sc223a_720p_mipi)},
+    {"1080p dvp", {1, 0, 0, 0}, xm535w1_sc223a_dvp, N(xm535w1_sc223a_dvp)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_sc223a_xm535w1 = {
+    .name = "SC223A",
+    .family = "xm535w1",
+    .exp_shift = 1,
+    .modes = w1_modes,
+    .n_modes = N(w1_modes),
+    .init = w1_init,
+    .ae_default = w1_ae_default,
+    .set_fps = w1_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = w1_set_gain,
+    .set_flip = w1_set_flip,
+};

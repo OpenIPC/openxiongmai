@@ -265,3 +265,74 @@ static void run(const struct xmv200_sns_dev *d, int n,
     break;
   }
 }
+
+/* ---- XM535W1 ----
+ *
+ * The XM535W1 libsns's (Apr 2024), unverified (no tuning): one 3 MP mode
+ * at 1350 lines and no frame rate setting (the vendor's function is
+ * empty); exposure, frame length, the gain and its settings are the
+ * XM530V200's (its 3 MP rows).
+ */
+
+extern const struct xmv200_sns_reg xm535w1_sc3335_3m[113];
+
+static void w1_ae_default(const struct xmv200_sns_attr *a,
+                          struct xmv200_sns_ae *ae) {
+  ae->full_lines = 0x546;
+  ae->max_lines = 0x541;
+  ae->again_min = 0x400 >> 5;
+  ae->again_max = 0x3f00 >> 5;
+  ae->dgain_min = 0x80 >> 2;
+  ae->dgain_max = 0xfc0 >> 2;
+}
+
+static void w1_set_fps(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_attr *a, uint32_t fps,
+                       struct xmv200_sns_ae *ae) {
+}
+
+static void w1_run(const struct xmv200_sns_dev *d, int n,
+                   const struct xmv200_sns_ctx *c);
+
+static const struct xmv200_sns_mode w1_modes[] = {
+    MODE("3 MP mipi", 0, 0, xm535w1_sc3335_3m),
+};
+
+const struct xmv200_sns_drv xmv200_sns_sc3335_xm535w1 = {
+    .name = "SC3335",
+    .family = "xm535w1",
+    .exp_shift = 1,
+    .modes = w1_modes,
+    .n_modes = N(w1_modes),
+    .init = init,
+    .ae_default = w1_ae_default,
+    .set_fps = w1_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+    .run = w1_run,
+};
+
+static void w1_run(const struct xmv200_sns_dev *d, int n,
+                   const struct xmv200_sns_ctx *c) {
+  const struct xmv200_sns_drv *drv = &xmv200_sns_sc3335_xm535w1;
+  uint32_t areg, dreg, real;
+
+  switch (n) {
+  case 0:
+    xmv200_sns_init_step(drv, d, c);
+    break;
+  case 1:
+    xmv200_sns_fps_step(drv, d, c);
+    break;
+  case 2:
+    set_exposure(d, c->exp_lines / 2);
+    again_calc(0x20, &areg, &real);
+    dgain_calc(0x20, &dreg, &real);
+    set_gain(d, areg, dreg);
+    break;
+  }
+}

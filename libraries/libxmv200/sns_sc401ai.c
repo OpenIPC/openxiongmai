@@ -211,3 +211,57 @@ static void run(const struct xmv200_sns_dev *d, int n,
     break;
   }
 }
+
+/* ---- XM535W1 ----
+ *
+ * The XM535W1 libsns's (Apr 2024), unverified (no tuning): the
+ * XM530V200's functions, its own copy of the table.
+ */
+
+extern const struct xmv200_sns_reg xm535w1_sc401ai_mipi[122];
+
+static void w1_run(const struct xmv200_sns_dev *d, int n,
+                   const struct xmv200_sns_ctx *c);
+
+static const struct xmv200_sns_mode w1_modes[] = {
+    {"4 MP mipi", {0, 0, 0, 0}, xm535w1_sc401ai_mipi,
+     N(xm535w1_sc401ai_mipi)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_sc401ai_xm535w1 = {
+    .name = "SC401AI",
+    .family = "xm535w1",
+    .exp_shift = 1,
+    .modes = w1_modes,
+    .n_modes = N(w1_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+    .run = w1_run,
+};
+
+static void w1_run(const struct xmv200_sns_dev *d, int n,
+                   const struct xmv200_sns_ctx *c) {
+  uint32_t areg, dreg, real;
+
+  switch (n) {
+  case 0:
+    xmv200_sns_init_step(&xmv200_sns_sc401ai_xm535w1, d, c);
+    break;
+  case 1:
+    xmv200_sns_fps_step(&xmv200_sns_sc401ai_xm535w1, d, c);
+    break;
+  case 2:
+    set_exposure(d, c->exp_lines / 2);
+    again_calc(0x20, &areg, &real);
+    dgain_calc(0x20, &dreg, &real);
+    set_gain(d, areg, dreg);
+    break;
+  }
+}

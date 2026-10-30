@@ -158,3 +158,49 @@ const struct xmv200_sns_drv xmv200_sns_imx307 = {
     .set_gain = set_gain,
     .set_flip = set_flip,
 };
+
+/* ---- XM535W1 ----
+ *
+ * The XM535W1 libsns's (Apr 2024), unverified: its tables (standby on
+ * first), then standby off, 0x3002 and 0x304b. Its 10-bit variant (8 more
+ * pairs where the vendor's lane field's high nibble is 1) is not here.
+ * Frame rate, frame length, exposure and gain are the XM530V200's.
+ */
+
+extern const struct xmv200_sns_reg xm535w1_imx307_mipi_4lane[57],
+    xm535w1_imx307_mipi_2lane[67];
+
+static void w1_init(const struct xmv200_sns_dev *d,
+                    const struct xmv200_sns_mode *m,
+                    const struct xmv200_sns_attr *a) {
+  for (int i = 0; i < m->n; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  w(d, 0x3000, 0);
+  usleep(20000);
+  w(d, 0x3002, 0);
+  w(d, 0x304b, 10);
+  usleep(20000);
+}
+
+static const struct xmv200_sns_mode w1_modes[] = {
+    {"1080p mipi 2 lanes", {0, 0, 0, 0}, xm535w1_imx307_mipi_2lane,
+     N(xm535w1_imx307_mipi_2lane)},
+    {"1080p mipi 4 lanes", {0, 0, 0, 0}, xm535w1_imx307_mipi_4lane,
+     N(xm535w1_imx307_mipi_4lane)},
+};
+
+const struct xmv200_sns_drv xmv200_sns_imx307_xm535w1 = {
+    .name = "IMX307",
+    .family = "xm535w1",
+    .modes = w1_modes,
+    .n_modes = N(w1_modes),
+    .init = w1_init,
+    .ae_default = ae_default,
+    .set_fps = set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = set_flip,
+};
