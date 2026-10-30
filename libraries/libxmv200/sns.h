@@ -147,6 +147,10 @@ extern void (*xmv200_i2c_divert)(uint32_t reg, uint32_t val);
 void xmv200_sns_run(const struct xmv200_sns_drv *drv,
                     const struct xmv200_sns_dev *d, int n,
                     const struct xmv200_sns_ctx *c);
+/* the same without the driver's run hook: its steps, or the default */
+void xmv200_sns_run_steps(const struct xmv200_sns_drv *drv,
+                          const struct xmv200_sns_dev *d, int n,
+                          const struct xmv200_sns_ctx *c);
 /* the steps of the default */
 void xmv200_sns_init_step(const struct xmv200_sns_drv *drv,
                           const struct xmv200_sns_dev *d,

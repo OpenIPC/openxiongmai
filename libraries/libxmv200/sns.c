@@ -340,10 +340,15 @@ void xmv200_sns_ae_step(const struct xmv200_sns_drv *drv,
 void xmv200_sns_run(const struct xmv200_sns_drv *drv,
                     const struct xmv200_sns_dev *d, int n,
                     const struct xmv200_sns_ctx *c) {
-  if (drv->run) {
+  if (drv->run)
     drv->run(d, n, c);
-    return;
-  }
+  else
+    xmv200_sns_run_steps(drv, d, n, c);
+}
+
+void xmv200_sns_run_steps(const struct xmv200_sns_drv *drv,
+                          const struct xmv200_sns_dev *d, int n,
+                          const struct xmv200_sns_ctx *c) {
   if (drv->steps) {
     for (const char *p = n < drv->n_runs ? drv->steps[n] : ""; *p; p++)
       switch (*p) {

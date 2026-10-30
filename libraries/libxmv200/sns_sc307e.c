@@ -249,6 +249,9 @@ static const struct xmv200_sns_mode modes[] = {
     {"720p dvp", {1, 0, 1, 0}, NULL, 0},
 };
 
+static void run(const struct xmv200_sns_dev *d, int n,
+                const struct xmv200_sns_ctx *c);
+
 const struct xmv200_sns_drv xmv200_sns_sc307e = {
     .name = "SC307E",
     .exp_shift = 1,
@@ -263,7 +266,18 @@ const struct xmv200_sns_drv xmv200_sns_sc307e = {
     .dgain_calc = dgain_calc,
     .set_gain = set_gain,
     .set_flip = set_flip,
+    .run = run,
 };
+
+/* the AE starts from the tuning's exposure in half lines */
+static void run(const struct xmv200_sns_dev *d, int n,
+                const struct xmv200_sns_ctx *c) {
+  struct xmv200_sns_ctx h = *c;
+
+  if (n == 2)
+    h.exp_lines = c->exp_lines / 2;
+  xmv200_sns_run_steps(&xmv200_sns_sc307e, d, n, &h);
+}
 
 /* ---- XM533 ---- */
 
