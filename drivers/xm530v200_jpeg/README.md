@@ -11,3 +11,5 @@
 | `0x80044a02` | wait up to 1 s for the picture: the status back, bit 0 done, bit 1 an error (bits 2..6 which), bit 7 timed out |
 
 The encoder is at 0x21100000, IRQ 78.
+
+Only the owner can give the encoder back and gate its clock (`-EPERM` otherwise).

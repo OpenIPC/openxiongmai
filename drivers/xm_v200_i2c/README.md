@@ -39,3 +39,5 @@ The chips differ (`I2C_CHIP=` at build time):
 make -C drivers/xm_v200_i2c KDIR=... ARCH=arm CROSS_COMPILE=... I2C_CHIP=xm535
 insmod open_i2c.ko
 ```
+
+The bus reset (`I2C_IOC_INIT`) takes no record, so a null argument works.

@@ -198,6 +198,10 @@ static u32 *rotate(struct var_chn *c, u32 *s)
 	u32 sy = s[W_PHYS], dy;
 	u32 *d;
 
+	/* the NV12 picture within its buffer, the engine's sizes in range */
+	if (!w || !h || w > 8192 || h > 8192 || size > s[W_SIZE])
+		return NULL;
+
 	if (c->bind[0] == MOD_VO) {
 		if (vo_get_buf(c->bind[1], c->bind[2], (void **)&d) || !d)
 			return NULL;
@@ -303,6 +307,8 @@ static u32 *copy_frame(u32 *b)
 	void __iomem *src, *dst;
 	u32 *d;
 
+	if (b[W_STRIDE] > 8192 || b[W_HEIGHT] > 8192 || size > b[W_SIZE])
+		return NULL;
 	if (vb_get_buf(0, size, (void **)&d, 0))
 		return NULL;
 	src = ioremap(b[W_PHYS], size);

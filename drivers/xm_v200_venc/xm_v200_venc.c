@@ -222,8 +222,11 @@ static long venc_get(void __user *arg)
 	r[REC_BUF] = (u32)(uintptr_t)p;
 	out_add(p);
 	if (copy_to_user(arg, r, sizeof(r))) {
+		/* the caller has no handle to release it with: back to VB */
 		pr_err("venc: copy_to_user failed\n");
-		return -1;
+		out_take(p);
+		drop(p);
+		return -EFAULT;
 	}
 	return 0;
 }

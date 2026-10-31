@@ -1322,7 +1322,9 @@ static long vpss_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		g->crop[4] = w[8];
 		break;
 	case VPSS_SET_CHN_CROP:
-		if (w[7] + w[5] > c->w || w[8] + w[6] > c->h) {
+		/* without the sums wrapping */
+		if (w[5] > c->w || w[7] > c->w - w[5] || w[6] > c->h ||
+		    w[8] > c->h - w[6]) {
 			pr_err("vpss: crop out of range\n");
 			ret = -EINVAL;
 			break;

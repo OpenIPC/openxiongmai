@@ -127,6 +127,9 @@ static long jpeg_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			switch_clk(1);
 		return 0;
 	case JPEG_GIVE:
+		/* only the owner gives the encoder back (and gates its clock) */
+		if (owner != file)
+			return -EPERM;
 		if (switch_en)
 			switch_clk(0);
 		owner = NULL;

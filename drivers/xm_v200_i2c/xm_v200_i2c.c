@@ -264,6 +264,13 @@ static long i2c_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	if (bus < 0)
 		return -1;
+	/* the bus reset takes no record */
+	if (cmd == I2C_IOC_INIT) {
+		mutex_lock(&i2c_lock);
+		bus_setup(bus);
+		mutex_unlock(&i2c_lock);
+		return 0;
+	}
 	if (copy_from_user(&r, (void __user *)arg, sizeof(r))) {
 		pr_err("i2c: copy_from_user error\n");
 		return -1;
@@ -283,11 +290,6 @@ static long i2c_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			pr_err("i2c: copy_to_user error\n");
 			return -1;
 		}
-		return 0;
-	case I2C_IOC_INIT:
-		mutex_lock(&i2c_lock);
-		bus_setup(bus);
-		mutex_unlock(&i2c_lock);
 		return 0;
 	}
 	pr_err("i2c: command error %#x\n", cmd);

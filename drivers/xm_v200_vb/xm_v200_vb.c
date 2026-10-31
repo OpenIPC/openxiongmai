@@ -285,6 +285,11 @@ static int vb_init(void)
 	for (i = 0; i < conf.count && i < MAX_POOLS; i++) {
 		u32 size = conf.pool[i].size, room = (size + 0x2f) & ~0x1fu;
 
+		if (!size || size > 0x7fffffff) { /* its room would wrap */
+			pr_err("vb: pool %d size %#x error\n", i, size);
+			return -EINVAL;
+		}
+
 		for (k = 0; k < conf.pool[i].count; k++) {
 			char name[32];
 			u32 phys;
@@ -417,6 +422,15 @@ static long vb_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			break;
 		spin_lock_irqsave(&vb_lock, flags);
 		b = known(r.buf);
+		/* the picture (stride x height of luma at least) within the
+		 * buffer: the modules after us take these for its extent */
+		if (b && (u64)r.desc[W_STRIDE] * r.desc[W_STRIDE + 2] >
+			     WORD(b, W_SIZE)) {
+			spin_unlock_irqrestore(&vb_lock, flags);
+			pr_err("vb: put of %ux%u into %#x bytes\n", r.desc[W_STRIDE],
+			       r.desc[W_STRIDE + 2], WORD(b, W_SIZE));
+			return -EINVAL;
+		}
 		if (b) {
 			for (i = W_STRIDE; i <= W_STRIDE + 2; i++)
 				WORD(b, i) = r.desc[i];

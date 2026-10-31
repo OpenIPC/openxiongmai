@@ -39,3 +39,5 @@ It exports `vpss_set_chn_win` for rgn's covers, and `vpss_set_chn_osd`, whose re
 make -C drivers/xm530v200_vpss KDIR=... ARCH=arm CROSS_COMPILE=...
 insmod open_vpss.ko   # after vb, vo and isp
 ```
+
+A channel crop is checked without its sums wrapping (the vendor's adds x + w unchecked).

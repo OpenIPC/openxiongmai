@@ -13,3 +13,5 @@ User space allocates one block of MMZ per VENC channel and has the driver hand o
 | `0xc02c5605` | a part: name[32] and size in, its physical and virtual address back |
 | `0x402c5606` | a part back, by its virtual address |
 | `0x5600` | every channel's book-keeping cleared |
+
+A part request over 2 GiB (whose rounding would wrap and put the guard outside the part) is refused.

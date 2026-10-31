@@ -37,3 +37,5 @@ A get waits forever (`ms < 0`), not at all (0) or `ms` milliseconds.
 make -C drivers/xm_v200_vb KDIR=... ARCH=arm CROSS_COMPILE=... VB_LAYOUT=xm535
 insmod open_vb.ko   # after mmz (open_mmz or the vendor's)
 ```
+
+Inputs are checked where the vendor's are not: a pool size that would wrap the buffer's room (over 2 GiB) is refused, and a put whose stride x height is larger than the buffer is refused (`-EINVAL`), as the modules after it take those for the picture's extent.

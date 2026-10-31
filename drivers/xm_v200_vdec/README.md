@@ -14,3 +14,5 @@ The ioctls take a 36-byte record: words 0 and 1 are the buffer's physical addres
 | `0x40e80044` | the 8 x 232-byte state table that `/proc/umap/vdec` shows |
 
 Buffers handed back are checked to be VB's (`vb_find_buf`) or the VO channel's; `vdec.ko` takes them on trust. The timer runs one-shot, where `vdec.ko` runs it free and stops it in the interrupt; both count 24 ticks a microsecond, as `vdec.ko` does.
+
+A VB put whose NV12 picture does not fit the buffer is refused (`-EINVAL`).

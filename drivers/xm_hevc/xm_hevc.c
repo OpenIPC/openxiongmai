@@ -374,6 +374,10 @@ static long hevc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return 0;
 	}
 	if (cmd == HEVC_UNLOCK) {
+		/* only the holder gives the engine back: a stray unlock would
+		 * let two encoders in */
+		if (holder != file)
+			return -EPERM;
 		holder = NULL;
 		up(&engine);
 		return 0;

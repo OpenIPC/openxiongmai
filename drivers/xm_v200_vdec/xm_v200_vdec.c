@@ -176,6 +176,13 @@ static long vdec_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		pr_err("vdec: put of no buffer %#x\n", r.buf);
 		return -EINVAL;
 	}
+	/* the NV12 picture within the buffer */
+	if (r.stride > 8192 || r.height > 8192 ||
+	    (u64)r.stride * r.height * 3 / 2 > b[W_SIZE]) {
+		pr_err("vdec: %ux%u does not fit buffer %#x\n", r.stride,
+		       r.height, r.buf);
+		return -EINVAL;
+	}
 	b[W_STRIDE] = r.stride;
 	b[W_STRIDE + 1] = r.width;
 	b[W_STRIDE + 2] = r.height;

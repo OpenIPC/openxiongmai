@@ -456,7 +456,9 @@ static int set_crop(u32 n, const u32 *crop)
 	u32 x = 0, y = 0, w = c->a.out_w, h = c->a.out_h;
 	unsigned long flags;
 
-	if (crop[1] + crop[3] > c->a.out_w || crop[2] + crop[4] > c->a.out_h) {
+	/* without the sums wrapping */
+	if (crop[1] > c->a.out_w || crop[3] > c->a.out_w - crop[1] ||
+	    crop[2] > c->a.out_h || crop[4] > c->a.out_h - crop[2]) {
 		pr_err("vi: crop out of range\n");
 		return -EINVAL;
 	}

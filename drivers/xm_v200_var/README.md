@@ -31,3 +31,5 @@ The ioctls take a 56-byte record `{chn, ms, a, b, c, d, stride, width, height, -
 | `0x40384107` | bind to `{a id, b dev, c chn}`, while the depth is 0 |
 
 Frames handed back are checked to be VB's (`vb_find_buf`); `var.ko` takes them on trust.
+
+A frame whose NV12 picture (stride x height x 3/2) does not fit its buffer, or over 8192 a side, is not given to the engine.

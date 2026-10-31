@@ -77,6 +77,10 @@ static int part_alloc(struct arg *a)
 	struct part *p, *rest;
 	void __iomem *g;
 
+	/* its rounding would wrap, and the guard land outside the part */
+	if (!a->size || a->size > 0x7fffffff)
+		return -EINVAL;
+
 	list_for_each_entry (p, &chns[cur].parts, node)
 		if (!p->used && p->len >= len)
 			goto found;

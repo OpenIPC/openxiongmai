@@ -23,3 +23,5 @@ Not here: the vendor's `nrt` mode, a second store interrupt handler that is off 
 make -C drivers/xm533_vi KDIR=... ARCH=arm CROSS_COMPILE=...
 insmod open_vi.ko   # after vb and isp
 ```
+
+A crop is checked without its sums wrapping.

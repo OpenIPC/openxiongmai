@@ -48,8 +48,10 @@
 #include <linux/mutex.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
+#include <linux/mm.h>
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
+#include <asm/memory.h>
 #include <linux/wait.h>
 
 #if defined(RGN_CHIP_XM535)
@@ -499,8 +501,11 @@ int comp_osd_process(u32 *pic, u32 *bind)
 EXPORT_SYMBOL(comp_osd_process);
 #endif
 
+/* a canvas's bytes, or 0: past 8192 a side its size would wrap */
 static u32 osd_size(u32 fmt, u32 w, u32 h)
 {
+	if (!w || !h || w > 8192 || h > 8192)
+		return 0;
 	switch (fmt) {
 	case FMT_1BIT:
 		return w * h >> 3;
@@ -702,6 +707,25 @@ static int osd_attach(u32 h, const u32 *w, bool on)
 	return 0;
 }
 
+/* user space's pictures for the engine: physical memory outside the
+ * kernel's RAM (its MMZ), len bytes from addr */
+static bool user_phys(u32 addr, u64 len)
+{
+	u64 ram0 = PHYS_OFFSET, ram1 = __pa(high_memory - 1) + 1;
+
+	return len && addr + len <= 0x100000000ull &&
+	       (addr + len <= ram0 || addr >= ram1);
+}
+
+/* {w, h, src, dst}: both NV12 pictures of w x h (blend) */
+static bool user_pic(const u32 *pic, u32 dst_mul2)
+{
+	u64 n = (u64)pic[0] * pic[1];
+
+	return pic[0] && pic[1] && pic[0] <= 8192 && pic[1] <= 8192 &&
+	       user_phys(pic[2], n * 3 / 2) && user_phys(pic[3], n * dst_mul2 / 2);
+}
+
 /* a single overlay blended into user space's picture w[2..5] */
 static int osd_usr_process(u32 h, const u32 *pic)
 {
@@ -710,6 +734,8 @@ static int osd_usr_process(u32 h, const u32 *pic)
 
 	if (!b->created)
 		return -ENOENT;
+	if (!user_pic(pic, 3))
+		return -EINVAL;
 	mutex_lock(&osd_lock);
 	if (fits(b, pic)) {
 		region(pic, &b->a, b->phys, 0);
@@ -729,6 +755,9 @@ static int osd_convert(const u32 *pic)
 	struct osd_attr a = {.fmt = FMT_CONVERT};
 	int ret;
 
+	/* NV12 in, RGB888 planar (3 bytes a pixel) out */
+	if (!user_pic(pic, 6))
+		return -EINVAL;
 	mutex_lock(&osd_lock);
 	region(pic, &a, 0, 0);
 	ret = run(1, 20 * HZ);

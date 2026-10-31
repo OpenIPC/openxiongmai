@@ -21,3 +21,5 @@ Not here yet: the XM535's `venc.ko` also carries the vendor encoder's memory man
 make -C drivers/xm_v200_venc KDIR=... ARCH=arm CROSS_COMPILE=... VENC_LAYOUT=xm535
 insmod open_venc.ko   # after vb and rgn
 ```
+
+A picture whose record cannot be copied out goes back to VB instead of staying held.

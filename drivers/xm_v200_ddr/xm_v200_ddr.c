@@ -105,6 +105,7 @@ static int __init xm_v200_ddr_init(void)
 	ret = request_irq(TIMER_IRQ, timer7_interrupt, 0, "timer7", NULL);
 	if (ret) {
 		pr_err("request irq %d failed\n", TIMER_IRQ);
+		writel(0x62, timer + T_CTRL); /* the timer off again */
 		remove_proc_entry("umap/ddr", NULL);
 		goto unmap;
 	}

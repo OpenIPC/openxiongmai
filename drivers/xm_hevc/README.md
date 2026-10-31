@@ -27,3 +27,5 @@ v1 jobs can also run in line mode (word 13 the line count, mode 1 in word 14: th
 make -C drivers/xm_hevc KDIR=... ARCH=arm CROSS_COMPILE=... HEVC_LAYOUT=v1
 insmod open_hevc.ko
 ```
+
+Only the client holding the engine can unlock it (`-EPERM` otherwise), so a stray unlock cannot let two encoders in.

@@ -37,3 +37,5 @@ It needs `mmz_alloc`/`mmz_free`, plus the cover and line hooks: vpss.ko exports 
 make -C drivers/xm_v200_rgn KDIR=... ARCH=arm CROSS_COMPILE=... RGN_CHIP=xm535
 insmod open_rgn.ko   # after mmz and vpss (vi on the XM533), before venc
 ```
+
+Unlike `rgn.ko`, the conversion and the user-space blend take only pictures in physical memory outside the kernel's RAM (MMZ), of the size they declare, and canvases are at most 8192 a side (their size would otherwise wrap).
