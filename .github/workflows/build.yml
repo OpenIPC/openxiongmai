@@ -286,151 +286,181 @@ jobs:
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_i2c
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_i2c KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_sys
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_sys KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_vb
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_vb KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_venc
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_venc KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_rgn
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_rgn KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm533_vi
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm533_vi KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm535_vpss
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm535_vpss KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm535w1_vi
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm535w1_vi KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm530v200_vpss
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm530v200_vpss KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_adc
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_adc KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_ddr
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_ddr KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_log
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_log KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_acodec
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_acodec KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_i2s
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_i2s KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm533_mipi_io
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm533_mipi_io KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build hx280enc for the V200 series (H264_CHIP=v200)
+        if: matrix.soc == 'xm530'
         run: |
           cp -r drivers/hx280enc "$RUNNER_TEMP/hx280enc-v200"
           make -C "$RUNNER_TEMP/hx280enc-v200" KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH" H264_CHIP=v200
 
       - name: Build xm530v200_jpeg
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm530v200_jpeg KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm533_venc_mem
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm533_venc_mem KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_nn
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_nn KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm533_ive
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm533_ive KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm530v200_vo
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm530v200_vo KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm533_isp
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm533_isp KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm530v200_isp
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm530v200_isp KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm535_isp
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm535_isp KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_rtc
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_rtc KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_vdec
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_vdec KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_var
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_var KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm_v200_motor
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_motor KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
       - name: Build xm_v200_dma
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm_v200_dma KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm535w1_isp
+        if: matrix.soc == 'xm530'
         run: |
           make -C drivers/xm535w1_isp KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
