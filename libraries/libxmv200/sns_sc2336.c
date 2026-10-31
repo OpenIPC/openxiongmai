@@ -531,10 +531,24 @@ static const struct xmv200_sns_mode xm535_sc2336p_modes[] = {
     MODE("1080p dvp", 1, 0, 0, xm535_sc2336p_dvp),
 };
 
+/* the XM535D2's libsns (Dec 18 2025 71fc834): the D1's but for SC2336P's
+ * 1-lane MIPI table, with 0x3651 = 0x9d after its 80th pair */
+extern const struct xmv200_sns_reg xm535d2_sc2336p_mipi_1lane_sync[173],
+    xm535d2_sc2336p_mipi_1lane[168];
+
+static const struct xmv200_sns_mode xm535d2_sc2336p_modes[] = {
+    SYNC_MODE("1080p mipi 1 lane, frame sync", 0, 1, 0,
+              xm535d2_sc2336p_mipi_1lane_sync),
+    MODE("1080p mipi 1 lane", 0, 1, 0, xm535d2_sc2336p_mipi_1lane),
+    MODE("1080p mipi", 0, 0, 0, xm535_sc2336p_mipi),
+    MODE("1080p dvp", 1, 0, 0, xm535_sc2336p_dvp),
+};
+
 static int xm535_sync[MAX_CHN];
 
 static int xm535_synced(const struct xmv200_sns_mode *m) {
-  return m == &xm535_sc2336_modes[0] || m == &xm535_sc2336p_modes[0];
+  return m == &xm535_sc2336_modes[0] || m == &xm535_sc2336p_modes[0] ||
+         m == &xm535d2_sc2336p_modes[0];
 }
 
 static void xm535_init(const struct xmv200_sns_dev *d,
@@ -543,9 +557,12 @@ static void xm535_init(const struct xmv200_sns_dev *d,
   reset_state(d->chn);
   if (d->chn < MAX_CHN)
     xm535_sync[d->chn] = xm535_synced(m);
-  if (m->regs == xm535_sc2336p_mipi_1lane_sync && d->chn) {
-    /* the table, then the master's writes in place of the slave's */
-    for (int i = 0; i < 166; i++)
+  if ((m->regs == xm535_sc2336p_mipi_1lane_sync ||
+       m->regs == xm535d2_sc2336p_mipi_1lane_sync) &&
+      d->chn) {
+    /* the table, then the master's writes in place of the slave's five and
+     * the stream on */
+    for (int i = 0; i < m->n - 6; i++)
       w(d, m->regs[i].reg, m->regs[i].val);
     w(d, 0x3032, 0xa0);
     w(d, 0x3224, 0x82);
@@ -633,9 +650,9 @@ static void xm535_set_flip(const struct xmv200_sns_dev *d, int mirror,
   w(d, 0x3221, v);
 }
 
-#define XM535_DRV(nm, md)                                                      \
+#define XM535_DRV_OF(nm, fam, md)                                              \
   {.name = nm,                                                                 \
-   .family = "xm535",                                                          \
+   .family = fam,                                                              \
    .modes = md,                                                                \
    .n_modes = N(md),                                                           \
    .init = xm535_init,                                                         \
@@ -648,12 +665,20 @@ static void xm535_set_flip(const struct xmv200_sns_dev *d, int mirror,
    .set_gain = sc2336_set_gain,                                                \
    .set_flip = xm535_set_flip}
 
+#define XM535_DRV(nm, md) XM535_DRV_OF(nm, "xm535", md)
+
 const struct xmv200_sns_drv xmv200_sns_sc2336_xm535 =
     XM535_DRV("SC2336", xm535_sc2336_modes);
 const struct xmv200_sns_drv xmv200_sns_sc2336p_xm535 =
     XM535_DRV("SC2336P", xm535_sc2336p_modes);
 const struct xmv200_sns_drv xmv200_sns_sc2337p_xm535 =
     XM535_DRV("SC2337P", xm535_sc2336p_modes);
+/* the XM535D2's, in place of the D1's on that chip (its tunings are the
+ * D1's) */
+const struct xmv200_sns_drv xmv200_sns_sc2336p_xm535d2 =
+    XM535_DRV_OF("SC2336P", "xm535d2", xm535d2_sc2336p_modes);
+const struct xmv200_sns_drv xmv200_sns_sc2337p_xm535d2 =
+    XM535_DRV_OF("SC2337P", "xm535d2", xm535d2_sc2336p_modes);
 
 /* ---- XM533 ---- */
 

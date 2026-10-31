@@ -36,6 +36,10 @@ BUILDS = {
     # the XM535D1's ("Aug 12 2025 09:11:27 d2db8e4"), X6E-WEQ V5.07.X02.20250906
     "87d4d77fd8028fcae2722a540f3864a6": (
         "xm535", [(0x10000, 0, 0x7E74C), (0x9EF24, 0x7EF24, 0x6FD8)]),
+    # the XM535D2's ("Dec 18 2025 71fc834"), X9-WE2Q: the D1's tables but
+    # for the 1-lane MIPI ones of the SC2331 and SC2336P
+    "60211eea53e7d187324c11848cf46415": (
+        "xm535d2", [(0x10000, 0, 0x7E6F0), (0x9EF24, 0x7EF24, 0x89EC)]),
     # the XM535W1's ("Apr  7 2024 14:08:05 28505"), X2W-WNG V5.00.R02.20240410
     "b874c4f0f9ec4d3b2714b02fa55196d2": (
         "xm535w1", [(0x10000, 0, 0x56320), (0x76F1C, 0x56F1C, 0x3BD8)]),

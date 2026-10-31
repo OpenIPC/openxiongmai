@@ -557,6 +557,21 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
   b->fps = l->fps ? l->fps : 12;
   /* the sensor's driver, in the mode the tuning is of */
   b->isp.mode = xmv200_sns_find(model, t, &b->isp.drv);
+  /* the XM535D2's libsns has its own tables for a few of the D1's modes
+   * (its tunings are the D1's): its driver, in the mode of that name */
+  const char *chip = l->chip ? l->chip : xmv200_chip_name();
+
+  if (b->isp.mode && chip && !strcmp(chip, "xm535d2")) {
+    const struct xmv200_sns_drv *d2 =
+        xmv200_sns_driver(b->isp.drv->name, "xm535d2");
+
+    for (int i = 0; d2 && i < d2->n_modes; i++)
+      if (!strcmp(d2->modes[i].name, b->isp.mode->name)) {
+        b->isp.drv = d2;
+        b->isp.mode = &d2->modes[i];
+        break;
+      }
+  }
   if (b->isp.mode) {
     struct xmv200_sns_dev d = {b->isp.sensor[0].bus, b->isp.sensor[0].addr, 0};
 

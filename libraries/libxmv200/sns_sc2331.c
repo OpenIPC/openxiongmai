@@ -361,6 +361,34 @@ const struct xmv200_sns_drv xmv200_sns_sc2331_xm535 = {
     .set_flip = xm535_set_flip,
 };
 
+/* The XM535D2's libsns (Dec 18 2025 71fc834): the D1's, but its 1-lane
+ * MIPI table has no reset (0x0103) and 0x3651 = 0x9f after its 69th pair,
+ * the stream on after it. In place of the D1's on that chip (its tunings
+ * are the D1's). */
+extern const struct xmv200_sns_reg xm535d2_sc2331_mipi_1lane[140];
+
+static const struct xmv200_sns_mode xm535d2_modes[] = {
+    MODE("1080p mipi 1 lane", 0, 1, xm535d2_sc2331_mipi_1lane),
+    MODE("1080p mipi", 0, 0, xm535_sc2331_mipi),
+    MODE("1080p dvp", 1, 0, xm535_sc2331_dvp),
+};
+
+const struct xmv200_sns_drv xmv200_sns_sc2331_xm535d2 = {
+    .name = "SC2331",
+    .family = "xm535d2",
+    .modes = xm535d2_modes,
+    .n_modes = N(xm535d2_modes),
+    .init = init,
+    .ae_default = ae_default,
+    .set_fps = xm535_set_fps,
+    .set_vts = xm535_set_vts,
+    .set_exposure = xm535_set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = set_gain,
+    .set_flip = xm535_set_flip,
+};
+
 /* ---- XM533 ---- */
 
 /*
