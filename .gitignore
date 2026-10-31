@@ -19,3 +19,4 @@ tools/xm-isp-tune/ispreg
 libraries/libxmisp/test/tune_test
 libraries/libxmisp/test/script_test
 libraries/libxmisp/test/sensor_test
+libraries/libxmisp/test/daynight_test

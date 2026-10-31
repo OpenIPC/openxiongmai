@@ -333,6 +333,39 @@ them, so it stays at every gain. JX-H62 at 16×, isolated outliers in a
 script's) 0/0.4, lower 0/0. AR0130 at 32×: `0x400` 182/246, `0x200` 45/83,
 `0x11a` 16/16, `0x96` (the script's) 4-6/8-12, `0x60` 3/7, `0x40` 7/11.
 
+## Day and night (XM510)
+
+`daynight.c` decides, independent of the SoC: night once AE has run out
+(the gain within 3% of its ceiling and the mean below 80% of the target)
+for a while, or the gain has reached a set night gain; day once the gain
+stays at or below the day gain for a while. A moment of light or dark in
+between starts the wait again. `make test` runs it on the host
+(`test/daynight_test.c`).
+
+`xm510.c` makes night black and white: Cb/Cr gain 0 (the colour matrix and
+the noise schedule keep running, and their Cb/Cr writes stay 0), and AWB
+holds, so infrared or sodium light does not pull it off for the morning.
+Day restores the schedule's Cb/Cr, or the script's on a sensor without a
+matrix.
+
+xmispd takes the settings from majestic's automatic night mode in
+`/etc/majestic.yaml`, at start and on SIGHUP: `nightMode.lightMonitor: true`
+turns it on, unless `lightSensorPin` or both `minThreshold` and
+`maxThreshold` are set (majestic's own sources); `autoNightGain` (empty: the
+exposure runs out), `autoDayGain` (2), `autoNightDelay` (15 s) and
+`autoDayDelay` (60 s) mean what they mean there. On the XM510 majestic
+itself logs "the ISP reports no exposure state; automatic day/night
+disabled", so the two do not both act. The IR-cut filter and IR lamp stay
+majestic's (its pins), and nothing tells it the daemon's state yet.
+
+On the lab JX-H62 (no IR lamp), with `autoNightDelay: 5`, `autoDayDelay: 10`
+and the bulbs: in the dark, night 5 s after start (gain 16, mean 0.2);
+under the bulbs at 40% (still 16×) the picture's Cb and Cr were 128
+everywhere; at 80% (7.5×) and an `autoDayGain` of 8 after a SIGHUP, colour
+10 s later (Cb/Cr gain back to the schedule's `0xed`, the chart's orange
+patch Cr +47); bulbs off, night again. In qemu-bench the JX-H42 (no matrix)
+went to night with Cb/Cr gain 0.
+
 ## Sharpening in daylight (XM510)
 
 The scripts' sharpening (`KD`, `KM0`, `KH0`: `0x40075018`, `0x4007514c`,

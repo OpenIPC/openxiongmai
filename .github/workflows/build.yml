@@ -189,7 +189,8 @@ jobs:
                 xmisp_sensor_sc2145h xmisp_sensor_sc2235 xmisp_sensor_ov9750 \
                 xmisp_sensor_ov9732 xmisp_soi_gain xmisp_soi_gain_reg \
                 xmisp_soi_get xmisp_soi_set xmisp_ss_gain xmisp_ss_gain_regs \
-                xmisp_ss_get xmisp_ss_set
+                xmisp_ss_get xmisp_ss_set xmisp_set_daynight xmisp_night \
+                xmisp_dn_init xmisp_dn_update
           exit $fail
 
       - name: Assert no vendor libs in NEEDED

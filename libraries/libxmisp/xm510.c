@@ -54,6 +54,7 @@
 
 #include "ae.h"
 #include "awb.h"
+#include "daynight.h"
 #include "tune.h"
 #include "xmisp.h"
 #include "xmisp_priv.h"
@@ -199,7 +200,11 @@ struct xmisp {
   int color_on;             /* the sensor's colour matrix is set */
   float nr_strength;        /* as set; -1 before the first */
   int nr_on;
-  uint32_t grey; /* the last measurement */
+  struct xmisp_dn dn; /* day and night, if dn_on */
+  int dn_on;
+  int dn_shown;      /* the picture is black and white: the mode last applied */
+  uint32_t cbcr_day; /* the script's Cb/Cr gain, read at start */
+  uint32_t grey;     /* the last measurement */
   float cb, cr;
   char err[160];
 };
@@ -575,7 +580,9 @@ static int awb_measure(struct xmisp *s, struct xmisp_awb_meas *m) {
 }
 
 static int awb_frame(struct xmisp *s) {
-  if (!s->awb_on)
+  /* Held at night: the picture is grey, and the light (infrared, sodium)
+   * would pull it off for the morning. */
+  if (!s->awb_on || s->dn_shown)
     return 0;
   /* A write that failed part way left the candidate and picture gains
    * apart: set them all to the gains AWB holds before measuring again. */
@@ -608,6 +615,73 @@ static int awb_frame(struct xmisp *s) {
 
 static int nr_frame(struct xmisp *s);
 
+static int color_set(struct xmisp *s, float ease, uint32_t cbcr);
+
+/* The picture's colour for the mode wanted (dn_on and dn.night): Cb/Cr 0
+ * at night; by day the sensor's matrix and the noise schedule's Cb/Cr, or
+ * the script's. */
+static int dn_apply(struct xmisp *s) {
+  if (s->color_on) {
+    const struct xmisp_nr_tune *t =
+        s->script->sensor->nr ? s->script->sensor->nr : &nr_xm510;
+    const float n = s->nr_strength > 0 ? s->nr_strength : 0.0f;
+    return color_set(s, t->ccm_ease * n, xmisp_lerp(CBCR_ONE, t->cbcr, n));
+  }
+  const uint32_t cbcr = s->dn_on && s->dn.night ? 0 : s->cbcr_day;
+  if (isp_w(s, CB_GAIN, cbcr) < 0 || isp_w(s, CR_GAIN, cbcr) < 0)
+    return fail(s, "Cb/Cr gain: %s", strerror(errno));
+  return 0;
+}
+
+static uint32_t now_ms(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint32_t)((uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+/* The mode wanted applied to the picture, until it takes: 1 when the
+ * picture's mode changed, 0 if not, -1 if its colour could not be set (and
+ * it is tried again next frame). */
+static int dn_show(struct xmisp *s) {
+  const int want = s->dn_on && s->dn.night;
+  if (want == s->dn_shown)
+    return 0;
+  if (dn_apply(s) < 0)
+    return -1;
+  s->dn_shown = want;
+  return 1;
+}
+
+/* gain: the gain the statistics' frame was taken at, as s->mean was. */
+static int dn_frame(struct xmisp *s, float gain) {
+  if (s->dn_on && s->ae_on)
+    xmisp_dn_update(&s->dn, now_ms(), gain, s->ae.cfg.gain_max, s->mean,
+                    s->ae.cfg.target);
+  return dn_show(s);
+}
+
+int xmisp_set_daynight(struct xmisp *s, const struct xmisp_dn_cfg *cfg) {
+  if (!s->ae_on || !s->nr_on)
+    return cfg ? fail(s, "day/night without auto-exposure") : 0;
+  if (cfg && (cfg->day_gain < 1.0f ||
+              (cfg->night_gain > 0 && (cfg->night_gain <= cfg->day_gain ||
+                                       cfg->night_gain > s->ae.cfg.gain_max))))
+    return fail(s,
+                "day/night: day gain %g, night gain %g: wants 1 <= day < "
+                "night <= %g (the sensor's most), or night 0",
+                cfg->day_gain, cfg->night_gain, s->ae.cfg.gain_max);
+  if (cfg) {
+    xmisp_dn_init(&s->dn, cfg, s->dn_shown);
+    s->dn_on = 1;
+  } else {
+    s->dn_on = 0;
+    s->dn.night = 0;
+  }
+  return dn_show(s) < 0 ? -1 : 0;
+}
+
+int xmisp_night(const struct xmisp *s) { return s->dn_shown; }
+
 /* Two failures' reasons as one, the first's kept from the copy taken. */
 static void both(struct xmisp *s, const char *first) {
   char second[sizeof(s->err)];
@@ -615,8 +689,15 @@ static void both(struct xmisp *s, const char *first) {
   snprintf(s->err, sizeof(s->err), "%.78s; %.78s", first, second);
 }
 
+static int dn_frame(struct xmisp *s, float gain);
+
 int xmisp_frame(struct xmisp *s) {
+  const float measured_gain = s->gain; /* the statistics' frame's */
   int ae = ae_frame(s);
+  if (ae >= 0) {
+    const int dn = dn_frame(s, measured_gain);
+    ae = dn < 0 ? -1 : ae > 0 || dn > 0;
+  }
   /* Noise reduction follows the gain the sensor has even when AE failed:
    * a failed write is applied as read back. */
   char err[sizeof(s->err)];
@@ -666,6 +747,10 @@ static int nr_start(struct xmisp *s) {
   for (unsigned c = 0; c < 3; c++)
     if (isp_r(s, BLACK_LEVEL + c * 4, &s->black_low[c]) < 0)
       return fail(s, "black level read: %s", strerror(errno));
+  if (isp_r(s, CB_GAIN, &s->cbcr_day) < 0)
+    return fail(s, "Cb/Cr gain read: %s", strerror(errno));
+  s->dn_on = 0;
+  s->dn_shown = 0;
   /* The sensor's daylight sharpening, as a share of the script's. */
   const float sharpen = s->script->sensor->sharpen;
   for (unsigned i = NR_SHARPEN; sharpen > 0 && i < NR_REGS; i++)
@@ -674,8 +759,6 @@ static int nr_start(struct xmisp *s) {
   /* For the gain the script left, so the strength is known from here. */
   return nr_frame(s) < 0 ? -1 : 0;
 }
-
-static int color_set(struct xmisp *s, float ease, uint32_t cbcr);
 
 static int nr_frame(struct xmisp *s) {
   if (!s->nr_on)
@@ -764,6 +847,8 @@ static int color_set(struct xmisp *s, float ease, uint32_t cbcr) {
       if (isp_w(s, a + 4 + col * 4, (uint32_t)m[col]) < 0)
         return fail(s, "colour matrix: %s", strerror(errno));
   }
+  if (s->dn_on && s->dn.night)
+    cbcr = 0; /* black and white (wanted, or being applied): no chroma */
   if (isp_w(s, CSM_SWITCH, 0xfffffffe | (idle ^ 1)) < 0 ||
       isp_w(s, CB_GAIN, cbcr) < 0 || isp_w(s, CR_GAIN, cbcr) < 0)
     return fail(s, "colour matrix: %s", strerror(errno));
