@@ -157,6 +157,10 @@ typedef char nr_tune_fits[NR_REGS == 8 ? 1 : -1];
  * Turning SHARPEN_CBCR_ENABLE off raises chroma noise (5.1 to 7.7), so it
  * stays. Both follow the noise reduction's strength. */
 #define NR_3D 4 /* index of NR_3D_YCTRL_ERR70 */
+/* Black level offsets, R, G and B (BLACKLEVEL_OFFSET_*, 0x40004000/04/08),
+ * subtracted from the sensor data in 12-bit units, before the white balance
+ * gains: a step moved the AE statistics' mean by 0.08 of an 8-bit level. */
+#define BLACK_LEVEL 0x40004000u
 static const struct xmisp_nr_tune nr_xm510 = {
     .gain_lo = 4.0f,
     .gain_hi = 16.0f,
@@ -190,6 +194,7 @@ struct xmisp {
   float cand_r[XMISP_AWB_CHANNELS - 1], cand_b[XMISP_AWB_CHANNELS - 1];
   uint32_t window, ythd;
   uint32_t nr_low[NR_REGS]; /* the script's, read at start */
+  uint32_t black_low[3];    /* the script's black level, R, G, B */
   int color_on;             /* the sensor's colour matrix is set */
   float nr_strength;        /* as set; -1 before the first */
   int nr_on;
@@ -657,6 +662,9 @@ static int nr_start(struct xmisp *s) {
   for (unsigned i = 0; i < NR_REGS; i++)
     if (isp_r(s, nr_regs[i], &s->nr_low[i]) < 0)
       return fail(s, "noise reduction read: %s", strerror(errno));
+  for (unsigned c = 0; c < 3; c++)
+    if (isp_r(s, BLACK_LEVEL + c * 4, &s->black_low[c]) < 0)
+      return fail(s, "black level read: %s", strerror(errno));
   s->nr_on = 1;
   /* For the gain the script left, so the strength is known from here. */
   return nr_frame(s) < 0 ? -1 : 0;
@@ -682,6 +690,11 @@ static int nr_frame(struct xmisp *s) {
     if (isp_w(s, nr_regs[i], v) < 0)
       return fail(s, "noise reduction: %s", strerror(errno));
   }
+  const uint32_t black = s->script->sensor->black_high;
+  for (unsigned c = 0; black && c < 3; c++)
+    if (isp_w(s, BLACK_LEVEL + c * 4, xmisp_lerp(s->black_low[c], black, n)) <
+        0)
+      return fail(s, "black level: %s", strerror(errno));
   if (s->color_on &&
       color_set(s, t->ccm_ease * n, xmisp_lerp(CBCR_ONE, t->cbcr, n)) < 0)
     return -1;

@@ -49,6 +49,12 @@ const struct xmisp_sensor xmisp_sensor_h62 = {
     .awb_b_min = 1.1f,
     .awb_b_max = 3.6f,
     .ccm = ccm_h62,
+    /* The dark level, with the exposure at 1-8 lines and the black level
+     * swept (the AE statistics' mean against it, extrapolated to no
+     * light): 0x3b at 1x, 0x32 at 16x; the script subtracts 0x45. At 16x a
+     * night-like picture's darkest patches came up 3-4 levels (Y 37 to 41
+     * on the chart's black), noise unchanged. */
+    .black_high = 0x32,
     .get_exposure = get_exposure,
     .set_exposure = set_exposure,
 };

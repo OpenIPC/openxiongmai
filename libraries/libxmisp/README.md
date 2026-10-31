@@ -297,3 +297,37 @@ the matrix up to a quarter of the way towards identity and lowers Cb/Cr to
 In the running daemon at 15× the result is chroma noise 2.9 (was 5.1) and dE
 23.5. At 3× the matrix and Cb/Cr are untouched.
 
+## Black level (XM510)
+
+The black level offsets (`BLACKLEVEL_OFFSET_R/G/B`, `0x40004000`/`04`/`08`)
+are subtracted from the sensor data in 12-bit units, before the white
+balance gains: a step moves the AE statistics' 8-bit mean by about 0.08.
+The sensor's dark level was measured in daylight: with the daemon frozen,
+the exposure at 2 and 4 lines (53 µs a line, so almost no light) and the
+offset swept, the mean falls linearly until the offset passes the dark
+level, and the two exposures extrapolate to no light.
+
+| Sensor | Dark level | Script's offset |
+|---|---|---|
+| JX-H62 | `0x3b` at 1×, `0x32` at 16× | `0x45` |
+| AR0130 | `0xa4`, `0xa3`, `0xa2` at 1×, 8×, 32× | `0xaa` |
+
+The scripts crush the darkest level or so, which hides noise at low gain
+and loses the shadows of a dark scene. A sensor driver's `black_high`
+(the dark level at the high gain) is where the noise schedule's strength
+takes the offset, from the script's. On the JX-H62 at 16×, in a night-like
+picture (the exposure cut to 13 lines), the chart's darkest patches came up
+3-4 levels (black Y 37 to 41) with the noise unchanged. The vendor daemon
+does the same: `0x45` up to 12.5×, `0x30` at 23×.
+
+## Tone curve (XM510)
+
+The RGB gamma (`GAMMA60`, `0x40062040`.., two banks and a switch at
+`0x40062000`, as the colour matrix) is flatter than sRGB in the midtones;
+the luma gamma after it (`YGAMMA`, `0x40072040`..) is the identity, and the
+vendor daemon only ever writes it so. With each curve given its own colour
+matrix, fitted to the lab chart, the vendor's curve, sRGB and power curves
+of 1/1.6 to 1/2.2 all give a mean dE of 9.8-10.5: the chart's light, uneven
+across it, and the lens's fall-off outweigh the curve, so `libxmisp` keeps
+the script's. Choosing a contrast needs a flat-lit chart, or a preference.
+
