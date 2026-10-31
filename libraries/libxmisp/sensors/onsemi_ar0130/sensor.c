@@ -114,7 +114,7 @@ const struct xmisp_sensor xmisp_sensor_ar0130 = {
     .nr = &nr_ar0130,
     /* The dark level, measured as on the JX-H62: 0xa4, 0xa3 and 0xa2 at
      * 1x, 8x and 32x; the script subtracts 0xaa. */
-    .black_high = 0xa3,
+    .black_high = 0xa2, /* at 32x, the schedule's high end */
     .get_exposure = get_exposure,
     .set_exposure = set_exposure,
 };
