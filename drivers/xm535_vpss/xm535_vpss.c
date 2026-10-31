@@ -694,7 +694,9 @@ int vpss_set_grp_line(u32 grp, u32 idx, u32 *l)
 }
 EXPORT_SYMBOL(vpss_set_grp_line);
 
-/* as vpss.ko: VI has no covers or lines on the XM535 */
+/* as vpss.ko: VI has no covers or lines on the XM535; with VI's own driver
+ * loaded beside it (WITH_VI=1, the XM535D1/D2's online BPU) those are its */
+#ifndef WITH_VI
 int vi_set_chn_win(u32 dev, u32 n, u32 idx, u32 *w)
 {
 	return 0;
@@ -706,6 +708,7 @@ int vi_set_chn_line(u32 dev, u32 n, u32 idx, u32 *l)
 	return 0;
 }
 EXPORT_SYMBOL(vi_set_chn_line);
+#endif
 
 static void vpss_init(void)
 {

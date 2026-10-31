@@ -540,7 +540,10 @@ int vi_set_chn_line(u32 dev, u32 n, u32 idx, u32 *l)
 }
 EXPORT_SYMBOL(vi_set_chn_line);
 
-/* as vi.ko: isp.ko's and rgn.ko's VPSS hooks, with no VPSS */
+/* as vi.ko: isp.ko's and rgn.ko's VPSS hooks, with no VPSS; with
+ * open_vpss beside it (WITH_VPSS=1, the XM535D1/D2's online BPU) those are
+ * its */
+#ifndef WITH_VPSS
 int vpss_thread_set_val(u32 grp, u32 src, u32 w, u32 h, u32 lo, u32 hi)
 {
 	return 0;
@@ -570,6 +573,7 @@ int vpss_set_grp_line(u32 grp, u32 idx, u32 *l)
 	return 0;
 }
 EXPORT_SYMBOL(vpss_set_grp_line);
+#endif
 
 static void vi_init(void)
 {

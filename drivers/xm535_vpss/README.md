@@ -30,3 +30,6 @@ Not here: the vendor's `line=N` low-latency mode. load_xiongmai loads it with `l
 make -C drivers/xm535_vpss KDIR=... ARCH=arm CROSS_COMPILE=...
 insmod open_vpss.ko   # after vb, before isp
 ```
+
+**Online BPU (one ISP).** A tuning captured with the BPU online (one ISP, the vendor's FunExt 0: SC3338, SC4336, SC500AI, MIS4001, MIS40C1 on the XM535D1) never reaches the VPSS: `isp.ko` hands it frames only from its offline BPU. The vendor scales the online BPU's picture in `vi.ko`, as on the XM535W1, and libxmv200 does the same for such a tuning. Built with `WITH_VI=1`, this module leaves VI's cover and line hooks to `open_vi` (`drivers/xm535w1_vi` built with `WITH_VPSS=1`) so that both load on the XM535D1/D2; `open_vi` has to load before `open_rgn`.
+

@@ -22,3 +22,6 @@ Not here: the vendor's `line=N` low-latency mode (load_xiongmai uses `line=0`).
 make -C drivers/xm535w1_vi KDIR=... ARCH=arm CROSS_COMPILE=...
 insmod open_vi.ko   # after vb, before isp
 ```
+
+On the XM535D1/D2 (the same `vi.ko`), it scales an online BPU's picture for the tunings captured with one ISP. There `open_vpss` (`drivers/xm535_vpss`, `WITH_VI=1`) loads beside it and has the VPSS hooks, so build this one with `WITH_VPSS=1`, which leaves them out.
+
