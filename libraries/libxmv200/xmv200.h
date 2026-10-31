@@ -141,6 +141,33 @@ int xmv200_venc_create(struct xmv200_venc **v, uint32_t width,
 void xmv200_venc_destroy(struct xmv200_venc *v);
 void xmv200_venc_request_idr(struct xmv200_venc *v);
 
+/*
+ * Rate control, at any time (an IDR follows a change of GOP or frame rate):
+ *   FIXQP  every P picture at qp, the IDRs a little above (the engine's)
+ *   CBR    kbps on average over about a second, qp moving between qp_min
+ *          and qp_max picture by picture
+ *   VBR    at most kbps: as CBR above it, and never below qp (the quality
+ *          it settles at when the scene needs less)
+ * qp 0 = 35 (CBR: where it starts), qp_min 0 = 16, qp_max 0 = 48, gop and
+ * fps 0 = unchanged. The rate is of what xmv200_venc_encode returns.
+ */
+enum { XMV200_RC_FIXQP, XMV200_RC_CBR, XMV200_RC_VBR };
+struct xmv200_venc_rc {
+  int mode;
+  uint32_t kbps;
+  uint32_t qp, qp_min, qp_max;
+  uint32_t gop, fps;
+};
+int xmv200_venc_set_rc(struct xmv200_venc *v, const struct xmv200_venc_rc *rc);
+/* what rate control has done: the last pictures' QP, and the rate over the
+ * last second in kbit/s */
+struct xmv200_venc_stats {
+  uint32_t qp, qp_i, kbps;
+  uint64_t frames, bytes;
+};
+void xmv200_venc_get_stats(const struct xmv200_venc *v,
+                           struct xmv200_venc_stats *st);
+
 /* A picture VPSS queued for a VENC channel (venc.ko's FIFO, every channel's
  * pictures in one queue). Each must be released. */
 struct xmv200_frame {

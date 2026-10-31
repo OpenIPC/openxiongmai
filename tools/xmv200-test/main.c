@@ -235,6 +235,25 @@ int main(int argc, char **argv) {
         return 1;
       }
     }
+    /* XMV200_RC="cbr:KBPS", "vbr:KBPS[:QP]" or "qp:QP": stream 0's rate
+     * control */
+    const char *rcs = getenv("XMV200_RC");
+    if (rcs && info.n_streams) {
+      struct xmv200_venc_rc rc = {0};
+      unsigned a = 0, b = 0;
+      char m[4] = "";
+
+      sscanf(rcs, "%3[a-z]:%u:%u", m, &a, &b);
+      rc.mode = !strcmp(m, "cbr")   ? XMV200_RC_CBR
+                : !strcmp(m, "vbr") ? XMV200_RC_VBR
+                                    : XMV200_RC_FIXQP;
+      if (rc.mode == XMV200_RC_FIXQP)
+        rc.qp = a;
+      else
+        rc.kbps = a, rc.qp = b;
+      if (xmv200_venc_set_rc(e[0], &rc))
+        fprintf(stderr, "XMV200_RC=%s: not taken\n", rcs);
+    }
     for (int i = 0; i < 4 * n * info.n_streams / 2 && done < info.n_streams;
          i++) {
       struct xmv200_frame f;
@@ -257,8 +276,13 @@ int main(int argc, char **argv) {
       fwrite(buf, 1, len, out[f.chn]);
       if (++got[f.chn] == n)
         done++;
-      if (got[f.chn] <= 2 || got[f.chn] % 10 == 0)
-        printf("stream %u frame %d: %d bytes\n", f.chn, got[f.chn], len);
+      if (got[f.chn] <= 2 || got[f.chn] % 10 == 0) {
+        struct xmv200_venc_stats st;
+
+        xmv200_venc_get_stats(e[f.chn], &st);
+        printf("stream %u frame %d: %d bytes, qp %u, %u kbit/s\n", f.chn,
+               got[f.chn], len, st.qp, st.kbps);
+      }
     }
     for (int s = 0; s < info.n_streams; s++) {
       fclose(out[s]);

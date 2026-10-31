@@ -376,6 +376,12 @@ struct xmv200_venc {
   uint8_t *stream_map;
   uint32_t frame, recon, poc;
   uint32_t regs[MAX_REGS][2];
+  /* rate control */
+  struct xmv200_venc_rc rc;
+  double fill;           /* bits over the budget so far, a second at most */
+  double avg_p, i_over_p; /* a P picture's bits on average; an IDR's over it */
+  uint32_t win_bytes[64]; /* the last second's pictures */
+  uint64_t frames, bytes;
 };
 
 /* ---- bitstream ---- */
@@ -679,6 +685,11 @@ int xmv200_venc_create(struct xmv200_venc **pv, uint32_t width,
   v->qp = qp ? qp : 35;
   v->qp_i = v->qp + v->e->qp_i_up;
   v->gop = gop ? gop : 2 * v->fps;
+  v->rc.mode = XMV200_RC_FIXQP;
+  v->rc.qp = v->qp;
+  v->rc.qp_min = 16;
+  v->rc.qp_max = 48;
+  v->i_over_p = 4;
   v->fd_hevc = open("/dev/h265", O_RDWR);
   v->fd_mem = open("/dev/mem", O_RDWR | O_SYNC);
   if (v->fd_hevc < 0 || v->fd_mem < 0 ||
@@ -717,6 +728,107 @@ void xmv200_venc_destroy(struct xmv200_venc *v) {
 
 void xmv200_venc_request_idr(struct xmv200_venc *v) { v->frame = 0; }
 
+static uint32_t clampu(uint32_t x, uint32_t lo, uint32_t hi) {
+  return x < lo ? lo : x > hi ? hi : x;
+}
+
+int xmv200_venc_set_rc(struct xmv200_venc *v,
+                       const struct xmv200_venc_rc *rc) {
+  struct xmv200_venc_rc r = *rc;
+
+  if (r.mode < XMV200_RC_FIXQP || r.mode > XMV200_RC_VBR ||
+      (r.mode != XMV200_RC_FIXQP && !r.kbps))
+    return -1;
+  r.qp = r.qp ? clampu(r.qp, 1, 51) : 35;
+  r.qp_min = r.qp_min ? clampu(r.qp_min, 1, 51) : 16;
+  r.qp_max = r.qp_max ? clampu(r.qp_max, r.qp_min, 51) : 48;
+  if (r.qp_max < r.qp_min)
+    r.qp_max = r.qp_min;
+  if ((r.gop && r.gop != v->gop) || (r.fps && r.fps != v->fps)) {
+    if (r.gop)
+      v->gop = r.gop;
+    if (r.fps)
+      v->fps = r.fps;
+    xmv200_venc_request_idr(v); /* the parameter sets carry the rate */
+  }
+  r.gop = v->gop;
+  r.fps = v->fps;
+  if (r.mode != v->rc.mode || r.mode == XMV200_RC_FIXQP)
+    v->qp = clampu(r.qp, r.qp_min, r.qp_max);
+  v->qp_i = clampu(v->qp + v->e->qp_i_up, 1, 51);
+  if (r.mode != v->rc.mode)
+    v->fill = 0;
+  v->rc = r;
+  return 0;
+}
+
+void xmv200_venc_get_stats(const struct xmv200_venc *v,
+                           struct xmv200_venc_stats *st) {
+  uint64_t sum = 0;
+  uint32_t n = v->fps < 64 ? v->fps : 64;
+
+  for (uint32_t i = 0; i < n; i++)
+    sum += v->win_bytes[i];
+  st->qp = v->qp;
+  st->qp_i = v->qp_i;
+  st->kbps = (uint32_t)(sum * 8 / 1000);
+  st->frames = v->frames;
+  st->bytes = v->bytes;
+}
+
+/* After a picture of bits: the next P pictures' QP, from how far the P
+ * pictures run over their share of the rate and how much the buffer holds
+ * (drained over a GOP); the IDRs follow at the engine's step above. */
+static void rate_control(struct xmv200_venc *v, int idr, uint32_t bytes) {
+  const struct xmv200_venc_rc *rc = &v->rc;
+  double bits = bytes * 8.0, second, budget, share, want, r;
+  int step = 0;
+  uint32_t lo;
+
+  v->frames++;
+  v->bytes += bytes;
+  v->win_bytes[v->frames % (v->fps < 64 ? v->fps : 64)] = bytes;
+  if (rc->mode == XMV200_RC_FIXQP)
+    return;
+  second = rc->kbps * 1000.0;
+  budget = second / v->fps;
+  v->fill += bits - budget;
+  if (v->fill > second)
+    v->fill = second;
+  /* VBR saves nothing up for later */
+  if (v->fill < (rc->mode == XMV200_RC_VBR ? 0 : -second))
+    v->fill = rc->mode == XMV200_RC_VBR ? 0 : -second;
+  if (idr) {
+    if (v->avg_p > 0)
+      v->i_over_p = 0.5 * v->i_over_p + 0.5 * (bits / v->avg_p);
+    if (v->i_over_p < 1)
+      v->i_over_p = 1;
+    if (v->avg_p > 0)
+      return;
+    v->avg_p = bits / v->i_over_p; /* the first P pictures' guess */
+  } else {
+    v->avg_p = v->avg_p > 0 ? 0.7 * v->avg_p + 0.3 * bits : bits;
+  }
+  /* a P picture's share of a GOP's budget, less what to drain */
+  share = budget * v->gop / (v->gop - 1 + v->i_over_p);
+  want = share - v->fill / v->gop;
+  if (want < share / 4)
+    want = share / 4;
+  r = v->avg_p / want;
+  if (r > 1.5)
+    step = 2;
+  else if (r > 1.12)
+    step = 1;
+  else if (r < 0.6)
+    step = -2;
+  else if (r < 0.88)
+    step = -1;
+  lo = rc->mode == XMV200_RC_VBR ? (rc->qp > rc->qp_min ? rc->qp : rc->qp_min)
+                                 : rc->qp_min;
+  v->qp = clampu((uint32_t)((int)v->qp + step), lo, rc->qp_max);
+  v->qp_i = clampu(v->qp + v->e->qp_i_up, 1, 51);
+}
+
 /* Encodes one picture from VPSS into out: parameter sets before an IDR,
  * then the slice. Returns the length, or -1. */
 static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
@@ -754,6 +866,7 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
   uint32_t ref = idr ? lsz : v->recon, rec = idr ? 0 : (v->recon + rsz - band) % rsz;
   if (e->map == MAP_V3) {
     reg(v, 0x040, !idr);
+    reg(v, 0x044, idr ? v->qp_i : v->qp);
     reg(v, 0x1e0, f->y);
     reg(v, 0x1e4, f->c);
     reg(v, 0x200, v->stream.phys + HDR_ROOM);
@@ -809,6 +922,7 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
   v->recon = rec;
   v->frame++;
   v->poc++;
+  rate_control(v, idr, n + len);
   return n + len;
 }
 
