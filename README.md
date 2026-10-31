@@ -10,7 +10,7 @@ The goal is to replace the proprietary SDK that Xiongmai ships with its camera b
 |-----|--------|-------------|
 | XM530 | Primary target | Sensor libraries, ISP application library, MPI reimplementation |
 | XM530V200, XM533, XM535D1/D2/W1 | Streams on the vendor kernel modules | `libxmv200`: sensors, ISP bring-up, VPSS, H.265, AE/AWB |
-| XM510 | Kernel modules | `hx280enc` and `xm_i2c` build against the XM510 vendor kernel tree |
+| XM510 | Kernel modules | `hx280enc`, `xm_mmz`, `xm510_vi`, `xm510_isp`, `xm510_rgn` and `xm_i2c` build against the XM510 kernel |
 | XM322 / XM350 / XM520 / XM540 / XM550 | Headers only | Register maps in `libraries/isp/include/xm/` |
 
 ## How the Xiongmai SDK works
@@ -38,9 +38,14 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 ```
 ├── drivers/                     Kernel modules (out-of-tree kbuild)
 │   ├── hx280enc/                Hantro 6280/7280/8270/8290 video encoder driver
+│   ├── xm510_isp/               XM510 ISP device (/dev/isp)
+│   ├── xm510_rgn/               XM510 region (OSD) driver (/dev/rgn)
+│   ├── xm510_vi/                XM510 video input driver (/dev/vi)
+│   ├── xm530_isp/               XM530/XM550 ISP device (/dev/isp)
+│   ├── xm530_rgn/               XM530/XM550 region (OSD) driver (/dev/rgn)
 │   ├── xm_hevc/                 V200-series H.265 engine (/dev/h265)
 │   ├── xm_i2c/                  /dev/xm_i2c misc-device (stub)
-│   ├── xm_mmz/                  XM530/XM550 and V200-series media memory zone (/dev/mmz)
+│   ├── xm_mmz/                  XM530/XM550/XM510 and V200-series media memory zone (/dev/mmz)
 │   ├── xm_v200_i2c/             V200-series I2C masters (/dev/i2c0..2)
 │   ├── xm_v200_sys/             V200-series system module: bind table, clocks (/dev/sys)
 │   ├── xm_v200_vb/              V200-series video buffer pools (/dev/vb)
@@ -67,6 +72,11 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 │   ├── xm_v200_venc/            V200-series VENC frame queue (/dev/venc_info)
 │   ├── dwc2/                    V200-series USB 2.0 host (Linux 4.19's DWC2 driver)
 │   ├── xm_v200_usb0/            V200-series USB PHY and the dwc2 platform device
+│   ├── xm_v200_rtc/             V200-series real-time clock (/dev/rtc)
+│   ├── xm_v200_vdec/            XM530V200 decoder bridge: VB/VO buffers, delay (/dev/vdec)
+│   ├── xm_v200_var/             XM530V200 rotator, 90/270 degrees (/dev/var)
+│   ├── xm_v200_dma/             XM530V200 memory-to-memory DMA, PL330 (/dev/dma)
+│   ├── xm_v200_motor/           V200-series pan/tilt step motors (/dev/motor)
 │   └── xm_vi/                   XM530/XM550 video input driver (/dev/vi)
 │
 └── libraries/                   Userspace libraries
@@ -83,6 +93,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
     └── libsns_X50_XM530/        libsns_X50_XM530.so: "X50" sensor family
 
 tools/
+├── xm-rgn-test/                 Draws OSD overlays and covers from the shell, XM530/XM550 and XM510 (MIT)
 ├── xm-vi-hang/                  Reproduces the VI driver hang without a camera application (MIT)
 ├── xmv200-capture/              Makes libxmv200's sensor tunings from a capture of the vendor stack (MIT)
 ├── xmv200-test/                 Brings a V200 board's pipeline up and encodes its streams (MIT)
@@ -110,7 +121,12 @@ make -C libraries CHIPARCH=xm530 CC=arm-openipc-linux-musleabi-gcc STRIP=arm-ope
 make -C drivers/hx280enc KDIR=/path/to/linux
 make -C drivers/xm_i2c   KDIR=/path/to/linux
 make -C drivers/xm_vi    KDIR=/path/to/linux   # XM530 kernel only
-make -C drivers/xm_mmz   KDIR=/path/to/linux   # XM530 kernel only; MMZ_ALLOCATOR=list for the V200 series
+make -C drivers/xm510_vi KDIR=/path/to/linux   # XM510 kernel only
+make -C drivers/xm510_isp KDIR=/path/to/linux  # XM510 kernel only
+make -C drivers/xm530_isp KDIR=/path/to/linux  # XM530 kernel only
+make -C drivers/xm530_rgn KDIR=/path/to/linux  # XM530 kernel only
+make -C drivers/xm510_rgn KDIR=/path/to/linux  # XM510 kernel only
+make -C drivers/xm_mmz   KDIR=/path/to/linux   # MMZ_ALLOCATOR=list for the V200 series
 make -C drivers/xm_hevc  KDIR=/path/to/linux HEVC_LAYOUT=v3   # V200 series: v3 XM530V200/XM533, v1 XM535
 make -C drivers/xm_v200_i2c KDIR=/path/to/linux I2C_CHIP=xm530v200   # or xm533, xm535
 make -C drivers/xm_v200_sys KDIR=/path/to/linux
@@ -198,13 +214,18 @@ To add a sensor:
 | `xm533_vi` | XM533 video input: the three channels' scaling and store into VB buffers, frame-rate control, covers (`/dev/vi`) | Builds `open_vi.ko`. Same ioctls and records as the vendor `vi.ko`; in qemu-bench its pictures match the vendor module's |
 | `xm_v200_rgn` | V200-series regions: overlays the OSD engine blends into VENC pictures (`osd_process`), covers and (XM535) lines through VI/VPSS, the XM535's encoder OSD (`/dev/rgn`) | Builds `open_rgn.ko`. Same ioctls as the vendor `rgn.ko`; overlays checked pixel by pixel in qemu-bench on the XM530V200, XM533 and XM535D1 |
 | `xm_v200_venc` | V200-series VENC frame queue: the pictures bound to VENC, with their OSD, for the encoder (`/dev/venc_info`) | Builds `open_venc.ko`. Same ioctls and records as the vendor `venc.ko` (not yet the XM535's `/dev/venc_mem`); ran libxmv200 on all five V200-series chips in qemu-bench in place of it |
+| `xm530_rgn` | XM530/XM550 regions (OSD): bitmap overlays and coloured covers that VI draws over each channel (`/dev/rgn`) | Builds `open_rgn.ko`. Same ABI as the vendor `xm530_rgn.ko`, with its inputs checked; drew overlays and covers into an XM550's streams under majestic |
+| `xm510_isp` | XM510 ISP device: register access, a shared page and the frame-start signal for the vendor `isp` daemon (`/dev/isp`) | Builds `open_isp.ko`. Same ABI as the vendor `xm510_isp.ko`, without its `Bad page state` on unload or its hang after a bad address; ran majestic on an XM510 in place of it |
+| `xm510_rgn` | XM510 regions (OSD): 1-bit bitmap overlays and covers that VI draws over the picture (`/dev/rgn`) | Builds `open_rgn.ko`. Same ABI as the vendor `xm510_rgn.ko`, with its inputs checked and no unbounded spin; drew overlays and covers into an XM510's stream under majestic |
+| `xm530_isp` | XM530/XM550 ISP device: register access, interrupt waits, a shared block, AWB statistics and the MIPI delay sweep for the vendor ISP library (`/dev/isp`) | Builds `open_isp.ko`. Same ABI as the vendor `xm530_isp.ko`, without its unchecked event index, AWB parameters and mapping length; ran majestic on an XM550 in place of it |
+| `xm510_vi` | XM510 video input: capture window, crop, scaler and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm510_vi.ko`, plus release on close and `poll`; ran majestic on an XM510 in place of it |
 | `xm_vi` | XM530/XM550 video input: capture window, scalers and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm530_vi.ko`, without its vmalloc leak; ran majestic on an XM550 in place of it |
 
 ## Open encoder
 
 `libraries/libxmvenc` drives the H.264/JPEG encoder of the XM530/XM550 and XM510 (a Hantro 8290) directly, with no vendor userspace ([#13](https://github.com/OpenIPC/openxiongmai/issues/13)). It is a static library, `libxmvenc.a`, under the MIT license, so that closed applications can link it too. The API is in `xmvenc.h`:
 - `xmvenc_open` opens the encoder and identifies the chip.
-- `xmvenc_chn_create` sets up a stream: H.264 (CAVLC or CABAC, fixed QP or frame-level rate control, IDR interval), H.265 (see below) or JPEG (quality).
+- `xmvenc_chn_create` sets up a stream: H.264 (CAVLC or CABAC, fixed QP or frame-level rate control, constant or variable bitrate, IDR interval), H.265 (see below) or JPEG (quality).
 - `xmvenc_encode` encodes one NV12 picture, given by physical address, and returns the software-written headers (SPS and PPS before an IDR, the JPEG header) and the hardware-written slice or scan.
 - `xmvenc_chn_request_idr` makes the next frame an IDR.
 
@@ -232,7 +253,7 @@ make -C tools/xmvenc-test CROSS_COMPILE=arm-openipc-linux-musleabi-
 
 `-v 0` (main) or `-v 1` (sub) takes the pictures from a VI channel instead, encoding straight from the capture buffers. With majestic stopped the capture hardware keeps running, but majestic has turned frame delivery off, so the tool turns it on for the run and back off at the end. `-d file.nv12` saves the first input picture, which you can compare against the decoded stream. `-j <quality>` encodes JPEG pictures (baseline, 4:2:0) instead of H.264; with more than one frame, the output is concatenated JPEGs.
 
-The tool encodes IDR and P frames, at a fixed QP by default, with SPS and PPS before every IDR. `-b <kbps>` turns on frame-level rate control at `-f <fps>`, keeping the QP within `-Q min:max`. `-g` sets the IDR interval (`-g 1` gives all IDR), and `-c` selects CABAC instead of CAVLC. It needs `/dev/mmz` and an encoder driver: the vendor `xm530_h264.ko`, `drivers/hx280enc`, or, on XM510, the vendor `xm510_h264.ko`. It runs on XM530/XM550 and XM510. On XM510 the vendor driver has no blocking wait, so the tool polls the status register, and the MMZ zone is too small for the tool's own buffers, so it reuses majestic's idle encoder buffers. VI on XM510 needs the vendor `isp` daemon, which majestic starts and stops with itself. The library's `cabac_tbl.c` holds the H.264 CABAC init tables in the layout from Rockchip MPP, under the Apache License 2.0.
+The tool encodes IDR and P frames, at a fixed QP by default, with SPS and PPS before every IDR. `-b <kbps>` turns on frame-level rate control at `-f <fps>`, keeping the QP within `-Q min:max`. It is constant bitrate: what a frame spends under its budget is spent by the next frames. `-V` makes it variable: unspent bits are not banked, so an easy scene stays at the QP floor and the bitrate is a ceiling. `-g` sets the IDR interval (`-g 1` gives all IDR), and `-c` selects CABAC instead of CAVLC. It needs `/dev/mmz` and an encoder driver: the vendor `xm530_h264.ko`, `drivers/hx280enc`, or, on XM510, the vendor `xm510_h264.ko`. It runs on XM530/XM550 and XM510. On XM510 the vendor driver has no blocking wait, so the tool polls the status register, and the MMZ zone is too small for the tool's own buffers, so it reuses majestic's idle encoder buffers. VI on XM510 needs the vendor `isp` daemon, which majestic starts and stops with itself. The library's `cabac_tbl.c` holds the H.264 CABAC init tables in the layout from Rockchip MPP, under the Apache License 2.0.
 
 Two cautions about MMZ:
 - **Blocks persist after the tool exits.** MMZ has no free, so a later run reuses the named blocks.
@@ -412,5 +433,5 @@ All external inputs are pinned: the kernel commits, the firmware commit, and the
 ## License
 
 GPL v3. See [LICENSE](LICENSE). The exceptions:
-- `libraries/libxmvenc`, `libraries/libxmv200`, `tools/xmvenc-test`, `tools/xmhevc-test`, `tools/xmv200-test`, `tools/xmv200-capture` and `tools/xm-vi-hang` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
+- `libraries/libxmvenc`, `libraries/libxmv200`, `tools/xmvenc-test`, `tools/xmhevc-test`, `tools/xmv200-test`, `tools/xmv200-capture`, `tools/xm-vi-hang` and `tools/xm-rgn-test` are under the MIT license, so that they can be linked into applications under any license. See their `LICENSE` files.
 - `libraries/libxmvenc/cabac_tbl.c` and `cabac_tbl.h` are under the Apache License 2.0, from Rockchip MPP.

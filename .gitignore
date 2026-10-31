@@ -11,3 +11,12 @@ compile_flags.txt
 tools/xmvenc-test/xmvenc-test
 tools/xmhevc-test/xmhevc-test
 tools/xm-vi-hang/xm-vi-hang
+tools/xm-rgn-test/xm-rgn-test
+tools/xmispd/xmispd
+libraries/libxmisp/test/ae_test
+libraries/libxmisp/test/awb_test
+tools/xm-isp-tune/ispreg
+libraries/libxmisp/test/tune_test
+libraries/libxmisp/test/script_test
+libraries/libxmisp/test/sensor_test
+libraries/libxmisp/test/daynight_test
