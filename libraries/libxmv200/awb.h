@@ -23,8 +23,10 @@ void xmv200_awb_stop(void);
 /* the sensor's total gain (100 = 1x), for the saturation by gain
  * (XM530V200's tunings: the chroma gain and the matrix's blend) */
 void xmv200_awb_set_gain(uint32_t chn, uint32_t gain);
-/* the chroma gain for that saturation, 0x100 = 1x: image.c's 0x49de U/V
- * base is scaled by it, as the daemon's frame thread does */
+/* the chroma gain for that saturation, 0x100 = 1x, which image.c's 0x49de
+ * U/V gains are (times the user's saturation), as the daemon's frame
+ * thread does; 0 where AWB has no ISP context (the tuning's own U/V then).
+ * xmv200_awb_set_gain also sends the black level for the gain (0x4967). */
 uint32_t xmv200_awb_chroma(uint32_t chn);
 /* the gains last sent (0x4965 R, G, B, 0x100 = 1x): what the frame
  * thread sends with every frame where it answers them (XM533, XM535) */

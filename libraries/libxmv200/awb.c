@@ -107,6 +107,7 @@ struct awb {
   const uint8_t *isp; /* the ISP context in the page (XM530V200), or NULL */
   uint32_t gain;      /* the sensor's total gain, 100 = 1x */
   uint32_t chroma;    /* the chroma gain for it, 0x100 = 1x */
+  uint32_t bl_sent;   /* the black level last sent, +1 (0: none) */
 };
 
 static struct awb awb[MAX_CHN];
@@ -563,8 +564,12 @@ static void send_ccm(uint32_t chn, struct awb *a) {
   int16_t m[12];
   uint32_t w[13] = {chn};
 
+  uint32_t chroma = a->chroma;
+
   ccm_for(a, a->ct, m);
   saturate(a, m);
+  if (a->isp && a->chroma != chroma)
+    xmv200_image_chroma(chn); /* the U/V gains follow */
   if (a->ccm_valid && !memcmp(m, a->ccm_sent, sizeof(m)))
     return;
   for (int i = 0; i < 12; i++)
@@ -644,13 +649,44 @@ int xmv200_awb_get(uint32_t chn, uint16_t gain[3], uint16_t *ct) {
   return 0;
 }
 
+/* the black level for the gain (the daemon's frame thread, XM530V200's
+ * ISP context): +0x3ac 1 manual (+0x3b0), else its 16-step table (+0x3b2,
+ * by log2 of the gain, interpolated); isp.ko 0x4967, the same for R, G, B */
+static void black_level(uint32_t chn, struct awb *a) {
+  uint32_t g = a->gain < 100 ? 100 : a->gain, idx = 0, frac, bl, q;
+
+  if (!a->isp)
+    return;
+  if (S32(a->isp, 0x3ac) == 1) {
+    bl = U16(a->isp, 0x3b0);
+  } else {
+    for (q = g / 100; q >>= 1;)
+      idx++;
+    if (idx > 15)
+      idx = 15;
+    frac = clamp_u((g - (100u << idx)) * 0xff / (100u << idx), 0xff);
+    uint32_t b0 = U16(a->isp, 0x3b2 + idx * 2),
+             b1 = U16(a->isp, 0x3b2 + (idx < 15 ? idx + 1 : 15) * 2);
+
+    bl = b0 < b1 ? b0 + frac * (b1 - b0) / 0xff : b0 - frac * (b0 - b1) / 0xff;
+  }
+  if (bl + 1 != a->bl_sent) {
+    uint32_t w[3] = {chn, bl | bl << 16, bl};
+
+    if (xmv200_isp_cmd(0x4967, w) >= 0)
+      a->bl_sent = bl + 1;
+  }
+}
+
 void xmv200_awb_set_gain(uint32_t chn, uint32_t gain) {
-  if (chn < MAX_CHN)
+  if (chn < MAX_CHN && awb[chn].on) {
     awb[chn].gain = gain;
+    black_level(chn, &awb[chn]);
+  }
 }
 
 uint32_t xmv200_awb_chroma(uint32_t chn) {
-  return chn < MAX_CHN && awb[chn].on ? awb[chn].chroma : 0x100;
+  return chn < MAX_CHN && awb[chn].on && awb[chn].isp ? awb[chn].chroma : 0;
 }
 
 int xmv200_awb_gains(uint32_t chn, uint32_t g[3]) {

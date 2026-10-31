@@ -134,6 +134,8 @@ void xmv200_bd_sample(int sensor, const uint32_t *grid8);
 void xmv200_bd_reset(void);
 /* mask.c: the masks forgotten (a layout started) */
 void xmv200_mask_reset(void);
+/* image.c: the 0x49de U/V gains again, AWB's chroma for the gain changed */
+void xmv200_image_chroma(uint32_t chn);
 /* image.c: the controls back at the tuning's (a layout started) */
 void xmv200_image_reset(void);
 void xmv200_ae_init(const struct xmv200_isp_cfg *cfg,

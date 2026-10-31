@@ -20,6 +20,7 @@
  */
 #include <string.h>
 
+#include "awb.h"
 #include "sns.h"
 #include "xmv200.h"
 #include "xmv200_priv.h"
@@ -107,9 +108,20 @@ static int set_luma(uint32_t chn, const struct xmv200_image *im) {
   memcpy(w, b, sizeof(w));
   w[0] = chn;
   w[1] = scale(w[1], gain_of(im->brightness), 0x3ff);
+  /* the chroma: AWB's for the sensor's gain where it has it (the daemon's
+   * saturation by gain), else the tuning's */
+  uint32_t c = xmv200_awb_chroma(chn);
+
+  if (c)
+    w[2] = w[3] = c > 0x3ff ? 0x3ff : c;
   w[2] = im->mono ? 0 : scale(w[2], gain_of(im->saturation), 0x3ff);
   w[3] = im->mono ? 0 : scale(w[3], gain_of(im->saturation), 0x3ff);
   return send(ISP_LUMA, w);
+}
+
+void xmv200_image_chroma(uint32_t chn) {
+  if (xmv200_isp_running())
+    set_luma(chn, &cur);
 }
 
 static int set_curve(uint32_t chn, const struct xmv200_image *im) {
