@@ -213,6 +213,11 @@ void xmv200_frame_release(struct xmv200_frame *f);
  * frame before releasing it (it takes the streams its sensors are in, and
  * samples every third of each). */
 void xmv200_ae_frame(const struct xmv200_frame *f);
+/* AE's state for sensor c: the last metered luma (8-bit, linear; the
+ * target is the tuning's, 57 on the XM530V200), exposure lines and total
+ * gain (0x100 = 1x). 1 on the ISP's statistics, 0 on the frames, -1 for no
+ * such sensor. */
+int xmv200_ae_state(int c, uint32_t *luma, uint32_t *lines, uint32_t *gain);
 
 /* Encodes a frame into out (Annex B, parameter sets before each IDR).
  * Returns the length, or -1. */

@@ -249,6 +249,15 @@ static int run(const char *board, int n, int osd) {
       continue;
     }
     xmv200_ae_frame(&f);
+    /* XMV200_AE=1: AE's state every 8 frames */
+    if (getenv("XMV200_AE") && i % (4 * (int)info.n_streams) == 0) {
+      uint32_t luma, lines, gain;
+      int src = xmv200_ae_state(0, &luma, &lines, &gain);
+
+      printf("ae frame %d: %s luma %u lines %u gain %u.%02ux\n", i,
+             src == 1 ? "stats" : "frames", luma, lines, gain >> 8,
+             (gain & 0xff) * 100 / 256);
+    }
     /* XMV200_MD=level: motion detection on sensor 0, its state printed */
     if (getenv("XMV200_MD") && i == 0) {
       struct xmv200_md m = {1, (uint8_t)atoi(getenv("XMV200_MD")),

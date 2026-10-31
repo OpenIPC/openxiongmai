@@ -91,6 +91,9 @@ struct xmv200_ae_sensor {
 /* the longest exposure a channel's sensor driver allows for the frame rate
  * it set, or 0 */
 uint32_t xmv200_isp_max_lines(uint32_t chn);
+/* the AE limits a channel's sensor driver gave (cmos_get_ae_default and its
+ * frame rate), or NULL without a driver */
+const struct xmv200_sns_ae *xmv200_isp_sns_ae(uint32_t chn);
 /* the frame length (lines) a channel's sensor driver set, or 0 */
 uint32_t xmv200_isp_full_lines(uint32_t chn);
 /* an isp.ko command, the ISP running; -1 otherwise */

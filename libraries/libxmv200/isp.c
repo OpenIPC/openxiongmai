@@ -497,6 +497,10 @@ const struct xmv200_isp_cfg *xmv200_isp_running(void) {
   return isp_fd < 0 ? NULL : &cur_cfg;
 }
 
+const struct xmv200_sns_ae *xmv200_isp_sns_ae(uint32_t chn) {
+  return chn < 3 && sns_ae[chn].full_lines ? &sns_ae[chn] : NULL;
+}
+
 uint32_t xmv200_isp_full_lines(uint32_t chn) {
   return chn < 3 ? sns_ae[chn].full_lines : 0;
 }
