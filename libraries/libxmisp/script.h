@@ -77,6 +77,12 @@ struct xmisp_sensor {
   /* Noise reduction and sharpening by gain; NULL for the SoC's, chosen on
    * the JX-H62. */
   const struct xmisp_nr_tune *nr;
+  /* The black level (R, G and B offsets) at the noise schedule's high
+   * gain, eased to from the script's as the gain rises: the sensor's dark
+   * level, measured. The scripts' crush the darkest level or so, which
+   * hides noise at low gain and loses shadows at high gain. 0 keeps the
+   * script's. */
+  uint32_t black_high;
   /* The exposure the sensor has now. 0 or -1. */
   int (*get_exposure)(struct xmisp *isp, uint32_t *lines, float *gain);
   /* Sets it; *gain comes back as the step the sensor took. 0 or -1. */
