@@ -171,11 +171,15 @@ static int run(const char *board, int n, int osd) {
   for (int s = 0; s < info.n_streams; s++) {
     char path[32];
 
-    snprintf(path, sizeof(path), "/tmp/stream%d.h265", s);
+    /* XMV200_CODEC=h264: H.264 (the H1's) in place of H.265 */
+    int h264 = getenv("XMV200_CODEC") && !strcmp(getenv("XMV200_CODEC"), "h264");
+
+    snprintf(path, sizeof(path), "/tmp/stream%d.%s", s, h264 ? "h264" : "h265");
     out[s] = fopen(path, "wb");
-    if (xmv200_venc_create(&e[s], info.stream[s].width,
-                           info.stream[s].height, info.fps, 35,
-                           2 * info.fps)) {
+    if ((h264 ? xmv200_venc_create_h264
+              : xmv200_venc_create)(&e[s], info.stream[s].width,
+                                    info.stream[s].height, info.fps, 35,
+                                    2 * info.fps)) {
       fprintf(stderr, "venc %d: create failed\n", s);
       return 1;
     }

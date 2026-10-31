@@ -133,7 +133,8 @@ int xmv200_board_start(const char *board, struct xmv200_board_info *info);
 const char *xmv200_chip_name(void);
 
 /*
- * H.265 encoding on the hevc.ko engine, one encoder per stream size. Frames
+ * H.265 encoding on the hevc.ko engine (or H.264 on the H1: below), one
+ * encoder per stream size. Frames
  * come from venc.ko's FIFO, which the VPSS channels bound to VENC fill.
  * qp 0 = 35, gop 0 = two seconds.
  */
@@ -144,6 +145,11 @@ void xmv200_venc_set_engine(const char *chip);
 int xmv200_venc_create(struct xmv200_venc **v, uint32_t width,
                        uint32_t height, uint32_t fps, uint32_t qp,
                        uint32_t gop);
+/* the same, H.264 (Baseline, CAVLC) on the XM533's and XM535s' Hantro H1
+ * (hx280enc); -1 where there is none (the XM530V200) */
+int xmv200_venc_create_h264(struct xmv200_venc **v, uint32_t width,
+                            uint32_t height, uint32_t fps, uint32_t qp,
+                            uint32_t gop);
 void xmv200_venc_destroy(struct xmv200_venc *v);
 void xmv200_venc_request_idr(struct xmv200_venc *v);
 

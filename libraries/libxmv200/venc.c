@@ -35,6 +35,7 @@
 #include <unistd.h>
 
 #include "xmv200.h"
+#include "xmv200_priv.h"
 
 #define VENC_GET_FRAME 0xc0284902
 #define VENC_RELEASE_FRAME 0x40284903
@@ -343,6 +344,9 @@ static const struct engine engines[] = {
 
 static const struct engine *the_engine;
 
+/* the H1's H.264 (h264.c): an engine only for rate control's sake */
+static const struct engine h1_engine = {"h1"};
+
 /* the chip's engine: the board's, or by the kernel's machine name */
 void xmv200_venc_set_engine(const char *chip) {
   the_engine = !strncmp(chip, "xm535", 5)   ? &engines[1]
@@ -369,6 +373,7 @@ static const struct engine *engine(void) {
 
 struct xmv200_venc {
   const struct engine *e;
+  struct h264enc *h264; /* H.264 on the H1, not H.265 */
   int fd_hevc, fd_mem;
   uint32_t width, height, hc, qp, qp_i, gop, fps;
   struct xmv200_buf luma, chroma; /* reference/reconstruction rings */
@@ -714,9 +719,39 @@ fail:
   return -1;
 }
 
+int xmv200_venc_create_h264(struct xmv200_venc **pv, uint32_t width,
+                            uint32_t height, uint32_t fps, uint32_t qp,
+                            uint32_t gop) {
+  struct xmv200_venc *v = calloc(1, sizeof(*v));
+
+  if (!v)
+    return -1;
+  v->fd_hevc = v->fd_mem = -1;
+  v->e = &h1_engine;
+  v->width = width;
+  v->height = height;
+  v->fps = fps ? fps : 25;
+  v->qp = qp ? qp : 35;
+  v->qp_i = v->qp;
+  v->gop = gop ? gop : 2 * v->fps;
+  v->rc.mode = XMV200_RC_FIXQP;
+  v->rc.qp = v->qp;
+  v->rc.qp_min = 16;
+  v->rc.qp_max = 48;
+  v->i_over_p = 4;
+  v->h264 = xmv200_h264_create(width, height, v->fps);
+  if (!v->h264) {
+    free(v);
+    return -1;
+  }
+  *pv = v;
+  return 0;
+}
+
 void xmv200_venc_destroy(struct xmv200_venc *v) {
   if (!v)
     return;
+  xmv200_h264_destroy(v->h264);
   if (v->stream_map && v->stream_map != MAP_FAILED)
     munmap(v->stream_map, v->stream.size);
   if (v->fd_hevc >= 0)
@@ -749,6 +784,8 @@ int xmv200_venc_set_rc(struct xmv200_venc *v,
       v->gop = r.gop;
     if (r.fps)
       v->fps = r.fps;
+    if (v->h264)
+      xmv200_h264_set_fps(v->h264, v->fps);
     xmv200_venc_request_idr(v); /* the parameter sets carry the rate */
   }
   r.gop = v->gop;
@@ -952,6 +989,17 @@ void xmv200_frame_release(struct xmv200_frame *f) {
 
 int xmv200_venc_encode(struct xmv200_venc *v, const struct xmv200_frame *f,
                        uint8_t *out, int cap) {
+  if (v->h264) {
+    int idr = v->frame % v->gop == 0,
+        len = xmv200_h264_encode(v->h264, f, idr, idr ? v->qp_i : v->qp, out,
+                                 cap);
+
+    if (len < 0)
+      return -1;
+    v->frame++;
+    rate_control(v, idr, len);
+    return len;
+  }
   /* v3 and x533 encode what VPSS (or VI) made; v1 scales any source to the
    * picture */
   if (v->e->map != MAP_V1 && (f->width != v->width || f->height != v->height))

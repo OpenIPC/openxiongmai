@@ -26,7 +26,8 @@
  * their bits in +0x094[28:23]; the quantisers four to a word, big endian,
  * in the H1's order, at +0x100 (luma) and +0x140 (chroma); +0x03c the row
  * length << 12 | NV12 << 2; +0x038 the picture in macroblocks, JPEG mode,
- * intra, start. Done, +0x060 holds the bits written; the H1 ends with EOI.
+ * intra, start; +0x060 the room in 8 bytes, done, the bits written. The
+ * H1 ends with EOI.
  */
 #include <fcntl.h>
 #include <stdio.h>
@@ -221,7 +222,7 @@ static int h1_encode(struct xmv200_jpeg *j, const struct xmv200_frame *f,
   r[0x03c / 4] = f->stride << 12 | 1 << 2; /* NV12 */
   r[0x058 / 4] = rem >> 32;
   r[0x05c / 4] = (uint32_t)rem;
-  r[0x060 / 4] = j->buf.size - aligned;
+  r[0x060 / 4] = (j->buf.size - aligned) >> 3 & ~7u; /* in 8 bytes */
   r[0x094 / 4] = nrem * 8 << 23;
   for (int t = 0; t < 2; t++)
     for (int k = 0; k < 16; k++)

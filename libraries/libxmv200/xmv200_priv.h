@@ -92,4 +92,13 @@ struct xmv200_ae_sensor {
 uint32_t xmv200_isp_max_lines(uint32_t chn);
 void xmv200_ae_init(const struct xmv200_isp_cfg *cfg,
                     const struct xmv200_ae_sensor *where, int handoff);
+/* h264.c: H.264 on the Hantro H1 (venc.c drives it) */
+struct h264enc;
+struct xmv200_frame;
+struct h264enc *xmv200_h264_create(uint32_t w, uint32_t h, uint32_t fps);
+void xmv200_h264_destroy(struct h264enc *e);
+void xmv200_h264_set_fps(struct h264enc *e, uint32_t fps);
+int xmv200_h264_encode(struct h264enc *e, const struct xmv200_frame *f,
+                       int idr, int qp, uint8_t *out, int cap);
+
 #endif
