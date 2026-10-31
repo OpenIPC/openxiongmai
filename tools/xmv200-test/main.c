@@ -245,6 +245,28 @@ static int run(const char *board, int n, int osd) {
       continue;
     }
     xmv200_ae_frame(&f);
+    /* XMV200_MASK="x,y,w,h[,color]": a privacy mask over sensor 0, in
+     * thousandths of its picture */
+    if (getenv("XMV200_MASK") && i == 2 * (int)info.n_streams) {
+      struct xmv200_mask mk = {0, 0, 0, 0, 0, 0x108080};
+      char *q = (char *)getenv("XMV200_MASK");
+      uint32_t *v[] = {&mk.x, &mk.y, &mk.width, &mk.height, &mk.color};
+
+      for (unsigned k = 0; k < 5 && q && *q; k++) {
+        *v[k] = strtoul(q, &q, 0);
+        if (*q == ',')
+          q++;
+      }
+      printf("mask: %d\n", xmv200_mask_set(0, &mk));
+    }
+    /* ...moved, then cleared */
+    if (getenv("XMV200_MASK") && i == 6 * (int)info.n_streams) {
+      struct xmv200_mask mk = {0, 500, 500, 100, 100, 0x108080};
+
+      printf("mask moved: %d\n", xmv200_mask_set(0, &mk));
+    }
+    if (getenv("XMV200_MASK") && i == 10 * (int)info.n_streams)
+      printf("mask cleared: %d\n", xmv200_mask_clear(0));
     if (ims && i == 2 * (int)info.n_streams) {
       struct xmv200_image got;
 

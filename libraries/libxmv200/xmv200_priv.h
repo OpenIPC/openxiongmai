@@ -3,6 +3,7 @@
 #ifndef XMV200_PRIV_H
 #define XMV200_PRIV_H
 
+#include "xmv200.h"
 #include <stdint.h>
 
 #include "sns.h"
@@ -104,6 +105,19 @@ const uint8_t *xmv200_isp_image_block(uint32_t chn, uint32_t cmd,
                                       uint32_t *size);
 /* AE's anti-flicker: mains hz (50, 60), 0 off */
 void xmv200_ae_set_flicker(int hz);
+/* the running layout's streams, for the covers: each stream's picture per
+ * sensor (spliced top to bottom) and which sensors it has; vi: VI channel
+ * n makes stream n (no VPSS) */
+struct xmv200_geom {
+  int n_sensors, n_streams, vi;
+  struct {
+    uint32_t width, height, sensors;
+  } stream[XMV200_MAX_STREAMS];
+};
+/* 0, or -1 when no layout runs */
+int xmv200_layout_geom(struct xmv200_geom *g);
+/* mask.c: the masks forgotten (a layout started) */
+void xmv200_mask_reset(void);
 /* image.c: the controls back at the tuning's (a layout started) */
 void xmv200_image_reset(void);
 void xmv200_ae_init(const struct xmv200_isp_cfg *cfg,

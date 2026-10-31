@@ -307,6 +307,24 @@ int xmv200_image_set(const struct xmv200_image *im);
 /* the controls last set (the defaults after a layout start) */
 void xmv200_image_get(struct xmv200_image *im);
 
+/*
+ * Privacy masks: up to XMV200_MASK_MAX filled rectangles over a sensor's
+ * picture, drawn into every stream that shows it before encoding (by VPSS,
+ * or VI on the XM533 and XM535W1). x, y, width and height are thousandths
+ * of the sensor's picture, so a mask covers the same thing at each stream's
+ * size. color is 0xYYUUVV, as the OSD's (xmv200_osd_color; the alpha byte
+ * is ignored): 0x108080 is black. Setting a mask again moves it. They are
+ * forgotten when a layout starts.
+ */
+#define XMV200_MASK_MAX 8
+struct xmv200_mask {
+  uint32_t sensor; /* the layout's sensor (0 where VI draws) */
+  uint32_t x, y, width, height;
+  uint32_t color;
+};
+int xmv200_mask_set(int id, const struct xmv200_mask *m);
+int xmv200_mask_clear(int id);
+
 #ifdef __cplusplus
 }
 #endif

@@ -656,6 +656,15 @@ void xmv200_layout_stop(void) {
   run.started = 0;
 }
 
+static struct xmv200_geom geom; /* the running layout's */
+
+int xmv200_layout_geom(struct xmv200_geom *g) {
+  if (!run.started)
+    return -1;
+  *g = geom;
+  return 0;
+}
+
 int xmv200_layout_start(const struct xmv200_layout *l,
                         struct xmv200_board_info *info) {
   static struct board board;
@@ -853,6 +862,13 @@ int xmv200_layout_start(const struct xmv200_layout *l,
   }
   xmv200_ae_init(&b->isp, where, chip->frame_answer);
   xmv200_image_reset(); /* the controls at the tuning's */
+  xmv200_mask_reset();  /* rgn.ko was reset */
+  geom = (struct xmv200_geom){n, b->n_streams, chip->vi_scaler};
+  for (int s = 0; s < b->n_streams; s++) {
+    geom.stream[s].width = b->stream[s].width;
+    geom.stream[s].height = b->stream[s].height;
+    geom.stream[s].sensors = b->stream[s].groups;
+  }
 
   run = (__typeof__(run)){.started = 1,
                           .fd_vpss = fd_vpss,
