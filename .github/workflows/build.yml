@@ -393,6 +393,10 @@ jobs:
         run: |
           make -C drivers/xm_v200_var KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+      - name: Build xm_v200_dma
+        run: |
+          make -C drivers/xm_v200_dma KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
       - name: Build xm535w1_isp
         run: |

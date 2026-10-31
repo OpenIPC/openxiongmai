@@ -120,6 +120,7 @@ static DEFINE_MUTEX(var_lock);
 static DECLARE_WAIT_QUEUE_HEAD(done_wq);
 static struct task_struct *thread;
 static atomic_t opens = ATOMIC_INIT(0);
+static DECLARE_WAIT_QUEUE_HEAD(open_wq);
 
 #define NODE(b) ((struct list_head *)(b))
 
@@ -283,11 +284,14 @@ static int var_thread(void *data)
 	void *b;
 
 	while (!kthread_should_stop()) {
-		if (!atomic_read(&opens) || vb_get_buf(3, 0, &b, 20)) {
-			schedule_timeout_interruptible(1);
+		/* nothing to do while /dev/var is closed */
+		if (!atomic_read(&opens)) {
+			wait_event_interruptible_timeout(open_wq,
+				atomic_read(&opens) || kthread_should_stop(), HZ);
 			continue;
 		}
-		process(b);
+		if (!vb_get_buf(3, 0, &b, 20))
+			process(b);
 	}
 	return 0;
 }
@@ -424,6 +428,7 @@ static long var_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 static int var_open(struct inode *inode, struct file *file)
 {
 	atomic_inc(&opens);
+	wake_up(&open_wq);
 	return 0;
 }
 
@@ -524,7 +529,7 @@ unmap:
 static void __exit xm_v200_var_exit(void)
 {
 	remove_proc_entry("umap/var", NULL);
-	kthread_stop(thread);
+	kthread_stop(thread); /* wakes it */
 	var_reset();
 	misc_deregister(&var_misc);
 	free_irq(VAR_IRQ, NULL);
