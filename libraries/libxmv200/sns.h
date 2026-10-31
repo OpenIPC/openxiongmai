@@ -38,6 +38,10 @@ struct xmv200_sns_attr {
   int hdr;   /* the two-frame HDR (WDR) mode */
   int sync;  /* frame-synced sensors (the XM535D1's: channel 0 the slave) */
   int lanes; /* MIPI lanes where a mode is for a count (2, 4); 0: any */
+  /* 2-lane frame sync (the XM535D2's): a nibble per channel, 1 that
+   * channel's sensor the master, 0 a slave (Isp.json SensorSync); and
+   * SensorSyncMode, its low nibble the slaves' EFSYNC timing */
+  uint32_t sync_roles, sync_cfg;
 };
 
 struct xmv200_sns_mode {

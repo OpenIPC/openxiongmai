@@ -12,10 +12,13 @@ da4d SC1346 sc1346_xm535_nosync
 cb1c SC200AI sc200ai_xm535
 cb3e SC223AP sc223ap_xm535
 cb5c SC2331 sc2331_xm535
-9b3a SC2336P sc2336p_xm535
-9b3a SC2336P sc2336p_xm535_nosync
+cb5c SC2331 sc2331_xm535_sync2
 cb3a SC2336 sc2336_xm535
 cb3a SC2336 sc2336_xm535_nosync
+cb3a SC2336 sc2336_xm535_sync2
+9b3a SC2336P sc2336p_xm535
+9b3a SC2336P sc2336p_xm535_nosync
+9b3a SC2336P sc2336p_xm535_sync2
 cc1a SC3335 sc3335_xm535
 cc41 SC3338 sc3338_xm535
 cd2e SC401AI sc401ai_xm535

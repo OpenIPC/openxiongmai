@@ -31,6 +31,7 @@ static struct {
   int valid;
   uint32_t exposure, again, dgain, vts;
   uint32_t again_cap; /* the highest step the temperature allows */
+  int sync2;          /* two lanes synced: 1 a slave, 2 the master */
 } st[MAX_CHN];
 
 static void w(const struct xmv200_sns_dev *d, uint16_t reg, uint32_t val) {
@@ -249,17 +250,80 @@ static void run(const struct xmv200_sns_dev *d, int n,
  * (0x3e02 holds (lines & 0xf) << 4), its own frame rates (10, 12, 15, 20,
  * 30 and 66000 / fps line lengths at 1125 lines), the frame length's low
  * byte masked with 0xef, and flip without turning a channel round. The
- * gain, its temperature cap and steps are the XM530V200's. The 2-lane
- * frame-sync (+0x20 0x19) master/slave writes are not done.
+ * gain, its temperature cap and steps are the XM530V200's. Its 2-lane frame
+ * sync (+0x20 0x19, the XM535D2's board) is below; the DVP's (0x32b2 =
+ * 0x0b) is not done.
  */
 extern const struct xmv200_sns_reg xm535_sc2331_mipi_1lane[140],
     xm535_sc2331_mipi[129], xm535_sc2331_dvp[139];
+
+/* two lanes frame-synced (+0x20 0x19, the XM535D2's board: SensorSyncMode
+ * 0x11, the slaves' EFSYNC) */
+#define SYNC2_MODE(nm, t) {nm, {0, 0, 0, 0, 0, 0, 1, 2, 0, 0x11}, t, N(t)}
 
 static const struct xmv200_sns_mode xm535_modes[] = {
     MODE("1080p mipi 1 lane", 0, 1, xm535_sc2331_mipi_1lane),
     MODE("1080p mipi", 0, 0, xm535_sc2331_mipi),
     MODE("1080p dvp", 1, 0, xm535_sc2331_dvp),
+    SYNC2_MODE("1080p mipi, frame sync", xm535_sc2331_mipi),
 };
+
+/*
+ * Two lanes synced: before the table's last three writes (0x440d, 0x440e,
+ * the stream on) a slave (its SensorSync nibble 0 or 2) writes 0x3222 = 1,
+ * 0x3230/1 = 0x000a, 0x3224 = 0x82, 0x300a = 0x24 (FSYNC), and with
+ * SensorSyncMode's low nibble also 0x3224 = 0x92, 0x300a = 0x20 (EFSYNC);
+ * the master 0x300a = 0x24, 0x3032 = 0xa0. The frame rate shortens a
+ * slave's frame length by 4 lines (channel 1 also 0x3230/1 = 0x046f).
+ */
+static void xm535_sync2_init(const struct xmv200_sns_dev *d,
+                             const struct xmv200_sns_mode *m,
+                             const struct xmv200_sns_attr *a) {
+  static const struct xmv200_sns_reg fsync[] = {{0x3222, 0x01},
+                                                {0x3230, 0x00},
+                                                {0x3231, 0x0a},
+                                                {0x3224, 0x82},
+                                                {0x300a, 0x24}},
+                                     efsync[] = {{0x3222, 0x01},
+                                                 {0x3230, 0x00},
+                                                 {0x3231, 0x0a},
+                                                 {0x3224, 0x92},
+                                                 {0x300a, 0x20}};
+  int role = d->chn < 8 ? (a->sync_roles >> (4 * d->chn)) & 0xf : 0;
+  int i;
+
+  for (i = 0; i < m->n - 3; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  if (!(role & 0xfd)) {
+    for (int k = 0; k < N(fsync); k++)
+      w(d, fsync[k].reg, fsync[k].val);
+    if (a->sync_cfg & 0xf)
+      for (int k = 0; k < N(efsync); k++)
+        w(d, efsync[k].reg, efsync[k].val);
+  } else if (role == 1) {
+    w(d, 0x300a, 0x24);
+    w(d, 0x3032, 0xa0);
+  }
+  for (; i < m->n; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  if (d->chn < MAX_CHN)
+    st[d->chn].sync2 = !(role & 0xfd) ? 1 : role == 1 ? 2 : 0;
+  usleep(20000);
+}
+
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (m->attr.sync && m->attr.lanes == 2) {
+    if (d->chn < MAX_CHN) {
+      memset(&st[d->chn], 0, sizeof(st[d->chn]));
+      st[d->chn].again_cap = 4;
+    }
+    xm535_sync2_init(d, m, a);
+    return;
+  }
+  init(d, m, a);
+}
 
 static void xm535_set_exposure(const struct xmv200_sns_dev *d,
                                uint32_t lines) {
@@ -319,6 +383,15 @@ static void xm535_set_fps(const struct xmv200_sns_dev *d,
   w(d, 0x320f, vts & 0xef);
   if (d->chn < MAX_CHN)
     st[d->chn].vts = vts;
+  /* two lanes synced: a slave's frame 4 lines shorter */
+  if (d->chn < MAX_CHN && st[d->chn].sync2 == 1 && d->chn < 2) {
+    w(d, 0x320e, (vts - 4) >> 8);
+    w(d, 0x320f, (vts - 4) & 0xff);
+    if (d->chn == 1) {
+      w(d, 0x3230, 0x04);
+      w(d, 0x3231, 0x6f);
+    }
+  }
 }
 
 static void xm535_set_vts(const struct xmv200_sns_dev *d, uint32_t vts,
@@ -350,7 +423,7 @@ const struct xmv200_sns_drv xmv200_sns_sc2331_xm535 = {
     .family = "xm535",
     .modes = xm535_modes,
     .n_modes = N(xm535_modes),
-    .init = init,
+    .init = xm535_init,
     .ae_default = ae_default,
     .set_fps = xm535_set_fps,
     .set_vts = xm535_set_vts,
@@ -371,6 +444,7 @@ static const struct xmv200_sns_mode xm535d2_modes[] = {
     MODE("1080p mipi 1 lane", 0, 1, xm535d2_sc2331_mipi_1lane),
     MODE("1080p mipi", 0, 0, xm535_sc2331_mipi),
     MODE("1080p dvp", 1, 0, xm535_sc2331_dvp),
+    SYNC2_MODE("1080p mipi, frame sync", xm535_sc2331_mipi),
 };
 
 const struct xmv200_sns_drv xmv200_sns_sc2331_xm535d2 = {
@@ -378,7 +452,7 @@ const struct xmv200_sns_drv xmv200_sns_sc2331_xm535d2 = {
     .family = "xm535d2",
     .modes = xm535d2_modes,
     .n_modes = N(xm535d2_modes),
-    .init = init,
+    .init = xm535_init,
     .ae_default = ae_default,
     .set_fps = xm535_set_fps,
     .set_vts = xm535_set_vts,

@@ -119,10 +119,14 @@ static const struct {
         "x9-we2q",
         {.chip = "xm535d2",
          .n_sensors = 3,
-         .sensor = {{"SC2336", 2, 0x30, 0x00, 1, 0, 1920, 1080},
-                    {"SC2336", 2, 0x32, 0x00, 1, 0, 1920, 1080, .vi_idx = 1},
+         /* frame-synced on two lanes, as its Isp.json (FunExt 0x19,
+          * SensorSync 0x100: the third the master, SensorSyncMode 0x11) */
+         .sensor = {{"SC2336", 2, 0x30, 0x00, 1, 0, 1920, 1080, .sync = 1,
+                     .lanes = 2},
+                    {"SC2336", 2, 0x32, 0x00, 1, 0, 1920, 1080, .vi_idx = 1,
+                     .sync = 1, .lanes = 2},
                     {"SC2336", 0, 0x30, 0x00, 1, 0, 1920, 1080, .phy = 1,
-                     .vi_dev = 1}},
+                     .vi_dev = 1, .sync = 1, .lanes = 2, .sync_master = 1}},
          .n_streams = 6,
          .stream = {{1920, 1080, 4},
                     {640, 360, 4},
@@ -579,6 +583,14 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
     struct xmv200_sns_dev d = {b->isp.sensor[0].bus, b->isp.sensor[0].addr, 0};
 
     b->isp.attr = b->isp.mode->attr;
+    /* two-lane frame sync: each channel's role (a nibble, 1 the master),
+     * and the slaves' EFSYNC where the layout says */
+    for (int c = 0; c < l->n_sensors && c < 8; c++) {
+      if (l->sensor[c].sync_master)
+        b->isp.attr.sync_roles |= 1u << (4 * c);
+      if (l->sensor[c].efsync)
+        b->isp.attr.sync_cfg = l->sensor[c].efsync > 0 ? 0x11 : 0;
+    }
     /* the frame rate the tuning's ISP program is for */
     b->isp.attr.fps = xmv200_sns_capture_fps(b->isp.drv, b->isp.mode, t, &d,
                                              b->fps);

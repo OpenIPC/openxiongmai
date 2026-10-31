@@ -78,10 +78,13 @@ extern const struct xmv200_sns_tuning xmv200_tuning_sc1a4t_xm535_nosync;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc200ai_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc223ap_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2331_xm535;
-extern const struct xmv200_sns_tuning xmv200_tuning_sc2336p_xm535;
-extern const struct xmv200_sns_tuning xmv200_tuning_sc2336p_xm535_nosync;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc2331_xm535_sync2;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535_nosync;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535_sync2;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc2336p_xm535;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc2336p_xm535_nosync;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc2336p_xm535_sync2;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc3335_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc3338_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc401ai_xm535;
@@ -172,10 +175,13 @@ const struct xmv200_sns xmv200_sensors[] = {
     {0xcb1c, "SC200AI", &xmv200_tuning_sc200ai_xm535},
     {0xcb3e, "SC223AP", &xmv200_tuning_sc223ap_xm535},
     {0xcb5c, "SC2331", &xmv200_tuning_sc2331_xm535},
-    {0x9b3a, "SC2336P", &xmv200_tuning_sc2336p_xm535},
-    {0x9b3a, "SC2336P", &xmv200_tuning_sc2336p_xm535_nosync},
+    {0xcb5c, "SC2331", &xmv200_tuning_sc2331_xm535_sync2},
     {0xcb3a, "SC2336", &xmv200_tuning_sc2336_xm535},
     {0xcb3a, "SC2336", &xmv200_tuning_sc2336_xm535_nosync},
+    {0xcb3a, "SC2336", &xmv200_tuning_sc2336_xm535_sync2},
+    {0x9b3a, "SC2336P", &xmv200_tuning_sc2336p_xm535},
+    {0x9b3a, "SC2336P", &xmv200_tuning_sc2336p_xm535_nosync},
+    {0x9b3a, "SC2336P", &xmv200_tuning_sc2336p_xm535_sync2},
     {0xcc1a, "SC3335", &xmv200_tuning_sc3335_xm535},
     {0xcc41, "SC3338", &xmv200_tuning_sc3338_xm535},
     {0xcd2e, "SC401AI", &xmv200_tuning_sc401ai_xm535},

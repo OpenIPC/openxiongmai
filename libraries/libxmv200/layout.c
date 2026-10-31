@@ -12,7 +12,8 @@
  *
  * A sensor's model "auto" probes its chip ID. Its keys: bus, addr, flip,
  * x0, y0, width, height, phy, vi_dev, vi_idx, mipi, ldc, and its mode: hdr,
- * sync (0/1), lanes (struct xmv200_layout_sensor). Streams are VENC channels 0, 1, ... in order.
+ * sync (0/1), lanes, sync_master (0/1), efsync (0/1) (struct
+ * xmv200_layout_sensor). Streams are VENC channels 0, 1, ... in order.
  */
 #include <stddef.h>
 #include <stdio.h>
@@ -67,6 +68,10 @@ static int sensor_key(struct xmv200_layout_sensor *s, const char *k,
     s->sync = v ? 1 : -1;
   else if (!strcmp(k, "lanes"))
     s->lanes = v;
+  else if (!strcmp(k, "sync_master"))
+    s->sync_master = !!v;
+  else if (!strcmp(k, "efsync"))
+    s->efsync = v ? 1 : -1;
   else {
     for (unsigned i = 0; i < sizeof(u32) / sizeof(u32[0]); i++)
       if (!strcmp(k, u32[i].k)) {
@@ -181,6 +186,10 @@ int xmv200_layout_format(const struct xmv200_layout *l, char *out, int cap) {
       PUT(" hdr=%d", s->hdr > 0);
     if (s->sync)
       PUT(" sync=%d", s->sync > 0);
+    if (s->sync_master)
+      PUT(" sync_master=1");
+    if (s->efsync)
+      PUT(" efsync=%d", s->efsync > 0);
     if (s->lanes)
       PUT(" lanes=%d", s->lanes);
     PUT("\n");

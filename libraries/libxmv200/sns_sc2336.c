@@ -363,6 +363,9 @@ static void set_flip(const struct xmv200_sns_dev *d, int mirror, int flip) {
 #define MODE(nm, dv, one, p7, t) {nm, {dv, one, p7, 0}, t, N(t)}
 /* frame-synced (the XM535D1's) */
 #define SYNC_MODE(nm, dv, one, p7, t) {nm, {dv, one, p7, 0, 0, 0, 1}, t, N(t)}
+/* frame-synced on two lanes (the XM535D2's: SensorSyncMode 0x11, the
+ * slaves' EFSYNC) */
+#define SYNC2_MODE(nm, t) {nm, {0, 0, 0, 0, 0, 0, 1, 2, 0, 0x11}, t, N(t)}
 
 static const struct xmv200_sns_mode sc2336_modes[] = {
     MODE("1080p mipi 1 lane", 0, 1, 0, sc2336_mipi_1lane),
@@ -512,8 +515,16 @@ const struct xmv200_sns_drv xmv200_sns_sc2336p_xm535w1 =
  * (cmos_set_sns_attr's +0x20 with 0x11) channel 0 is the slave: its 1-lane
  * init and every frame length change write 0x301f = 0x47 and 0x322e/0x322f
  * = VTS - 4. The synced modes' registers are the same as the others', so a
- * tuning picks the synced one (the first). The 2-lane synced (0x19)
- * master/slave tables are not done.
+ * tuning picks the synced one (the first).
+ *
+ * SC2336P on two lanes, synced (+0x20 0x19; the XM535D2's board): the
+ * channel's role (SensorSync) picks its writes before the stream goes on:
+ * a slave 0x3222 = 2, 0x322e/f = 0x461, 0x3224 = 0x82, 0x300a = 0x24 (FSYNC),
+ * and with SensorSyncMode's low nibble also 0x322e/f = 0x4ac, 0x3224 =
+ * 0x92, 0x300a = 0x20 (EFSYNC); the master 0x300a = 0x24, 0x3032 = 0xa0.
+ * Its frame rates write the slave's trigger: channel 1 0x322e/f = VTS -
+ * 1129 and 0x3230/1 = 0x469, channel 0 0x322e/f = VTS - 4. SC2336 synced on
+ * two lanes (the D2's too) has no init writes, only channel 0's trigger.
  */
 extern const struct xmv200_sns_reg xm535_sc2336_mipi[145],
     xm535_sc2336p_dvp[160], xm535_sc2336p_mipi_1lane_sync[172],
@@ -522,10 +533,13 @@ extern const struct xmv200_sns_reg xm535_sc2336_mipi[145],
 static const struct xmv200_sns_mode xm535_sc2336_modes[] = {
     SYNC_MODE("1080p mipi 1 lane, frame sync", 0, 1, 0, xm535_sc2336_mipi),
     MODE("1080p mipi 1 lane", 0, 1, 0, xm535_sc2336_mipi),
+    /* the XM535D2's: two lanes synced, the slave's trigger alone */
+    SYNC2_MODE("1080p mipi, frame sync", xm535_sc2336_mipi),
 };
 static const struct xmv200_sns_mode xm535_sc2336p_modes[] = {
     SYNC_MODE("1080p mipi 1 lane, frame sync", 0, 1, 0,
          xm535_sc2336p_mipi_1lane_sync),
+    SYNC2_MODE("1080p mipi, frame sync", xm535_sc2336p_mipi),
     MODE("1080p mipi 1 lane", 0, 1, 0, xm535_sc2336p_mipi_1lane),
     MODE("1080p mipi", 0, 0, 0, xm535_sc2336p_mipi),
     MODE("1080p dvp", 1, 0, 0, xm535_sc2336p_dvp),
@@ -539,24 +553,81 @@ extern const struct xmv200_sns_reg xm535d2_sc2336p_mipi_1lane_sync[173],
 static const struct xmv200_sns_mode xm535d2_sc2336p_modes[] = {
     SYNC_MODE("1080p mipi 1 lane, frame sync", 0, 1, 0,
               xm535d2_sc2336p_mipi_1lane_sync),
+    SYNC2_MODE("1080p mipi, frame sync", xm535_sc2336p_mipi),
     MODE("1080p mipi 1 lane", 0, 1, 0, xm535d2_sc2336p_mipi_1lane),
     MODE("1080p mipi", 0, 0, 0, xm535_sc2336p_mipi),
     MODE("1080p dvp", 1, 0, 0, xm535_sc2336p_dvp),
 };
 
 static int xm535_sync[MAX_CHN];
+/* two lanes synced: 1 the channel a slave, 2 the master */
+static int xm535_sync2[MAX_CHN];
 
 static int xm535_synced(const struct xmv200_sns_mode *m) {
   return m == &xm535_sc2336_modes[0] || m == &xm535_sc2336p_modes[0] ||
          m == &xm535d2_sc2336p_modes[0];
 }
 
+static int xm535_synced2(const struct xmv200_sns_mode *m) {
+  return m == &xm535_sc2336p_modes[1] || m == &xm535d2_sc2336p_modes[1] ||
+         m == &xm535_sc2336_modes[2];
+}
+
+/* the channel's role in a 2-lane sync: its nibble, 1 the master; the
+ * vendor's slave test is (role & 0xfd) == 0 */
+static int sync2_role(const struct xmv200_sns_dev *d,
+                      const struct xmv200_sns_attr *a) {
+  return d->chn < 8 ? (a->sync_roles >> (4 * d->chn)) & 0xf : 0;
+}
+
+/* the slaves' FSYNC, then EFSYNC writes, and the master's */
+static void sync2_writes(const struct xmv200_sns_dev *d,
+                         const struct xmv200_sns_attr *a) {
+  static const struct xmv200_sns_reg fsync[] = {{0x3222, 0x02},
+                                                {0x322e, 0x04},
+                                                {0x322f, 0x61},
+                                                {0x3224, 0x82},
+                                                {0x300a, 0x24}},
+                                     efsync[] = {{0x3222, 0x02},
+                                                 {0x322e, 0x04},
+                                                 {0x322f, 0xac},
+                                                 {0x3224, 0x92},
+                                                 {0x300a, 0x20}};
+  int role = sync2_role(d, a);
+
+  if (!(role & 0xfd)) {
+    for (int i = 0; i < N(fsync); i++)
+      w(d, fsync[i].reg, fsync[i].val);
+    if (a->sync_cfg & 0xf)
+      for (int i = 0; i < N(efsync); i++)
+        w(d, efsync[i].reg, efsync[i].val);
+  } else if (role == 1) {
+    w(d, 0x300a, 0x24);
+    w(d, 0x3032, 0xa0);
+  }
+}
+
 static void xm535_init(const struct xmv200_sns_dev *d,
                        const struct xmv200_sns_mode *m,
                        const struct xmv200_sns_attr *a) {
   reset_state(d->chn);
-  if (d->chn < MAX_CHN)
-    xm535_sync[d->chn] = xm535_synced(m);
+  if (d->chn < MAX_CHN) {
+    xm535_sync[d->chn] = xm535_synced(m) || xm535_synced2(m);
+    xm535_sync2[d->chn] =
+        !xm535_synced2(m)            ? 0
+        : !(sync2_role(d, a) & 0xfd) ? 1
+        : sync2_role(d, a) == 1      ? 2
+                                     : 0;
+  }
+  if (xm535_synced2(m) && m->regs == xm535_sc2336p_mipi) {
+    /* the table but its stream on, the channel's sync writes, then on */
+    for (int i = 0; i < m->n - 1; i++)
+      w(d, m->regs[i].reg, m->regs[i].val);
+    sync2_writes(d, a);
+    w(d, 0x0100, 0x01);
+    usleep(20000);
+    return;
+  }
   if ((m->regs == xm535_sc2336p_mipi_1lane_sync ||
        m->regs == xm535d2_sc2336p_mipi_1lane_sync) &&
       d->chn) {
@@ -618,6 +689,17 @@ static void xm535_set_fps(const struct xmv200_sns_dev *d,
   timing(d, hts, vts, 0xff, 0xef, ae);
   if (xm535_slave(d) && a->one_lane) {
     w(d, 0x301f, 0x47);
+    w(d, 0x322e, (vts - 4) >> 8);
+    w(d, 0x322f, (vts - 4) & 0xff);
+  }
+  /* two lanes synced: the slaves' trigger (the daemon's frame rate) */
+  if (d->chn < MAX_CHN && xm535_sync2[d->chn] == 1 && d->chn == 1) {
+    w(d, 0x322e, (vts - 1129) >> 8);
+    w(d, 0x322f, (vts - 1129) & 0xff);
+    w(d, 0x3230, 0x04);
+    w(d, 0x3231, 0x69);
+  } else if (d->chn < MAX_CHN && xm535_sync2[d->chn] == 1 && d->chn == 0 &&
+             !a->one_lane) {
     w(d, 0x322e, (vts - 4) >> 8);
     w(d, 0x322f, (vts - 4) & 0xff);
   }
