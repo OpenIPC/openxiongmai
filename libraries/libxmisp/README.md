@@ -354,8 +354,8 @@ turns it on, unless `lightSensorPin` or both `minThreshold` and
 `maxThreshold` are set (majestic's own sources); `autoNightGain` (empty: the
 exposure runs out), `autoDayGain` (2), `autoNightDelay` (15 s) and
 `autoDayDelay` (60 s) mean what they mean there. On the XM510 majestic
-itself logs "the ISP reports no exposure state; automatic day/night
-disabled", so the two do not both act. The IR-cut filter and IR lamp stay
+logs that the ISP gives it no exposure state and leaves its own automatic
+mode off, so the two do not both act. The IR-cut filter and IR lamp stay
 majestic's (its pins), and nothing tells it the daemon's state yet.
 
 On the lab JX-H62 (no IR lamp), with `autoNightDelay: 5`, `autoDayDelay: 10`
