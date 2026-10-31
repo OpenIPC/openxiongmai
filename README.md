@@ -401,8 +401,9 @@ XMV200_IMAGE=60,55,40,50,70,1,0,0,50 xmv200-test run x6c-weq 100   # image contr
 
 Every push and pull request to `main` runs these jobs, each using the OpenIPC musl toolchain for its SoC (`toolchain.xiongmai-xm5x0`).
 
-- **Libraries cross-compile (XM530):** builds all four userspace libraries, checks that the expected entry points are exported (`sensor_register_callback`, `XM_I2C_Ioctl`, `XM_MPI_*`, ...), and checks that the shared objects depend only on libc.
-- **Kernel modules (xm510 / xm530):** builds `xm_i2c` and `hx280enc` against the OpenIPC kernels `openipc/linux@xiongmai-xm510` (3.0.101) and `@xiongmai-xm530` (3.10.103), the same way the firmware does: with the firmware's `<soc>.generic.config` and its generic kernel patches.
+- **Libraries cross-compile (XM530):** builds all four userspace libraries and libxmv200 (with `tools/xmv200-test`), checks that the expected entry points are exported (`sensor_register_callback`, `XM_I2C_Ioctl`, `XM_MPI_*`, ...), and checks that the shared objects depend only on libc.
+- **Kernel modules (xm510 / xm530):** builds the modules against the OpenIPC kernels `openipc/linux@xiongmai-xm510` (3.0.101) and `@xiongmai-xm530` (3.10.103), the same way the firmware does: with the firmware's `<soc>.generic.config` and its generic kernel patches. `xm_i2c`, `hx280enc`, `xm_mmz` and `xm_hevc` build for both; the XM530/XM550 and V200-series modules (every `xm_v200_*`, `xm53*`, `dwc2`, `hx280enc` with `H264_CHIP=v200`) for the 3.10 kernel, which the V200 series runs. Each module's vermagic is checked.
+- **libxmv200 sensor drivers against their tunings:** `tools/xmv200-sns` runs every sensor driver on the build machine against each chip family's tunings; a driver has to make exactly the sensor writes its tuning recorded.
 
 All external inputs are pinned: the kernel commits, the firmware commit, and the toolchain sha256 checksums. OpenIPC rebuilds its toolchain tarballs in place, so a checksum failure means upstream published a new build and the checksum in `build.yml` needs updating.
 
