@@ -58,12 +58,13 @@ float xmisp_nr_strength(const struct xmisp *isp);
 
 /* Day and night (daynight.h's struct xmisp_dn_cfg): at night the picture
  * is black and white (Cb/Cr gain 0) and AWB holds; by day the colour comes
- * back. NULL turns it off, back to day. Needs AE. 0, or -1 with
- * xmisp_error(). */
+ * back. NULL turns it off, back to day. Needs AE, and 1 <= day_gain <
+ * night_gain <= the sensor's most (or night_gain 0). A colour write that
+ * fails is tried again each frame. 0, or -1 with xmisp_error(). */
 struct xmisp_dn_cfg;
 int xmisp_set_daynight(struct xmisp *isp, const struct xmisp_dn_cfg *cfg);
 
-/* 1 at night. */
+/* 1 when the picture is black and white (the night mode has taken). */
 int xmisp_night(const struct xmisp *isp);
 
 /* 1 if AWB runs: the sensor driver gives its white balance range. */

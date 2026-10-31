@@ -128,6 +128,16 @@ static float night_num(const char *key, float def) {
   return strtof(v, NULL);
 }
 
+/* A nightMode delay in seconds as ms, def if absent; 0 to a day. */
+static uint32_t secs_ms(const char *key, float def) {
+  const float v = night_num(key, def);
+  if (!(v >= 0.0f && v <= 86400.0f)) {
+    error("nightMode.%s %g: not 0 to 86400 s; %g used", key, v, def);
+    return (uint32_t)(def * 1000.0f);
+  }
+  return (uint32_t)(v * 1000.0f);
+}
+
 /* Day and night from nightMode, at start and on SIGHUP. */
 static void daynight(struct xmisp *isp) {
   char v[32];
@@ -143,13 +153,30 @@ static void daynight(struct xmisp *isp) {
       error("%s", xmisp_error(isp));
     return;
   }
-  const struct xmisp_dn_cfg cfg = {
+  struct xmisp_dn_cfg cfg = {
       night_num("autoNightGain", 0.0f),
       night_num("autoDayGain", 2.0f),
-      (uint32_t)(night_num("autoNightDelay", 15.0f) * 1000.0f),
-      (uint32_t)(night_num("autoDayDelay", 60.0f) * 1000.0f),
+      secs_ms("autoNightDelay", 15.0f),
+      secs_ms("autoDayDelay", 60.0f),
   };
-  if (xmisp_set_daynight(isp, &cfg) < 0)
+  if (!(cfg.day_gain >= 1.0f)) {
+    error("nightMode.autoDayGain %g: below 1x, never reached; 2 used",
+          cfg.day_gain);
+    cfg.day_gain = 2.0f;
+  }
+  if (cfg.night_gain != 0 && !(cfg.night_gain > cfg.day_gain)) {
+    error("nightMode.autoNightGain %g: not above autoDayGain %g, so it would "
+          "flap; night when the exposure runs out instead",
+          cfg.night_gain, cfg.day_gain);
+    cfg.night_gain = 0;
+  }
+  int r = xmisp_set_daynight(isp, &cfg);
+  if (r < 0 && cfg.night_gain > 0) {
+    error("%s; night when the exposure runs out instead", xmisp_error(isp));
+    cfg.night_gain = 0;
+    r = xmisp_set_daynight(isp, &cfg);
+  }
+  if (r < 0)
     error("%s", xmisp_error(isp));
   else
     debug("day/night: black and white once %s for %.0f s, colour at %.1fx "

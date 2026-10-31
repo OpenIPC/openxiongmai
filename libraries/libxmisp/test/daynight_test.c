@@ -55,6 +55,18 @@ int main(void) {
   const struct xmisp_dn_cfg by_gain = {8.0f, 2.0f, 15000, 60000};
   xmisp_dn_init(&dn, &by_gain, 0);
   check(run(&dn, &t, 20000, 8.0f, 37.0f) >= 0, "night at 8x");
+  /* No delays: the first frame that qualifies switches, and only one that
+   * does (a frame at full gain whose picture is at its target does not). */
+  const struct xmisp_dn_cfg now = {0, 2.0f, 0, 0};
+  xmisp_dn_init(&dn, &now, 0);
+  check(!xmisp_dn_update(&dn, t, 16.0f, 16.0f, 37.0f, 37.5f),
+        "no delay: full gain, bright");
+  check(xmisp_dn_update(&dn, t, 16.0f, 16.0f, 5.0f, 37.5f) && dn.night,
+        "no delay: night on the first dark frame");
+  check(!xmisp_dn_update(&dn, t, 3.0f, 16.0f, 37.0f, 37.5f),
+        "no delay: 3x stays night");
+  check(xmisp_dn_update(&dn, t, 2.0f, 16.0f, 37.0f, 37.5f) && !dn.night,
+        "no delay: day at 2x");
   /* The clock wrapping around changes nothing. */
   xmisp_dn_init(&dn, &cfg, 0);
   t = 0xffffffffu - 5000;
