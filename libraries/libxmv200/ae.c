@@ -54,10 +54,11 @@
 
 #include "sns_tuning.h"
 #include "xmv200.h"
+#include "awb.h"
 #include "xmv200_priv.h"
 
 #define ISP_DGAIN 0x4964 /* {chn, gain} -> the ISP's digital gain */
-#define ISP_WB 0x4967    /* {chn, R | G << 16, B}: white balance gains */
+#define ISP_WB 0x4965    /* {chn, R, G, B}: white balance gains (0x100 = 1x) */
 
 #define FRAME_TARGET 110 /* mean luma of the frames, without statistics */
 #define STEP 16
@@ -179,7 +180,9 @@ void xmv200_ae_set_flicker(int hz) {
 static void apply(struct ae_state *a) {
   const struct xmv200_ae_sensor *s = &a->where;
   uint32_t dg[2] = {s->isp_chn, a->dgain};
-  uint32_t wb[3] = {s->isp_chn, a->r | 0x100 << 16, a->b};
+  uint32_t wb[4] = {s->isp_chn, a->r, 0x100, a->b};
+  uint32_t g[3];
+  uint64_t gain = a->total / (a->lines ? a->lines : 1); /* 0x100 = 1x */
 
   if (drv) {
     struct xmv200_sns_dev d = {s->bus, s->addr, s->isp_chn};
@@ -199,7 +202,15 @@ static void apply(struct ae_state *a) {
     xmv200_isp_set_dgain(s->isp_chn, a->dgain);
   else
     ioctl(isp_fd, ISP_DGAIN, dg);
-  ioctl(isp_fd, ISP_WB, wb);
+  /* the gain AWB's saturation follows (100 = 1x); its own gains, or
+   * gray world's where it has no calibration */
+  xmv200_awb_set_gain(s->isp_chn, gain * 100 >> 8);
+  if (xmv200_awb_gains(s->isp_chn, g)) {
+    if (handoff)
+      xmv200_isp_set_wb(s->isp_chn, wb + 1);
+    else
+      ioctl(isp_fd, ISP_WB, wb);
+  }
 }
 
 /* the longest exposure in lines, and lines for want of them: anti-flicker's
@@ -278,12 +289,16 @@ static int meter(struct ae_state *a) {
   uint32_t ch = a->where.isp_chn;
   int lo, hi;
 
-  if (write(isp_fd, &ch, 4) < 0 || read(isp_fd, z, sizeof(z)) != sizeof(z))
+  if (xmv200_isp_stats(isp_fd, ch, z, sizeof(z)))
     return -1;
-  /* the white balance and the ISP's digital gain, 0x100 = 1x */
-  gr = (uint64_t)a->r * a->dgain >> 8;
-  gg = a->dgain;
-  gb = (uint64_t)a->b * a->dgain >> 8;
+  /* the white balance (AWB's, else gray world's) and the ISP's digital
+   * gain, 0x100 = 1x */
+  uint32_t wbg[3] = {a->r, 0x100, a->b};
+
+  xmv200_awb_gains(ch, wbg);
+  gr = (uint64_t)wbg[0] * a->dgain >> 8;
+  gg = (uint64_t)wbg[1] * a->dgain >> 8;
+  gb = (uint64_t)wbg[2] * a->dgain >> 8;
   for (int y = 0; y < 8; y++)
     for (int x = 0; x < 8; x++) {
       uint64_t s = 0;
@@ -481,7 +496,8 @@ void xmv200_ae_frame(const struct xmv200_frame *f) {
       xmv200_md_sample(c, m, f->stride, f->width, a->where.band * band, band);
       if (!stats_ok)
         ae_frame_step(a, sy / n);
-      awb_step(a, su / n, sv / n);
+      if (xmv200_awb_gains(a->where.isp_chn, (uint32_t[3]){0}))
+        awb_step(a, su / n, sv / n); /* no calibration: gray world */
       changed |= 1 << c;
     }
     if (m)

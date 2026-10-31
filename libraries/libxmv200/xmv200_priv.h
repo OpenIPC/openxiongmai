@@ -76,6 +76,8 @@ void xmv200_isp_stop(void);
 /* the digital gain (isp.ko 0x4964, 0x100 = 1x) the frame thread sends with
  * every frame, on the chips that answer each frame wait */
 void xmv200_isp_set_dgain(uint32_t chn, uint32_t gain);
+/* the white balance (0x4965 R, G, B) it sends with it, where AWB has none */
+void xmv200_isp_set_wb(uint32_t chn, const uint32_t g[3]);
 
 /* a sensor, for AE: its I2C, its ISP channel and where its picture is
  * (band of n_bands, top to bottom, in VENC channel stream) */
@@ -96,6 +98,9 @@ uint32_t xmv200_isp_max_lines(uint32_t chn);
 const struct xmv200_sns_ae *xmv200_isp_sns_ae(uint32_t chn);
 /* the frame length (lines) a channel's sensor driver set, or 0 */
 uint32_t xmv200_isp_full_lines(uint32_t chn);
+/* a channel's statistics (write() the channel, read() len bytes) on a
+ * /dev/isp descriptor, serialised between AE and AWB; -1 on failure */
+int xmv200_isp_stats(int fd, uint32_t chn, void *buf, size_t len);
 /* an isp.ko command, the ISP running; -1 otherwise */
 int xmv200_isp_cmd(uint32_t cmd, void *arg);
 /* the running ISP's configuration, or NULL */

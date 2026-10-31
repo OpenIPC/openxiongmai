@@ -257,6 +257,11 @@ static int run(const char *board, int n, int osd) {
       printf("ae frame %d: %s luma %u lines %u gain %u.%02ux\n", i,
              src == 1 ? "stats" : "frames", luma, lines, gain >> 8,
              (gain & 0xff) * 100 / 256);
+      uint16_t wg[3], ct;
+
+      if (!xmv200_awb_state(0, wg, &ct))
+        printf("awb frame %d: gains %u %u %u ct %u\n", i, wg[0], wg[1],
+               wg[2], ct);
     }
     /* XMV200_MD=level: motion detection on sensor 0, its state printed */
     if (getenv("XMV200_MD") && i == 0) {

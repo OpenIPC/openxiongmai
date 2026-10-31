@@ -218,6 +218,9 @@ void xmv200_ae_frame(const struct xmv200_frame *f);
  * gain (0x100 = 1x). 1 on the ISP's statistics, 0 on the frames, -1 for no
  * such sensor. */
 int xmv200_ae_state(int c, uint32_t *luma, uint32_t *lines, uint32_t *gain);
+/* AWB's last result for a sensor: R, G, B gains (0x100 = 1x) and the
+ * colour temperature (K); -1 without its calibration */
+int xmv200_awb_state(uint32_t sensor, uint16_t gain[3], uint16_t *ct);
 
 /* Encodes a frame into out (Annex B, parameter sets before each IDR).
  * Returns the length, or -1. */

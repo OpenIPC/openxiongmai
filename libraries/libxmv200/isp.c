@@ -23,6 +23,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "awb.h"
 #include "sns_tuning.h"
 #include "xmv200.h"
 #include "xmv200_priv.h"
@@ -35,7 +36,7 @@
 #define ISP_CHN_ENABLE 0x4961 /* {chn, 8, chn, 0} */
 #define ISP_CHN_ATTR 0x4908   /* {chn, 0, frame length, ...} 28 bytes */
 #define ISP_EXPOSURE 0x4964   /* {chn, lines} */
-#define ISP_GAIN 0x4965       /* {chn, again, dgain, ispgain} */
+#define ISP_GAIN 0x4965       /* {chn, R, G, B}: white balance, 0x100 = 1x */
 #define ISP_CHN_INIT 0x490e   /* 52 bytes: vicu_chn_init + bpu_chn_init */
 #define ISP_CHN_SIZE 0x4980   /* the channel's window */
 #define ISP_CHN_ENABLE2 0x4914 /* {chn, on}: vicu_chn_enable (XM535) */
@@ -157,6 +158,19 @@ const uint8_t *xmv200_isp_image_block(uint32_t chn, uint32_t cmd,
       return img_last[chn][i].data;
     }
   return NULL;
+}
+
+/* AE's and AWB's statistics reads: isp.ko keeps one channel for read(),
+ * so a write() and its read() go together */
+static pthread_mutex_t stats_lock = PTHREAD_MUTEX_INITIALIZER;
+
+int xmv200_isp_stats(int fd, uint32_t chn, void *buf, size_t len) {
+  int ok;
+
+  pthread_mutex_lock(&stats_lock);
+  ok = write(fd, &chn, 4) == 4 && read(fd, buf, len) == (ssize_t)len;
+  pthread_mutex_unlock(&stats_lock);
+  return ok ? 0 : -1;
 }
 
 int xmv200_isp_cmd(uint32_t cmd, void *arg) {
@@ -359,10 +373,20 @@ static int frames_ae; /* answer each frame with its exposure (XM535) */
 /* the digital gain (0x100 = 1x) it answers with, per channel: the vendor's
  * at capture time until AE sets its own */
 static volatile uint32_t dgain[3] = {0x109, 0x109, 0x109};
+/* the white balance it answers with: the vendor's at capture time until
+ * AWB (or gray world) sets its own */
+static volatile uint32_t wbal[3][3] = {
+    {0x1db, 0x100, 0x247}, {0x1db, 0x100, 0x247}, {0x1db, 0x100, 0x247}};
 
 void xmv200_isp_set_dgain(uint32_t chn, uint32_t gain) {
   if (chn < 3)
     dgain[chn] = gain;
+}
+
+void xmv200_isp_set_wb(uint32_t chn, const uint32_t g[3]) {
+  if (chn < 3)
+    for (int i = 0; i < 3; i++)
+      wbal[chn][i] = g[i];
 }
 
 /* isp.ko's frame wait: the return value has a bit per channel with a new
@@ -378,10 +402,15 @@ static void *isp_frames(void *p) {
       usleep(20000);
       continue;
     }
+    for (uint32_t c = 0; c < 3; c++)
+      if (r & 1 << c)
+        xmv200_awb_frame(c);
     for (uint32_t c = 0; frames_ae && c < 3; c++)
       if (r & 1 << c) {
-        uint32_t e[2] = {c, dgain[c]}, g[4] = {c, 0x1db, 0x100, 0x247};
+        uint32_t e[2] = {c, dgain[c]},
+                 g[4] = {c, wbal[c][0], wbal[c][1], wbal[c][2]};
 
+        xmv200_awb_gains(c, g + 1);
         ioctl(isp_fd, ISP_EXPOSURE, e);
         ioctl(isp_fd, ISP_GAIN, g);
       }
@@ -470,6 +499,7 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
       return -1;
   }
 
+  xmv200_awb_init(cfg);
   frames_ae = chip->frame_answer;
   isp_running = 1;
   pthread_create(&isp_thread, NULL, isp_frames, NULL);
@@ -483,6 +513,7 @@ void xmv200_isp_stop(void) {
     isp_running = 0;
     pthread_join(isp_thread, NULL);
   }
+  xmv200_awb_stop();
   if (isp_fd < 0)
     return;
   ioctl(isp_fd, ISP_EXIT, &zero);

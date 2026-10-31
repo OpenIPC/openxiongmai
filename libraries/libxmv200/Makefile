@@ -9,7 +9,7 @@ SENSORS = $(patsubst %.c,%.o,$(wildcard sns_*_tuning.c)) sns_registry.o
 # the sensor drivers (sns.h), their mode tables from tools/xmv200-sns
 DRIVERS = sns.o $(patsubst %.c,%.o,$(filter-out %_tuning.c sns_registry.c,\
 	$(wildcard sns_*.c)))
-OBJECTS = sys.o venc.o jpeg.o h264.o audio.o isp.o ae.o image.o mask.o md.o chip.o board.o layout.o osd.o $(DRIVERS) \
+OBJECTS = sys.o venc.o jpeg.o h264.o audio.o isp.o ae.o awb.o image.o mask.o md.o chip.o board.o layout.o osd.o $(DRIVERS) \
 	$(SENSORS)
 
 libxmv200.a: $(OBJECTS) cabac_tbl.o
@@ -19,7 +19,7 @@ libxmv200.a: $(OBJECTS) cabac_tbl.o
 cabac_tbl.o: ../libxmvenc/cabac_tbl.c ../libxmvenc/cabac_tbl.h
 	$(CC) $(CFLAGS) -I../libxmvenc -c -o $@ $<
 
-$(OBJECTS): xmv200.h xmv200_priv.h sns_tuning.h sns.h
+$(OBJECTS): xmv200.h xmv200_priv.h sns_tuning.h sns.h awb.h
 
 clean:
 	-rm -f *.o *.a

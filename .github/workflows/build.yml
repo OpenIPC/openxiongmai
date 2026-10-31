@@ -151,7 +151,8 @@ jobs:
                 xmv200_image_set xmv200_image_get xmv200_image_defaults \
                 xmv200_mask_set xmv200_mask_clear \
                 xmv200_md_set xmv200_md_get \
-                xmv200_venc_create_h264 xmv200_venc_set_cabac
+                xmv200_venc_create_h264 xmv200_venc_set_cabac \
+                xmv200_ae_state xmv200_awb_state
           exit $fail
 
       - name: Assert no vendor libs in NEEDED
