@@ -13,7 +13,7 @@
 
 The descriptor is 64 bytes on the XM530V200 and XM533 and 72 on the XM535 (`VB_LAYOUT=v200` or `xm535` at build time).
 
-Exports: `vb_get_buf(list, size, &buf, ms)`, `vb_put_buf(list, buf)`, `vb_add_buf_reference(buf)`, `vb_get_length(list, &n)`, `vb_flush_dcache(phys, virt, size)`.
+Exports: `vb_get_buf(list, size, &buf, ms)`, `vb_put_buf(list, buf)`, `vb_add_buf_reference(buf)`, `vb_get_length(list, &n)`, `vb_flush_dcache(phys, virt, size)`, and `vb_find_buf(addr)`: the descriptor at that address if it is one of the pools', for modules that are handed one by user space (vdec).
 
 The lists:
 - **0, free:** in size order. A get takes the first buffer at least as big as asked for (mode 1: of that size) and counts a reference. A put returns the buffer once its last reference goes.

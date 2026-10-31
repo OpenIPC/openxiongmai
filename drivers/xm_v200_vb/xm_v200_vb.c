@@ -29,7 +29,8 @@
  * the "MEMORY BARRIERS" marker in its last 16), 0x4204 frees the free and
  * VENC lists' blocks, 0x40044205 the mode; the get and put calls take a
  * record with a copy of the descriptor and the descriptor's address, which
- * is checked here (the vendor's takes it on trust).
+ * is checked here (the vendor's takes it on trust), and vb_find_buf() does
+ * the same check for other modules.
  */
 
 #include <linux/fs.h>
@@ -356,6 +357,19 @@ static struct vb_buf *known(u32 addr)
 			return b;
 	return NULL;
 }
+
+/* the same for other modules (vdec) handed an address by user space */
+void *vb_find_buf(u32 addr)
+{
+	unsigned long flags;
+	struct vb_buf *b;
+
+	spin_lock_irqsave(&vb_lock, flags);
+	b = known(addr);
+	spin_unlock_irqrestore(&vb_lock, flags);
+	return b;
+}
+EXPORT_SYMBOL(vb_find_buf);
 
 struct vb_rec {
 	u32 list, size;

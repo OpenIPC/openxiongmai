@@ -379,6 +379,21 @@ jobs:
           make -C drivers/xm535_isp KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
+      - name: Build xm_v200_rtc
+        run: |
+          make -C drivers/xm_v200_rtc KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
+      - name: Build xm_v200_vdec
+        run: |
+          make -C drivers/xm_v200_vdec KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
+      - name: Build xm_v200_var
+        run: |
+          make -C drivers/xm_v200_var KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
       - name: Build xm535w1_isp
         run: |
           make -C drivers/xm535w1_isp KDIR="$KDIR" ARCH=arm \
