@@ -90,6 +90,22 @@ struct xmv200_ae_sensor {
 /* the longest exposure a channel's sensor driver allows for the frame rate
  * it set, or 0 */
 uint32_t xmv200_isp_max_lines(uint32_t chn);
+/* the frame length (lines) a channel's sensor driver set, or 0 */
+uint32_t xmv200_isp_full_lines(uint32_t chn);
+/* an isp.ko command, the ISP running; -1 otherwise */
+int xmv200_isp_cmd(uint32_t cmd, void *arg);
+/* the running ISP's configuration, or NULL */
+const struct xmv200_isp_cfg *xmv200_isp_running(void);
+/* the last of the image blocks (0x49de luma/chroma gains, 0x49df tone
+ * curve, 0x49e4 hue, 0x49f0 sharpening) a channel's program sent, or NULL */
+#define XMV200_IMG_BLOCKS 4
+#define XMV200_IMG_MAX 0x200
+const uint8_t *xmv200_isp_image_block(uint32_t chn, uint32_t cmd,
+                                      uint32_t *size);
+/* AE's anti-flicker: mains hz (50, 60), 0 off */
+void xmv200_ae_set_flicker(int hz);
+/* image.c: the controls back at the tuning's (a layout started) */
+void xmv200_image_reset(void);
 void xmv200_ae_init(const struct xmv200_isp_cfg *cfg,
                     const struct xmv200_ae_sensor *where, int handoff);
 /* h264.c: H.264 on the Hantro H1 (venc.c drives it) */

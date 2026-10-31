@@ -852,6 +852,7 @@ int xmv200_layout_start(const struct xmv200_layout *l,
       }
   }
   xmv200_ae_init(&b->isp, where, chip->frame_answer);
+  xmv200_image_reset(); /* the controls at the tuning's */
 
   run = (__typeof__(run)){.started = 1,
                           .fd_vpss = fd_vpss,

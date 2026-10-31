@@ -258,9 +258,6 @@ int xmv200_osd_detach(int handle, int stream);
 int xmv200_osd_destroy(int handle);
 uint32_t xmv200_osd_color(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 
-#ifdef __cplusplus
-}
-#endif
 
 /*
  * Audio: the codec's input and output, 16-bit mono PCM at rate (on the
@@ -283,5 +280,35 @@ uint8_t xmv200_ulaw(int16_t pcm);
 int16_t xmv200_ulaw_pcm(uint8_t u);
 void xmv200_g711_encode(const int16_t *pcm, int n, uint8_t *out, int ulaw);
 void xmv200_g711_decode(const uint8_t *in, int n, int16_t *pcm, int ulaw);
+
+/*
+ * Image controls, for every sensor of the running layout. 0..100 each, 50
+ * being the sensor tuning's own setting:
+ * - brightness: the luma gain (isp.ko 0x49de; 0 dark, 100 4x);
+ * - contrast: the tone curve (0x49df), flat below 50, steeper above;
+ * - saturation: the chroma gains (0x49de); mono takes them to 0;
+ * - hue: the hue shift (0x49e4), +-180 degrees at 0 and 100;
+ * - sharpness: the sharpening strength (0x49f0), off at 0, twice at 100.
+ * mirror and flip turn the picture against the layout's own (its sensor's
+ * flip=), through the sensor's driver. anti_flicker (50 or 60 Hz mains, 0
+ * off) keeps AE's exposure a whole number of the light's half periods
+ * wherever it is that long.
+ */
+struct xmv200_image {
+  uint8_t brightness, contrast, saturation, hue, sharpness;
+  uint8_t mirror, flip;
+  uint8_t mono;
+  uint8_t anti_flicker;
+};
+/* the controls at the tuning's settings */
+void xmv200_image_defaults(struct xmv200_image *im);
+/* applies im (the layout running); -1 if a control could not be set */
+int xmv200_image_set(const struct xmv200_image *im);
+/* the controls last set (the defaults after a layout start) */
+void xmv200_image_get(struct xmv200_image *im);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

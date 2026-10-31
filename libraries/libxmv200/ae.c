@@ -12,6 +12,10 @@
  * 1x). AWB is gray world: the R and B gains (0x4967, 0x100 = 1x) move
  * until the mean chroma is neutral.
  *
+ * Anti-flicker (xmv200_ae_set_flicker): an exposure at least one of the
+ * mains light's half periods long is a whole number of them, so every frame
+ * sees the same light.
+ *
  * Each sensor's picture is a band of the first stream with its group
  * (struct xmv200_ae_sensor). Where the frame thread sends the digital gain
  * with every frame (XM535, XM533), AE hands it the value instead of
@@ -49,6 +53,9 @@ static struct ae_state st[MAX_SNS];
 static const struct xmv200_sns_drv *drv; /* NULL: SmartSens registers */
 static int hdr;                          /* the short frame's exposure too */
 static int n_sns, handoff;
+static uint32_t line_rate;          /* the sensors' lines a second, or 0 */
+static volatile uint32_t flicker; /* the half period in lines, or 0 */
+static volatile int flicker_hz;
 static int isp_fd = -1, mem_fd = -1;
 static unsigned count[XMV200_MAX_STREAMS];
 
@@ -84,7 +91,17 @@ void xmv200_ae_init(const struct xmv200_isp_cfg *c,
       st[i].max_lines = max;
     st[i].lines >>= drv->exp_shift;
   }
+  /* the frame length and rate the driver runs the sensors at */
+  line_rate = 0;
+  if (drv && xmv200_isp_full_lines(where[0].isp_chn))
+    line_rate = xmv200_isp_full_lines(where[0].isp_chn) * c->attr.fps;
+  xmv200_ae_set_flicker(flicker_hz);
   open_devs();
+}
+
+void xmv200_ae_set_flicker(int hz) {
+  flicker_hz = hz == 50 || hz == 60 ? hz : 0;
+  flicker = flicker_hz && line_rate ? line_rate / (2 * flicker_hz) : 0;
 }
 
 static void apply(struct ae_state *a) {
@@ -135,14 +152,25 @@ static void ae_step(struct ae_state *a, uint32_t y) {
 
   a->again = 0;
   a->dgain = 0x100;
+  /* anti-flicker: the longest exposure of whole half periods, and any
+   * exposure over one period rounded down to them, gain making up the rest */
+  uint32_t f = flicker, lines;
+
+  if (f && f <= max_lines)
+    max_lines -= max_lines % f;
   if (want <= max_lines) {
-    a->lines = want;
-    return;
+    if (!f || want < f) {
+      a->lines = want;
+      return;
+    }
+    lines = want - want % f;
+  } else {
+    lines = max_lines;
   }
-  a->lines = max_lines;
-  while (a->again < 4 && want > (uint64_t)max_lines << (a->again + 1))
+  a->lines = lines;
+  while (a->again < 4 && want > (uint64_t)lines << (a->again + 1))
     a->again++;
-  a->dgain = want * 0x100 / ((uint64_t)max_lines << a->again);
+  a->dgain = want * 0x100 / ((uint64_t)lines << a->again);
   if (a->dgain > 0x800)
     a->dgain = 0x800; /* 8x: noise beyond that */
 }

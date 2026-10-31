@@ -213,6 +213,28 @@ static int run(const char *board, int n, int osd) {
     if (xmv200_venc_set_rc(e[0], &rc))
       fprintf(stderr, "XMV200_RC=%s: not taken\n", rcs);
   }
+  /* XMV200_IMAGE="brightness,contrast,saturation,hue,sharpness,mirror,
+   * flip,mono,anti_flicker" (the defaults where empty): set once a few
+   * pictures are out */
+  const char *ims = getenv("XMV200_IMAGE");
+  struct xmv200_image im;
+
+  xmv200_image_defaults(&im);
+  if (ims) {
+    uint8_t *field[] = {&im.brightness, &im.contrast, &im.saturation,
+                        &im.hue,        &im.sharpness, &im.mirror,
+                        &im.flip,       &im.mono,      &im.anti_flicker};
+    const char *q = ims;
+
+    for (unsigned k = 0; k < sizeof(field) / sizeof(field[0]) && *q; k++) {
+      if (*q != ',')
+        *field[k] = strtoul(q, NULL, 0);
+      q = strchr(q, ',');
+      if (!q)
+        break;
+      q++;
+    }
+  }
   for (int i = 0; i < 4 * n * info.n_streams / 2 && done < info.n_streams;
        i++) {
     struct xmv200_frame f;
@@ -223,6 +245,16 @@ static int run(const char *board, int n, int osd) {
       continue;
     }
     xmv200_ae_frame(&f);
+    if (ims && i == 2 * (int)info.n_streams) {
+      struct xmv200_image got;
+
+      printf("image controls: %d\n", xmv200_image_set(&im));
+      xmv200_image_get(&got);
+      printf("image: b %u c %u s %u h %u sh %u mirror %u flip %u mono %u "
+             "flicker %u\n",
+             got.brightness, got.contrast, got.saturation, got.hue,
+             got.sharpness, got.mirror, got.flip, got.mono, got.anti_flicker);
+    }
     if (jpeg && (int)f.chn == snap_s && got[f.chn] == 4) {
       int jl = xmv200_jpeg_encode(jpeg, &f, 80, buf, sizeof(buf));
       FILE *jf = jl > 0 ? fopen("/tmp/snap.jpg", "wb") : NULL;

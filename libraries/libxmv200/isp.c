@@ -47,6 +47,7 @@
 #define VI 0x30000000
 
 static const struct xmv200_chip *cur_chip;
+static struct xmv200_isp_cfg cur_cfg; /* the running one */
 #define VICU(c) (VI + cur_chip->vicu + (c) * 0x10000)
 
 static int isp_fd = -1;
@@ -128,6 +129,40 @@ static void chn_size(const struct xmv200_isp_chn *c,
 
 #define MAX_BUFS 16
 
+/* the image blocks a channel's program last sent: image.c's starting point
+ * (the tuning's own setting) */
+static const uint32_t img_cmds[XMV200_IMG_BLOCKS] = {0x49de, 0x49df, 0x49e4,
+                                                      0x49f0};
+static struct {
+  uint32_t size;
+  uint8_t data[XMV200_IMG_MAX];
+} img_last[3][XMV200_IMG_BLOCKS];
+
+static void img_keep(uint32_t chn, uint32_t cmd, const uint8_t *p,
+                     uint32_t size) {
+  for (int i = 0; chn < 3 && i < XMV200_IMG_BLOCKS; i++)
+    if (img_cmds[i] == cmd) {
+      if (size > XMV200_IMG_MAX)
+        size = XMV200_IMG_MAX;
+      memcpy(img_last[chn][i].data, p, size);
+      img_last[chn][i].size = size;
+    }
+}
+
+const uint8_t *xmv200_isp_image_block(uint32_t chn, uint32_t cmd,
+                                      uint32_t *size) {
+  for (int i = 0; chn < 3 && i < XMV200_IMG_BLOCKS; i++)
+    if (img_cmds[i] == cmd && img_last[chn][i].size) {
+      *size = img_last[chn][i].size;
+      return img_last[chn][i].data;
+    }
+  return NULL;
+}
+
+int xmv200_isp_cmd(uint32_t cmd, void *arg) {
+  return isp_fd < 0 ? -1 : isp_cmd(cmd, arg);
+}
+
 static int block(const struct xmv200_isp_block *b, uint32_t chn,
                  const struct xmv200_buf *bufs) {
   uint8_t p[0x400];
@@ -143,6 +178,7 @@ static int block(const struct xmv200_isp_block *b, uint32_t chn,
 
     memcpy(p + b->patch[i].off, &w, 4);
   }
+  img_keep(chn, b->cmd, p, b->size);
   return isp_cmd(b->cmd, p);
 }
 
@@ -359,6 +395,8 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   int n = cfg->n_chn;
 
   cur_chip = chip;
+  cur_cfg = *cfg;
+  memset(img_last, 0, sizeof(img_last));
 
   isp_fd = open("/dev/isp", O_RDWR);
   if (isp_fd < 0)
@@ -453,6 +491,14 @@ void xmv200_isp_stop(void) {
   isp_page = NULL;
   close(isp_fd);
   isp_fd = -1;
+}
+
+const struct xmv200_isp_cfg *xmv200_isp_running(void) {
+  return isp_fd < 0 ? NULL : &cur_cfg;
+}
+
+uint32_t xmv200_isp_full_lines(uint32_t chn) {
+  return chn < 3 ? sns_ae[chn].full_lines : 0;
 }
 
 uint32_t xmv200_isp_max_lines(uint32_t chn) {
