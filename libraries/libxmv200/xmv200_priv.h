@@ -129,6 +129,9 @@ int xmv200_layout_geom(struct xmv200_geom *g);
 void xmv200_md_sample(int sensor, const uint8_t *luma, uint32_t stride,
                       uint32_t width, uint32_t y0, uint32_t height);
 void xmv200_md_reset(void);
+/* md.c: blind detection's look at AE's 8x8 grid (8.8 brightness) */
+void xmv200_bd_sample(int sensor, const uint32_t *grid8);
+void xmv200_bd_reset(void);
 /* mask.c: the masks forgotten (a layout started) */
 void xmv200_mask_reset(void);
 /* image.c: the controls back at the tuning's (a layout started) */

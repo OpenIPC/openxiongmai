@@ -864,6 +864,7 @@ int xmv200_layout_start(const struct xmv200_layout *l,
   xmv200_image_reset(); /* the controls at the tuning's */
   xmv200_mask_reset();  /* rgn.ko was reset */
   xmv200_md_reset();
+  xmv200_bd_reset();
   geom = (struct xmv200_geom){n, b->n_streams, chip->vi_scaler};
   for (int s = 0; s < b->n_streams; s++) {
     geom.stream[s].width = b->stream[s].width;

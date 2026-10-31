@@ -96,6 +96,7 @@ struct ae_state {
 };
 
 static struct ae_state st[MAX_SNS];
+static int stats_seen; /* the statistics have been non-zero */
 static struct ae_param par;
 static const struct xmv200_sns_drv *drv; /* NULL: SmartSens registers */
 static int hdr;                          /* the short frame's exposure too */
@@ -142,6 +143,7 @@ void xmv200_ae_init(const struct xmv200_isp_cfg *c,
   drv = c->drv;
   hdr = drv && c->attr.hdr && drv->set_exposure_short;
   stats_ok = 1;
+  stats_seen = 0;
   params(t);
   for (int i = 0; i < n_sns; i++)
     st[i] = (struct ae_state){.where = where[i],
@@ -313,6 +315,7 @@ static int meter(struct ae_state *a) {
         }
       grid8[y * 8 + x] = s >> 3;
     }
+  xmv200_bd_sample((int)(a - st), grid8);
   for (int y = 0; y < 7; y++)
     for (int x = 0; x < 7; x++)
       grid7[y * 7 + x] = (grid8[y * 8 + x] + grid8[y * 8 + x + 1] +
@@ -322,8 +325,11 @@ static int meter(struct ae_state *a) {
     idx[i] = i;
     sum |= grid7[i];
   }
+  /* all zero: no statistics on this chip, until some came; after that a
+   * black picture (covered) */
   if (!sum)
-    return -1; /* no statistics */
+    return stats_seen ? 0 : -1;
+  stats_seen = 1;
   /* sorted darkest first, with their weights */
   for (unsigned i = 0; i < n; i++)
     for (unsigned j = i + 1; j < n; j++)

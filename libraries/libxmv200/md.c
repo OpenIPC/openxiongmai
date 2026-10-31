@@ -131,3 +131,79 @@ void xmv200_md_sample(int c, const uint8_t *luma, uint32_t stride,
   memcpy(md[c].prev, grid, sizeof(grid));
   md[c].have_prev = 1;
 }
+
+/*
+ * Blind detection (the daemon's "bd"), on AE's 8x8 grid of the ISP's
+ * statistics (brightness in 8.8, the daemon's units) about every 20 frames,
+ * after the first five: covered when the mean falls to the level's low
+ * threshold (12, 14, 16, 18, 20, 24 for levels 1..6), blinded at 100 or
+ * more, and a sudden change when the mean moved by more than the level's
+ * share of the last (96, 64, 21, 16, 13, 8 /128, at least 1000). What it
+ * saw stays until it is read.
+ */
+#define BD_EVERY 10 /* AE meters every other frame */
+#define BD_SKIP 5
+#define BD_HIGH 100
+
+static const uint8_t bd_ratio[XMV200_MD_LEVELS] = {96, 64, 21, 16, 13, 8};
+static const uint8_t bd_low[XMV200_MD_LEVELS] = {12, 14, 16, 18, 20, 24};
+
+static struct {
+  uint8_t enable, level, skip, seen;
+  uint32_t prev, count;
+} bd[MAX_SNS];
+
+int xmv200_bd_set(int sensor, int enable, int level) {
+  if (sensor < 0 || sensor >= MAX_SNS || level < 1 ||
+      level > XMV200_MD_LEVELS)
+    return -1;
+  bd[sensor].enable = !!enable;
+  bd[sensor].level = level;
+  bd[sensor].skip = BD_SKIP;
+  bd[sensor].seen = 0;
+  bd[sensor].count = 0;
+  return 0;
+}
+
+int xmv200_bd_get(int sensor) {
+  int r;
+
+  if (sensor < 0 || sensor >= MAX_SNS || !bd[sensor].enable)
+    return -1;
+  r = bd[sensor].seen;
+  bd[sensor].seen = 0;
+  return r;
+}
+
+void xmv200_bd_reset(void) { memset(bd, 0, sizeof(bd)); }
+
+void xmv200_bd_sample(int c, const uint32_t *grid8) {
+  uint32_t mean = 0, low, d, thr;
+  int what;
+
+  if (c < 0 || c >= MAX_SNS || !bd[c].enable || bd[c].count++ % BD_EVERY)
+    return;
+  for (int i = 0; i < 64; i++)
+    mean += grid8[i];
+  mean >>= 6;
+  if (bd[c].skip) {
+    bd[c].skip--;
+    bd[c].prev = mean;
+    return;
+  }
+  low = bd_low[bd[c].level - 1] << 8;
+  if (mean <= low) {
+    what = XMV200_BD_DARK;
+  } else if (mean >= BD_HIGH << 8) {
+    what = XMV200_BD_BRIGHT;
+  } else {
+    thr = bd_ratio[bd[c].level - 1] * bd[c].prev >> 7;
+    if (thr < 1000)
+      thr = 1000;
+    d = mean > bd[c].prev ? mean - bd[c].prev : bd[c].prev - mean;
+    what = d > thr ? XMV200_BD_CHANGE : 0;
+  }
+  if (what && !bd[c].seen)
+    bd[c].seen = what;
+  bd[c].prev = mean;
+}

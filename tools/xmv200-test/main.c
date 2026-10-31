@@ -263,6 +263,16 @@ static int run(const char *board, int n, int osd) {
         printf("awb frame %d: gains %u %u %u ct %u\n", i, wg[0], wg[1],
                wg[2], ct);
     }
+    /* XMV200_BD=level: blind detection on sensor 0, what it saw printed */
+    if (getenv("XMV200_BD") && i == 0)
+      printf("bd: %d\n", xmv200_bd_set(0, 1, atoi(getenv("XMV200_BD"))));
+    if (getenv("XMV200_BD") && i % (8 * (int)info.n_streams) == 0 && i) {
+      static const char *const what[] = {"nothing", "change", "bright",
+                                         "dark"};
+      int b = xmv200_bd_get(0);
+
+      printf("bd frame %d: %s\n", i, b < 0 ? "off" : what[b & 3]);
+    }
     /* XMV200_MD=level: motion detection on sensor 0, its state printed */
     if (getenv("XMV200_MD") && i == 0) {
       struct xmv200_md m = {1, (uint8_t)atoi(getenv("XMV200_MD")),

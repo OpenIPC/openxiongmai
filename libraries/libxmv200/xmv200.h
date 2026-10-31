@@ -360,6 +360,20 @@ int xmv200_md_set(int sensor, const struct xmv200_md *m);
 /* -1 where not enabled */
 int xmv200_md_get(int sensor, struct xmv200_md_state *s);
 
+/*
+ * Blind detection per sensor, as the vendor's isp daemon does it: about
+ * every 20 frames the mean of the ISP's brightness statistics (AE's) is
+ * checked: covered (dark), blinded (bright), or a sudden change of it.
+ * level 1..XMV200_MD_LEVELS, the higher the more sensitive. xmv200_bd_get
+ * returns what was seen since the last call (0 nothing, else XMV200_BD_*),
+ * -1 where not enabled. Needs the ISP's statistics (not on the frames).
+ */
+#define XMV200_BD_CHANGE 1
+#define XMV200_BD_BRIGHT 2
+#define XMV200_BD_DARK 3
+int xmv200_bd_set(int sensor, int enable, int level);
+int xmv200_bd_get(int sensor);
+
 #ifdef __cplusplus
 }
 #endif
