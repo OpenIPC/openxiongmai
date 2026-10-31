@@ -10,9 +10,12 @@ extern const struct xmv200_sns_tuning xmv200_tuning_h63p;
 extern const struct xmv200_sns_tuning xmv200_tuning_imx307;
 extern const struct xmv200_sns_tuning xmv200_tuning_imx335;
 extern const struct xmv200_sns_tuning xmv200_tuning_mis2009;
+extern const struct xmv200_sns_tuning xmv200_tuning_mis4001;
 extern const struct xmv200_sns_tuning xmv200_tuning_mis40c1;
+extern const struct xmv200_sns_tuning xmv200_tuning_mis5001;
 extern const struct xmv200_sns_tuning xmv200_tuning_q03;
 extern const struct xmv200_sns_tuning xmv200_tuning_q03p;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc035gs;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1336;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1345;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1346;
@@ -26,6 +29,7 @@ extern const struct xmv200_sns_tuning xmv200_tuning_sc223ap;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc231ai;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2331;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2331_2lane;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc2335;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_2lane;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336p;
@@ -54,6 +58,7 @@ extern const struct xmv200_sns_tuning xmv200_tuning_sc1a4t_xm533;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc223a_xm533;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc231ai_xm533;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2331_xm533;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm533;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2337p_xm533;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc3338_xm533;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc401ai_xm533;
@@ -64,6 +69,8 @@ extern const struct xmv200_sns_tuning xmv200_tuning_gc2083_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_h63p_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_imx307_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_mis2009_xm535;
+extern const struct xmv200_sns_tuning xmv200_tuning_mis4001_xm535;
+extern const struct xmv200_sns_tuning xmv200_tuning_mis40c1_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1346_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1346_xm535_nosync;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1a4t_xm535;
@@ -76,7 +83,10 @@ extern const struct xmv200_sns_tuning xmv200_tuning_sc2336p_xm535_nosync;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535_nosync;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc3335_xm535;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc3338_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc401ai_xm535;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc4336_xm535;
+extern const struct xmv200_sns_tuning xmv200_tuning_sc500ai_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_imx307_xm535w1;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1346_xm535w1;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1a4t_xm535w1;
@@ -94,9 +104,12 @@ const struct xmv200_sns xmv200_sensors[] = {
     {0xa0b2, "IMX307", &xmv200_tuning_imx307},
     {0x0335, "IMX335", &xmv200_tuning_imx335},
     {0x2008, "MIS2009", &xmv200_tuning_mis2009},
+    {0x1311, "MIS4001", &xmv200_tuning_mis4001},
     {0x0004, "MIS40C1", &xmv200_tuning_mis40c1},
+    {0x1311, "MIS5001", &xmv200_tuning_mis5001},
     {0x0507, "Q03", &xmv200_tuning_q03},
     {0x0843, "Q03P", &xmv200_tuning_q03p},
+    {0x0031, "SC035GS", &xmv200_tuning_sc035gs},
     {0xca3f, "SC1336", &xmv200_tuning_sc1336},
     {0xda23, "SC1345", &xmv200_tuning_sc1345},
     {0xda4d, "SC1346", &xmv200_tuning_sc1346},
@@ -110,6 +123,7 @@ const struct xmv200_sns xmv200_sensors[] = {
     {0xcb6a, "SC231AI", &xmv200_tuning_sc231ai},
     {0xcb5c, "SC2331", &xmv200_tuning_sc2331},
     {0xcb5c, "SC2331", &xmv200_tuning_sc2331_2lane},
+    {0xcb14, "SC2335", &xmv200_tuning_sc2335},
     {0xcb3a, "SC2336", &xmv200_tuning_sc2336},
     {0xcb3a, "SC2336", &xmv200_tuning_sc2336_2lane},
     {0x9b3a, "SC2336P", &xmv200_tuning_sc2336p},
@@ -138,6 +152,7 @@ const struct xmv200_sns xmv200_sensors[] = {
     {0xcb3e, "SC223A", &xmv200_tuning_sc223a_xm533},
     {0xcb6a, "SC231AI", &xmv200_tuning_sc231ai_xm533},
     {0xcb5c, "SC2331", &xmv200_tuning_sc2331_xm533},
+    {0xcb3a, "SC2336", &xmv200_tuning_sc2336_xm533},
     {0x9b3a, "SC2337P", &xmv200_tuning_sc2337p_xm533},
     {0xcc41, "SC3338", &xmv200_tuning_sc3338_xm533},
     {0xcd2e, "SC401AI", &xmv200_tuning_sc401ai_xm533},
@@ -148,6 +163,8 @@ const struct xmv200_sns xmv200_sensors[] = {
     {0x0848, "H63P", &xmv200_tuning_h63p_xm535},
     {0xa0b2, "IMX307", &xmv200_tuning_imx307_xm535},
     {0x2008, "MIS2009", &xmv200_tuning_mis2009_xm535},
+    {0x1311, "MIS4001", &xmv200_tuning_mis4001_xm535},
+    {0x0004, "MIS40C1", &xmv200_tuning_mis40c1_xm535},
     {0xda4d, "SC1346", &xmv200_tuning_sc1346_xm535},
     {0xda4d, "SC1346", &xmv200_tuning_sc1346_xm535_nosync},
     {0x9a4d, "SC1A4T", &xmv200_tuning_sc1a4t_xm535},
@@ -160,7 +177,10 @@ const struct xmv200_sns xmv200_sensors[] = {
     {0xcb3a, "SC2336", &xmv200_tuning_sc2336_xm535},
     {0xcb3a, "SC2336", &xmv200_tuning_sc2336_xm535_nosync},
     {0xcc1a, "SC3335", &xmv200_tuning_sc3335_xm535},
+    {0xcc41, "SC3338", &xmv200_tuning_sc3338_xm535},
     {0xcd2e, "SC401AI", &xmv200_tuning_sc401ai_xm535},
+    {0xdc42, "SC4336", &xmv200_tuning_sc4336_xm535},
+    {0xce1f, "SC500AI", &xmv200_tuning_sc500ai_xm535},
     {0xa0b2, "IMX307", &xmv200_tuning_imx307_xm535w1},
     {0xda4d, "SC1346", &xmv200_tuning_sc1346_xm535w1},
     {0x9a4d, "SC1A4T", &xmv200_tuning_sc1a4t_xm535w1},

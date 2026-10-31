@@ -274,4 +274,7 @@ const struct xmv200_sns_drv xmv200_sns_mis40c1_xm535 = {
     .dgain_calc = dgain_calc,
     .set_gain = set_gain,
     .set_flip = set_flip,
+    /* the tuning's runs: init, frame length, the AE's start, flip */
+    .n_runs = 4,
+    .steps = xmv200_sns_steps_ifap,
 };

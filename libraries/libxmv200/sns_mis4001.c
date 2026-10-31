@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 /*
  * Imagedesign MIS4001: the XM530V200 vendor libsns's driver of it, as
- * functions. Unverified: no capture has this sensor.
+ * functions. Its tuning is the 4M (15 fps) mode, captured on the X6C-WEQ
+ * firmware with the product's Resolution and ResolutionSns "4M".
  *
  * Probe (the vendor's, shared by the MIS parts): I2C address 0x30 (0x31
  * for a second sensor on a board whose first is at 0x30), 16-bit
@@ -220,6 +221,9 @@ const struct xmv200_sns_drv xmv200_sns_mis4001 = {
     .dgain_calc = dgain_calc,
     .set_gain = set_gain,
     .set_flip = set_flip,
+    /* the tunings' runs: init, frame length, the AE's start, flip */
+    .n_runs = 4,
+    .steps = xmv200_sns_steps_ifap,
 };
 
 /* ---- XM533 ---- */
@@ -418,6 +422,9 @@ static void xm535_set_gain(const struct xmv200_sns_dev *d, uint32_t idx,
   w(d, 0x3a01, dreg & 0xff);
 }
 
+static void xm535_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c);
+
 static void xm535_set_flip(const struct xmv200_sns_dev *d, int mirror,
                            int flip) {
   uint32_t v = r(d, 0x3007);
@@ -446,4 +453,34 @@ const struct xmv200_sns_drv xmv200_sns_mis4001_xm535 = {
     .dgain_calc = xm535_dgain_calc,
     .set_gain = xm535_set_gain,
     .set_flip = xm535_set_flip,
+    /* the tuning's runs: init, frame length, the AE's start, and the flip
+     * in two: the vendor tells isp.ko something before the hold ends */
+    .n_runs = 5,
+    .run = xm535_run,
 };
+
+
+static void xm535_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c) {
+  uint32_t v;
+
+  switch (n) {
+  case 0:
+    xmv200_sns_init_step(&xmv200_sns_mis4001_xm535, d, c);
+    break;
+  case 1:
+    xmv200_sns_fps_step(&xmv200_sns_mis4001_xm535, d, c);
+    break;
+  case 2:
+    xmv200_sns_ae_step(&xmv200_sns_mis4001_xm535, d, c);
+    break;
+  case 3: /* mirror and flip off, in a hold */
+    v = r(d, 0x3007) | 3;
+    w(d, 0x3006, 2);
+    w(d, 0x3007, v);
+    break;
+  case 4:
+    w(d, 0x3006, 0);
+    break;
+  }
+}

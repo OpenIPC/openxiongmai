@@ -310,6 +310,9 @@ for r in sruns:
         if 0x3e00 <= a <= 0x3e02:
             expo[a] = v
 exp_lines = (expo.get(0x3e00, 0) << 16 | expo.get(0x3e01, 0) << 8 | expo.get(0x3e02, 0)) >> 4
+# SC035GS's hold 1/16 lines as they are: kept so (its driver's exp_shift 4)
+if name.split('_')[0] == 'sc035gs':
+    exp_lines = expo.get(0x3e00, 0) << 16 | expo.get(0x3e01, 0) << 8 | expo.get(0x3e02, 0)
 # Sony IMX335: the frame length (VMAX, 0x3030..) less the shutter (SHR0,
 # 0x3058..), both in quarter lines
 sony = {}

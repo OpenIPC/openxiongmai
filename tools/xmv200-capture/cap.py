@@ -33,6 +33,9 @@ def physread(ph,sz):
 pend={}; cnt={}; blocks={}; runs=0; n=0; pages=8; stop_at=None
 # the isp binary's pointer to its mapping of the shared pages
 PAGEPTR=int(os.environ.get('CAP_PAGEPTR','0xadbb4'),0)
+# or CAP_MMAP: isp.ko's mmap handler, whose vma (r1) gives the mapping
+MMAP=int(os.environ.get('CAP_MMAP','0'),0); maps=[]
+if MMAP: gdb.execute('hbreak *%#x'%MMAP,to_string=True)
 while True:
     try: gdb.execute('continue',to_string=True)
     except Exception as e: out.write('END %s\n'%e); break
@@ -42,6 +45,10 @@ while True:
         if d:
             out.write('R mmz c02c4d01 ret=0 %s\n'%d.hex()); nm=d[:32].split(b'\0')[0].decode(errors='replace')
             blocks[nm]=struct.unpack_from('<II',d,32)
+        continue
+    if MMAP and pc==MMAP:
+        v=rd(int(gdb.parse_and_eval('$r1'))&0xffffffff,8)
+        if v: maps.append(struct.unpack('<II',v))
         continue
     dev=H.get(pc)
     if not dev: continue
@@ -60,7 +67,8 @@ while True:
     if dev=='isp' and cmd==0x495e:
         runs+=1
         if runs==NCH:
-            pg=struct.unpack('<I',rd(PAGEPTR,4))[0]
+            fit=[a for a,e in maps if e-a==pages*4096]
+            pg=fit[-1] if fit else struct.unpack('<I',rd(PAGEPTR,4))[0]
             open(OUT+'/page.bin','wb').write(rd(pg,pages*4096))
             if 'isp_ldc_ch0' in blocks:
                 sz,ph=blocks['isp_ldc_ch0']; open(OUT+'/ldc.bin','wb').write(physread(ph,sz))

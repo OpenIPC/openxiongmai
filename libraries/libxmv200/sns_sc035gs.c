@@ -2,8 +2,9 @@
 /*
  * SmartSens SC035GS (640x480, global shutter): the XM530V200 vendor
  * libsns's driver of it. The mode tables are the vendor's
- * (sns_sc035gs_regs.c, tools/xmv200-sns/extract.py). No tuning has been
- * captured for it, so nothing checks it.
+ * (sns_sc035gs_regs.c, tools/xmv200-sns/extract.py); the tuning was
+ * captured at 25 fps, where the vendor tells isp.ko the frame length
+ * between 0x320e/0x320f and the timing registers (run()).
  *
  * Exposure is in 1/16 lines (0x3e00..0x3e02 as they are); the gains are
  * steps of 1/16 of a doubling (0x400 = 1x, to 15.5x): the analog gain
@@ -82,6 +83,11 @@ static void set_exposure(const struct xmv200_sns_dev *d, uint32_t v) {
   w(d, 0x3e00, (v & 0xffffff) >> 16);
 }
 
+static int split;          /* set_fps from a tuning's frame rate run */
+static uint32_t split_vts; /* its frame length, for the AE's run */
+static void timing(const struct xmv200_sns_dev *d,
+                   const struct xmv200_sns_attr *a, uint32_t vts);
+
 /* the frame length for 30 fps (0x840 DVP, 0x83e MIPI), lengthened for 25;
  * anything else is 20 fps. The exposure limit stays the vendor's for the
  * frame rate, in 1/16 lines. */
@@ -98,6 +104,19 @@ static void set_fps(const struct xmv200_sns_dev *d,
   ae->max_lines = (lim - 6) * 16;
   w(d, 0x320e, vts >> 8);
   w(d, 0x320f, vts & 0xff);
+  /* the vendor tells isp.ko the frame length (0x4908) here, between the
+   * two: a tuning's frame rate run ends at it, and the rest starts the
+   * AE's (run()) */
+  if (split) {
+    split_vts = vts;
+    return;
+  }
+  timing(d, a, vts);
+}
+
+/* the timing registers that follow the frame length */
+static void timing(const struct xmv200_sns_dev *d,
+                   const struct xmv200_sns_attr *a, uint32_t vts) {
   if (a->dvp) {
     w(d, 0x3252, (vts - 8) >> 8);
     w(d, 0x3253, (vts - 8) & 0xff);
@@ -170,8 +189,12 @@ static const struct xmv200_sns_mode modes[] = {
     {"480p dvp", {1, 0, 0, 0}, sc035gs_dvp, N(sc035gs_dvp)},
 };
 
+static void run(const struct xmv200_sns_dev *d, int n,
+                const struct xmv200_sns_ctx *c);
+
 const struct xmv200_sns_drv xmv200_sns_sc035gs = {
     .name = "SC035GS",
+    .exp_shift = 4, /* 1/16 lines */
     .modes = modes,
     .n_modes = N(modes),
     .init = init,
@@ -183,4 +206,27 @@ const struct xmv200_sns_drv xmv200_sns_sc035gs = {
     .dgain_calc = step_calc,
     .set_gain = set_gain,
     .set_flip = set_flip,
+    .run = run,
 };
+
+/* a tuning's runs: init; the frame length; the timing that follows it,
+ * then the AE's start */
+static void run(const struct xmv200_sns_dev *d, int n,
+                const struct xmv200_sns_ctx *c) {
+  switch (n) {
+  case 0:
+    xmv200_sns_init_step(&xmv200_sns_sc035gs, d, c);
+    break;
+  case 1:
+    split = 1;
+    xmv200_sns_fps_step(&xmv200_sns_sc035gs, d, c);
+    split = 0;
+    break;
+  case 2:
+    if (split_vts)
+      timing(d, &c->attr, split_vts);
+    split_vts = 0;
+    xmv200_sns_ae_step(&xmv200_sns_sc035gs, d, c);
+    break;
+  }
+}

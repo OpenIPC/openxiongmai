@@ -358,7 +358,8 @@ static void w1_run(const struct xmv200_sns_dev *d, int n,
 /* ---- XM535 ---- */
 
 /*
- * The XM535D1's libsns (Aug 12 2025 d2db8e4), unchecked (no tuning): its
+ * The XM535D1's libsns (Aug 12 2025 d2db8e4), checked against its tuning
+ * (5M 2 lanes, captured with the product's FunExt 0: one ISP): its
  * tables (4 lanes where the vendor's lane field is 2), and its gain
  * without the XM530V200's 0x5799 and temperature settings. Exposure,
  * frame rate, frame length, the gain's steps and flip are the XM530V200's.
@@ -389,13 +390,30 @@ static void xm535_set_gain(const struct xmv200_sns_dev *d, uint32_t again,
   w(d, 0x3e07, dgain & 0xff);
 }
 
+/* the D1 libsns's init: the table after its stream-off (written at the
+ * probe), then streaming on, as its tuning records it */
+static void xm535_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
+  exp_valid = vts_valid = 0;
+  for (int i = 1; i < m->n; i++)
+    w(d, m->regs[i].reg, m->regs[i].val);
+  w(d, 0x0100, 0x01);
+  usleep(20000);
+}
+
+static void xm535_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c);
+
 const struct xmv200_sns_drv xmv200_sns_sc500ai_xm535 = {
     .name = "SC500AI",
     .family = "xm535",
     .exp_shift = 1,
     .modes = xm535_modes,
     .n_modes = N(xm535_modes),
-    .init = init,
+    .init = xm535_init,
     .ae_default = ae_default,
     .set_fps = set_fps,
     .set_vts = set_vts,
@@ -404,7 +422,23 @@ const struct xmv200_sns_drv xmv200_sns_sc500ai_xm535 = {
     .dgain_calc = dgain_calc,
     .set_gain = xm535_set_gain,
     .set_flip = set_flip,
+    .run = xm535_run,
 };
+
+/* as the W1's: the AE starts from half the tuning's exposure (half lines) */
+static void xm535_run(const struct xmv200_sns_dev *d, int n,
+                      const struct xmv200_sns_ctx *c) {
+  struct xmv200_sns_ctx x = *c;
+
+  if (n == 2)
+    x.exp_lines = c->exp_lines / 2;
+  if (n == 0)
+    xmv200_sns_init_step(&xmv200_sns_sc500ai_xm535, d, &x);
+  else if (n == 1)
+    xmv200_sns_fps_step(&xmv200_sns_sc500ai_xm535, d, &x);
+  else if (n == 2)
+    xmv200_sns_ae_step(&xmv200_sns_sc500ai_xm535, d, &x);
+}
 
 /* ---- XM533 ---- */
 

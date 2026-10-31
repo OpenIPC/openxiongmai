@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 /*
  * Imagedesign MIS5001: the XM530V200 vendor libsns's driver of it, as
- * functions. Unverified: no capture has this sensor.
+ * functions. Its tuning was captured on the X6C-WEQ firmware with the
+ * product's SensorType "MIS5001/MIPI" and MultiSnsNum 1 (one sensor; the
+ * BPU online).
  *
  * Probe (the vendor's, shared by the MIS parts): I2C address 0x30 (0x31
  * for a second sensor on a board whose first is at 0x30), 16-bit
@@ -169,4 +171,7 @@ const struct xmv200_sns_drv xmv200_sns_mis5001 = {
     .dgain_calc = dgain_calc,
     .set_gain = set_gain,
     .set_flip = set_flip,
+    /* the tuning's runs: init, frame length, the AE's start, flip */
+    .n_runs = 4,
+    .steps = xmv200_sns_steps_ifap,
 };

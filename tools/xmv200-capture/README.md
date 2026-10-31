@@ -72,6 +72,16 @@ The same capture and generator work on the XM533 and XM535 firmware. Name the fa
 
 The capture needs `CAP_H`, `CAP_ISZ` and `CAP_PAGEPTR` for the chip's modules and `isp` binary (see `capture.sh`), and `CAP_NCH` set to the board's sensor count. The families are `xm530v200`, `xm535` (XM535D1/D2), `xm535w1` and `xm533`. They differ in where VI's blocks are and in their kernel modules' structs; `libraries/libxmv200/chip.c` has the differences.
 
+`CAP_MMAP` (isp.ko's `isp_mmap`) can stand in for `CAP_PAGEPTR`: the capture then takes the shared pages from the mapping isp.ko made, whatever the `isp` binary keeps it in. The handlers, from each family's stock firmware (modules found in module memory by their `.text`, handlers at their `.ko` symbols):
+
+| family (board) | isp | vpss / vi | vb | hevc | mmz | sys | venc | `CAP_MMAP` |
+|---|---|---|---|---|---|---|---|---|
+| xm535 (X6E-WEQ) | 0xbf029000+0x13b0 | vpss 0xbf01a000+0x18e4 | 0xbf009000+0xb18 | 0xbf066000+0x740 | 0xbf004000+0xb14 | 0xbf00e000+0x158 | 0xbf059000+0x308 | 0xbf029000+0x388 |
+| xm533 (X3-WQ-B) | 0xbf01a000+0x510 | vi 0xbf02a000+0x1a20 | 0xbf009000+0x6b4 | 0xbf04b000+0x3cc | 0xbf004000+0xab8 | 0xbf00e000+0x94 | 0xbf040000+0x2e8 | 0xbf01a000+0x34c |
+| xm535w1 (X2W-WNG) | 0xbf024000+0x53c | vi 0xbf01a000+0x2084 | 0xbf009000+0xb18 | 0xbf05f000+0x740 | 0xbf004000+0xb14 | 0xbf00e000+0x13c | 0xbf053000+0x308 | 0xbf024000+0x378 |
+
+(`CAP_H` is the dict of those addresses to `'isp'`, `'vpss'`/`'vi'`, ...; XM530V200's are cap.py's defaults, its `isp_mmap` at 0xbf025000+0x3b4.)
+
 A tuning holds the mode, not the board: the program is channel 0's, and libxmv200 builds what depends on the layout from the board's description. That covers the channel index and input, the receiver, the VI device and the windows.
 
 ## Other modes
@@ -80,7 +90,11 @@ A stock firmware runs its sensor in the mode its product settings choose (`/mnt/
 
 - without `MipiAttr`, for the 2-lane MIPI modes;
 - with `Assign2336p` off, for the real SC2337P;
-- on the XM535D1, with `FunExt` 1 instead of 17, for the sensors without frame sync.
+- on the XM535D1, with `FunExt` 1 instead of 17, for the sensors without frame sync;
+- on the XM530V200 X6C-WEQ: `Resolution`/`ResolutionSns` "1M" for SC2335 (its 720p picture is otherwise scaled up, which the dual product's offline BPU refuses), "4M" for MIS4001's 4M mode, and `SensorType` "MIS5001/MIPI" with `MultiSnsNum` 1 for MIS5001 (it shares MIS4001's chip ID);
+- on the XM535D1, `FunExt` 0 (one ISP) for the sensors the synced product's 1125-line frame cannot hold (SC3338, SC4336, SC500AI, MIS4001, MIS40C1): those run the BPU online.
+
+The `isp` daemon's messages show why a sensor does not start; the stock kernel prints nothing, but hardware breakpoints on the daemon's `printf`/`fprintf`/`fputs`/`puts` PLT stubs give them, arguments and all.
 
 Name the tuning after its mode (`sc2336_2lane`, `sc2336_xm535_nosync`). The registry's first tuning of a sensor is the default.
 

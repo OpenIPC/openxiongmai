@@ -3,7 +3,9 @@
  * SmartSens SC2335: the XM530V200 vendor libsns's driver of it
  * (snsX20/sc2335_cmos.c in its isp daemon). One mode, over MIPI; its
  * table is the vendor's (sns_sc2335_regs.c, tools/xmv200-sns/extract.py).
- * No tuning was captured with it: unverified against the vendor's writes.
+ * Its tuning was captured with the product's FunExt 0 (the single
+ * sensor DSP): the X6C-WEQ's dual one (19, DUALV200) runs the BPU offline,
+ * which refuses the limit-up scaling SC2335's picture takes there.
  *
  * Exposure is in lines, 0x3e00..0x3e02 holding half lines << 4. Gain:
  * 0x3e08/0x3e09 analog, 0x3e06/0x3e07 digital, and with the total gain
@@ -204,7 +206,7 @@ static void run(const struct xmv200_sns_dev *d, int n,
                 const struct xmv200_sns_ctx *c);
 
 static const struct xmv200_sns_mode modes[] = {
-    {"1080p mipi", {0, 0, 0, 0}, sc2335_mipi, N(sc2335_mipi)},
+    {"720p mipi", {0, 0, 0, 0}, sc2335_mipi, N(sc2335_mipi)},
 };
 
 const struct xmv200_sns_drv xmv200_sns_sc2335 = {
