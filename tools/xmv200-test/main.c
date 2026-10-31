@@ -245,6 +245,23 @@ static int run(const char *board, int n, int osd) {
       continue;
     }
     xmv200_ae_frame(&f);
+    /* XMV200_MD=level: motion detection on sensor 0, its state printed */
+    if (getenv("XMV200_MD") && i == 0) {
+      struct xmv200_md m = {1, (uint8_t)atoi(getenv("XMV200_MD")),
+                            {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}};
+
+      printf("md: %d\n", xmv200_md_set(0, &m));
+    }
+    if (getenv("XMV200_MD") && i % (8 * (int)info.n_streams) == 0 && i) {
+      struct xmv200_md_state ms;
+
+      if (!xmv200_md_get(0, &ms))
+        printf("md frame %d: motion %u %u%% events %u blocks %02x %02x %02x "
+               "%02x %02x %02x %02x %02x\n",
+               i, ms.motion, ms.percent, ms.events, ms.blocks[0],
+               ms.blocks[1], ms.blocks[2], ms.blocks[3], ms.blocks[4],
+               ms.blocks[5], ms.blocks[6], ms.blocks[7]);
+    }
     /* XMV200_MASK="x,y,w,h[,color]": a privacy mask over sensor 0, in
      * thousandths of its picture */
     if (getenv("XMV200_MASK") && i == 2 * (int)info.n_streams) {

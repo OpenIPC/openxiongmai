@@ -116,6 +116,11 @@ struct xmv200_geom {
 };
 /* 0, or -1 when no layout runs */
 int xmv200_layout_geom(struct xmv200_geom *g);
+/* md.c: a sensor's picture (its band of a frame) to compare; reset when a
+ * layout starts */
+void xmv200_md_sample(int sensor, const uint8_t *luma, uint32_t stride,
+                      uint32_t width, uint32_t y0, uint32_t height);
+void xmv200_md_reset(void);
 /* mask.c: the masks forgotten (a layout started) */
 void xmv200_mask_reset(void);
 /* image.c: the controls back at the tuning's (a layout started) */

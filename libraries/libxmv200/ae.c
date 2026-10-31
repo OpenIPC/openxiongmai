@@ -222,6 +222,7 @@ void xmv200_ae_frame(const struct xmv200_frame *f) {
       }
     if (!k)
       continue;
+    xmv200_md_sample(c, m, f->stride, f->width, a->where.band * band, band);
     ae_step(a, sy / k);
     awb_step(a, su / k, sv / k);
     apply(a);

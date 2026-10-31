@@ -325,6 +325,30 @@ struct xmv200_mask {
 int xmv200_mask_set(int id, const struct xmv200_mask *m);
 int xmv200_mask_clear(int id);
 
+/*
+ * Motion detection per sensor, as the vendor's isp daemon does it: an 8x8
+ * grid of block brightness compared about every 20 frames, a change of
+ * light not counted. It runs on the frames given to xmv200_ae_frame (each
+ * stream's frames should go there). level 1..XMV200_MD_LEVELS, the higher
+ * the more sensitive; region: the blocks watched, a byte a row, bit x for
+ * column x (0xff in each: all). The state is the last comparison's: motion
+ * (2% of the watched blocks or more), that percentage, the blocks that
+ * changed, and a count of comparisons with motion.
+ */
+#define XMV200_MD_LEVELS 6
+struct xmv200_md {
+  uint8_t enable, level;
+  uint8_t region[8];
+};
+struct xmv200_md_state {
+  uint8_t motion, percent;
+  uint8_t blocks[8];
+  uint32_t events;
+};
+int xmv200_md_set(int sensor, const struct xmv200_md *m);
+/* -1 where not enabled */
+int xmv200_md_get(int sensor, struct xmv200_md_state *s);
+
 #ifdef __cplusplus
 }
 #endif
