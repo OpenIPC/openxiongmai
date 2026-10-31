@@ -1,0 +1,5 @@
+# name address pairs what-the-vendor-logs
+# the D1's without its reset (0x0103) and stream on, and 0x3651 = 0x9f
+# after its 69th pair; the vendor streams on after the table
+xm535d2_sc2331_mipi_1lane 0x88ed0 139 sc2331_1080P (@20250104) MIPI_1Lane, then stream on
++ 0x0100 0x01

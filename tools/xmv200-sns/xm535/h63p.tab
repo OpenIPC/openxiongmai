@@ -1,0 +1,4 @@
+# name address pairs what-the-vendor-logs
+format u8u8
+xm535_h63p_dvp 0x80c0a 98 h63p (DVP)
+xm535_h63p_mipi 0x80cce 106 h63p

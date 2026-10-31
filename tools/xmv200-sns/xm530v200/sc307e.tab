@@ -1,0 +1,4 @@
+# name address pairs what-the-vendor-logs
+sc307e_720p_mipi 0x7e97e 191 sc307E(mipi) 1M init ok! (@20230421)
+sc307e_dvp 0x7ec7a 181 SC307E 3M (dvp)
+sc307e_mipi 0x7ef4e 185 SC307E 3M (mipi)

@@ -1,0 +1,4 @@
+# name address pairs what-the-vendor-logs
+sc2331_dvp 0x8ab6c 137 sc2331 (@202301_dvp)
+sc2331_mipi_1lane 0x8ad90 138 sc2331_1080P (@202301_mipi_1lane)
+sc2331_mipi 0x8afb8 126 sc2331_1080P (@202301_mipi)

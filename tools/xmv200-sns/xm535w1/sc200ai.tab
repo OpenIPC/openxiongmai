@@ -1,0 +1,3 @@
+# name address pairs what-the-vendor-logs
+xm535w1_sc200ai_mipi 0x638aa 111 sc200AI_1080P linear 25fps
+xm535w1_sc200ai_720p_mipi 0x6369a 132 sc200AI_720P linear 25fps

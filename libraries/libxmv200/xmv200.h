@@ -1,0 +1,398 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * libxmv200: the media pipeline of the Xiongmai V200 series (XM530V200,
+ * XM533, XM535D1/D2/W1) on the vendor kernel modules (i2c, mmz, vb, sys,
+ * isp, vpss or vi, venc, hevc), without the vendor userspace (Sofia, isp).
+ *
+ * The vendor modules do the register work. This library makes the calls the
+ * vendor userspace makes: device ioctls, the few registers it writes through
+ * /dev/mem (PLLs, MIPI receiver, VI windows), and the sensor over I2C.
+ */
+#ifndef XMV200_H
+#define XMV200_H
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Registers through /dev/mem */
+int xmv200_reg_write(uint32_t addr, uint32_t val);
+int xmv200_reg_read(uint32_t addr, uint32_t *val);
+
+/* Sensor I2C through i2c.ko (/dev/i2cN). dev is the 8-bit address. */
+int xmv200_i2c_write(int bus, uint8_t dev, uint32_t reg, int reg_bytes,
+                     uint32_t val, int val_bytes);
+int xmv200_i2c_read(int bus, uint8_t dev, uint32_t reg, int reg_bytes,
+                    uint32_t *val, int val_bytes);
+
+/* A block of MMZ memory: physical address and its mapping */
+struct xmv200_buf {
+  uint32_t phys;
+  uint8_t *virt;
+  uint32_t size;
+};
+
+/* mmz.ko: a reset releases every block; nothing else allocates before it. */
+int xmv200_mmz_reset(void);
+int xmv200_mmz_alloc(struct xmv200_buf *b, const char *name, uint32_t size,
+                     int cached);
+/* unmaps a block and gives it back (the V200 series' list allocator frees
+ * it; a block from before the last reset is only unmapped) */
+void xmv200_mmz_free(struct xmv200_buf *b);
+
+/* vb.ko: the pools VPSS takes its output frames from */
+#define XMV200_VB_MAX_POOLS 32
+struct xmv200_vb_pool {
+  uint32_t size;  /* bytes per block */
+  uint32_t count; /* blocks */
+};
+int xmv200_vb_init(const struct xmv200_vb_pool *pools, int n);
+
+/*
+ * A board's whole pipeline: sensors, ISP, VPSS (or VI's scaler), the VENC
+ * channels. After it the streams' pictures queue for xmv200_frame_get.
+ *
+ * A board is a layout: its sensors, how they are wired, and the streams to
+ * make of them. It can come from a configuration file; the sensor's mode
+ * (its registers and the ISP's tuning for it) comes from the tunings
+ * libxmv200 has for the running chip.
+ */
+#define XMV200_MAX_STREAMS 6
+#define XMV200_MAX_SENSORS 3
+
+struct xmv200_layout_sensor {
+  const char *model; /* "SC2336"; NULL: probe its chip ID */
+  int bus;           /* /dev/i2cN */
+  uint8_t addr;      /* 7-bit */
+  uint8_t flip;      /* SmartSens 0x3221: 0x66 mirrors and flips */
+  uint32_t x0, y0;   /* the lens' crop in the sensor's output */
+  /* the ISP's picture of it, what VPSS or VI scales from (0: the mode's,
+   * to whole lines of 8 and columns of 16) */
+  uint32_t width, height;
+  /* how it is wired: its MIPI receiver (phy), and on the XM535D1/D2 the VI
+   * device its channel is on with its index there; on the XM530V200 the
+   * receiver input a second sensor takes (mipi) */
+  uint32_t phy, vi_dev, vi_idx, mipi;
+  int ldc; /* lens distortion correction, where the tuning has it */
+  /* the sensor's mode, as the streamer chooses it (xmv200_sensor_modes
+   * lists them): HDR and frame sync 1 on, -1 off, 0 the first tuning's;
+   * lanes the MIPI lanes, 0 the first tuning's */
+  int hdr, sync, lanes;
+  /* two-lane frame sync (the XM535D2's): this sensor the master (1), else a
+   * slave; efsync the slaves' EFSYNC timing, 1 on, -1 off, 0 the tuning's */
+  int sync_master, efsync;
+};
+
+struct xmv200_layout_stream {
+  uint32_t width, height; /* per sensor */
+  uint32_t sensors;       /* mask: several are spliced top to bottom */
+};
+
+struct xmv200_layout {
+  const char *chip; /* "xm535d1", ...; NULL: the running kernel's */
+  int n_sensors;
+  struct xmv200_layout_sensor sensor[XMV200_MAX_SENSORS];
+  int n_streams; /* stream n is VENC channel n */
+  struct xmv200_layout_stream stream[XMV200_MAX_STREAMS];
+  uint32_t fps;
+  char *text; /* xmv200_layout_parse's copy of its text, or NULL */
+};
+
+struct xmv200_board_info {
+  int n_streams;
+  uint32_t fps;
+  struct {
+    uint32_t width, height; /* what VENC channel n gets */
+  } stream[XMV200_MAX_STREAMS];
+};
+
+/* A sensor mode there is a tuning for, on a chip family */
+struct xmv200_sensor_mode {
+  const char *sensor; /* "SC2336" */
+  const char *mode;   /* "1080p mipi 1 lane" */
+  uint32_t width, height;
+  int hdr, sync, lanes; /* lanes 0: DVP */
+};
+/* the modes of every sensor libxmv200 has tunings for on chip ("xm535d1";
+ * NULL: the running one's), n at most; how many there are */
+int xmv200_sensor_modes(const char *chip, struct xmv200_sensor_mode *m,
+                        int n);
+
+int xmv200_layout_start(const struct xmv200_layout *l,
+                        struct xmv200_board_info *info);
+/* The pipeline stopped: the ISP and its thread, the sensors' streams,
+ * VPSS (or VI's channels), the overlays and binds. Encoders and frames are
+ * the caller's to have destroyed and released first. xmv200_layout_start
+ * stops a running one itself, so a new resolution or frame rate is another
+ * start. */
+void xmv200_layout_stop(void);
+/* a known board's layout ("x6c-weq", ...), or "auto": the sensors found on
+ * I2C, one picture each or two of a kind spliced, and a 640-wide stream */
+int xmv200_board_layout(const char *board, struct xmv200_layout *l);
+/* a layout from text (layout.c has the format), and back */
+int xmv200_layout_parse(const char *text, struct xmv200_layout *l);
+/* a parsed layout's text (its chip and model names point into it): free it
+ * once the layout has been started, or is no longer needed; a layout
+ * started keeps nothing of it */
+void xmv200_layout_free(struct xmv200_layout *l);
+int xmv200_layout_format(const struct xmv200_layout *l, char *out, int cap);
+/* xmv200_board_layout, then xmv200_layout_start */
+int xmv200_board_start(const char *board, struct xmv200_board_info *info);
+/* the running chip ("xm530v200", "xm535d1", ...), or NULL */
+const char *xmv200_chip_name(void);
+
+/*
+ * H.265 encoding on the hevc.ko engine (or H.264 on the H1: below), one
+ * encoder per stream size. Frames
+ * come from venc.ko's FIFO, which the VPSS channels bound to VENC fill.
+ * qp 0 = 35, gop 0 = two seconds.
+ */
+struct xmv200_venc;
+/* the chip whose encoder engine to drive ("xm530v200", "xm535d1", ...);
+ * without it, the kernel's machine name */
+void xmv200_venc_set_engine(const char *chip);
+int xmv200_venc_create(struct xmv200_venc **v, uint32_t width,
+                       uint32_t height, uint32_t fps, uint32_t qp,
+                       uint32_t gop);
+/* the same, H.264 (Baseline, CAVLC) on the XM533's and XM535s' Hantro H1
+ * (hx280enc); -1 where there is none (the XM530V200) */
+int xmv200_venc_create_h264(struct xmv200_venc **v, uint32_t width,
+                            uint32_t height, uint32_t fps, uint32_t qp,
+                            uint32_t gop);
+/* H.264: Main profile with CABAC (on), or Baseline with CAVLC, from an IDR
+ * it asks for; -1 for H.265 */
+int xmv200_venc_set_cabac(struct xmv200_venc *v, int on);
+void xmv200_venc_destroy(struct xmv200_venc *v);
+void xmv200_venc_request_idr(struct xmv200_venc *v);
+
+/*
+ * Rate control, at any time (an IDR follows a change of GOP or frame rate):
+ *   FIXQP  every P picture at qp, the IDRs a little above (the engine's)
+ *   CBR    kbps on average over about a second, qp moving between qp_min
+ *          and qp_max picture by picture
+ *   VBR    at most kbps: as CBR above it, and never below qp (the quality
+ *          it settles at when the scene needs less)
+ * qp 0 = 35 (CBR: where it starts), qp_min 0 = 16, qp_max 0 = 48, gop and
+ * fps 0 = unchanged. The rate is of what xmv200_venc_encode returns.
+ */
+enum { XMV200_RC_FIXQP, XMV200_RC_CBR, XMV200_RC_VBR };
+struct xmv200_venc_rc {
+  int mode;
+  uint32_t kbps;
+  uint32_t qp, qp_min, qp_max;
+  uint32_t gop, fps;
+};
+int xmv200_venc_set_rc(struct xmv200_venc *v, const struct xmv200_venc_rc *rc);
+/* what rate control has done: the last pictures' QP, and the rate over the
+ * last second in kbit/s */
+struct xmv200_venc_stats {
+  uint32_t qp, qp_i, kbps;
+  uint64_t frames, bytes;
+};
+void xmv200_venc_get_stats(const struct xmv200_venc *v,
+                           struct xmv200_venc_stats *st);
+
+/*
+ * JPEG snapshots of a picture from xmv200_frame_get (any stream's; the
+ * frame stays the caller's to release), on the XM530V200's JPEG encoder
+ * (jpeg.ko) or the XM533's and XM535s' Hantro H1 (hx280enc). Made after xmv200_layout_start, for pictures up to max_width
+ * x max_height. quality 1..100 (the IJG scale of Annex K's tables).
+ * Returns the JFIF file's length in out, or -1.
+ */
+struct xmv200_jpeg;
+int xmv200_jpeg_create(struct xmv200_jpeg **j, uint32_t max_width,
+                       uint32_t max_height);
+void xmv200_jpeg_destroy(struct xmv200_jpeg *j);
+struct xmv200_frame;
+int xmv200_jpeg_encode(struct xmv200_jpeg *j, const struct xmv200_frame *f,
+                       int quality, uint8_t *out, int cap);
+
+/* A picture VPSS queued for a VENC channel (venc.ko's FIFO, every channel's
+ * pictures in one queue). Each must be released. */
+struct xmv200_frame {
+  uint32_t chn; /* the VENC channel its VPSS channel is bound to */
+  uint32_t y, c, width, height, stride;
+  uint64_t pts;
+  uint32_t priv[10];
+};
+int xmv200_frame_get(struct xmv200_frame *f); /* waits up to 2 s */
+void xmv200_frame_release(struct xmv200_frame *f);
+
+/* Auto exposure and white balance of the board's sensors: give it every
+ * frame before releasing it (it takes the streams its sensors are in, and
+ * samples every third of each). */
+void xmv200_ae_frame(const struct xmv200_frame *f);
+/* AE's state for sensor c: the last metered luma (8-bit, linear; the
+ * target is the tuning's, 57 on the XM530V200), exposure lines and total
+ * gain (0x100 = 1x). 1 on the ISP's statistics, 0 on the frames, -1 for no
+ * such sensor. */
+int xmv200_ae_state(int c, uint32_t *luma, uint32_t *lines, uint32_t *gain);
+/* AWB's last result for a sensor: R, G, B gains (0x100 = 1x) and the
+ * colour temperature (K); -1 without its calibration */
+int xmv200_awb_state(uint32_t sensor, uint16_t gain[3], uint16_t *ct);
+
+/* Encodes a frame into out (Annex B, parameter sets before each IDR).
+ * Returns the length, or -1. */
+int xmv200_venc_encode(struct xmv200_venc *v, const struct xmv200_frame *f,
+                       uint8_t *out, int cap);
+
+/*
+ * Overlays: bitmaps the OSD engine (rgn.ko) blends into every picture of
+ * the streams they are attached to, before they are encoded. Handles 0..
+ * XMV200_OSD_MAX - 1; a stream takes up to 8 (4 on the XM535). Made after
+ * xmv200_layout_start, which clears them.
+ *
+ * Bitmaps, row after row, rows of width pixels:
+ *   ARGB1555  2 bytes a pixel, little endian (alpha bit set: alpha, clear:
+ *             transparent)
+ *   ARGB8888  4 bytes a pixel, 0xAARRGGBB little endian
+ *   1BIT      8 pixels a byte, the first in the top bit: color[0] or [1]
+ *   2BIT      4 pixels a byte, the first in the top two bits: color[0..3]
+ * The bit formats' colours are 0xAAYYUUVV (xmv200_osd_color); alpha 0 is
+ * transparent. x and y are rounded down to even.
+ */
+#define XMV200_OSD_MAX 256
+
+enum xmv200_osd_format {
+  XMV200_OSD_ARGB1555,
+  XMV200_OSD_ARGB8888,
+  XMV200_OSD_1BIT,
+  XMV200_OSD_2BIT,
+  /* XM535D1/D2/W1: drawn by the encoder itself (up to 4 a stream, apart
+   * from the engine's): 1 or 2 bits a pixel as 1BIT/2BIT, x and y in
+   * 16-pixel steps, width a multiple of 8 (1 bit) or 4 (2 bits), height
+   * even */
+  XMV200_OSD_ENC_1BIT,
+  XMV200_OSD_ENC_2BIT,
+};
+
+struct xmv200_osd {
+  enum xmv200_osd_format format;
+  uint32_t x, y, width, height; /* the bitmap's size */
+  uint32_t color[4];            /* 1BIT, 2BIT */
+  uint32_t alpha;               /* ARGB1555: the alpha of opaque pixels */
+  uint32_t scale_x, scale_y;    /* 1 (or 0) or 2: each pixel drawn twice */
+};
+
+int xmv200_osd_create(int handle, const struct xmv200_osd *o);
+/* moves or recolours it: the same format, at most its size */
+int xmv200_osd_set(int handle, const struct xmv200_osd *o);
+int xmv200_osd_bitmap(int handle, const void *data, uint32_t len);
+int xmv200_osd_attach(int handle, int stream);
+int xmv200_osd_detach(int handle, int stream);
+/* detached first */
+int xmv200_osd_destroy(int handle);
+uint32_t xmv200_osd_color(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+
+
+/*
+ * Audio: the codec's input and output, 16-bit mono PCM at rate (on the
+ * XM535D1/D2 set here; elsewhere i2s.ko's rate=, 8000 by default). Reads
+ * wait for the samples asked for; writes for room. Volume and gain
+ * 0..100 (acodec.ko).
+ */
+int xmv200_audio_open(uint32_t rate, int in, int out);
+void xmv200_audio_close(void);
+int xmv200_audio_read(int16_t *pcm, int samples);
+int xmv200_audio_write(const int16_t *pcm, int samples);
+int xmv200_audio_queued(void); /* samples not played yet */
+int xmv200_audio_set_volume(int volume);
+int xmv200_audio_set_mute(int mute);
+int xmv200_audio_set_gain(int gain);
+/* G.711, A-law (ulaw 0) or mu-law */
+uint8_t xmv200_alaw(int16_t pcm);
+int16_t xmv200_alaw_pcm(uint8_t a);
+uint8_t xmv200_ulaw(int16_t pcm);
+int16_t xmv200_ulaw_pcm(uint8_t u);
+void xmv200_g711_encode(const int16_t *pcm, int n, uint8_t *out, int ulaw);
+void xmv200_g711_decode(const uint8_t *in, int n, int16_t *pcm, int ulaw);
+
+/*
+ * Image controls, for every sensor of the running layout. 0..100 each, 50
+ * being the sensor tuning's own setting:
+ * - brightness: the luma gain (isp.ko 0x49de; 0 dark, 100 4x);
+ * - contrast: the tone curve (0x49df), flat below 50, steeper above;
+ * - saturation: the chroma gains (0x49de); mono takes them to 0;
+ * - hue: the hue shift (0x49e4), +-180 degrees at 0 and 100;
+ * - sharpness: the sharpening strength (0x49f0), off at 0, twice at 100.
+ * mirror and flip turn the picture against the layout's own (its sensor's
+ * flip=), through the sensor's driver. anti_flicker (50 or 60 Hz mains, 0
+ * off) keeps AE's exposure a whole number of the light's half periods
+ * wherever it is that long.
+ */
+struct xmv200_image {
+  uint8_t brightness, contrast, saturation, hue, sharpness;
+  uint8_t mirror, flip;
+  uint8_t mono;
+  uint8_t anti_flicker;
+};
+/* the controls at the tuning's settings */
+void xmv200_image_defaults(struct xmv200_image *im);
+/* applies im (the layout running); -1 if a control could not be set */
+int xmv200_image_set(const struct xmv200_image *im);
+/* the controls last set (the defaults after a layout start) */
+void xmv200_image_get(struct xmv200_image *im);
+
+/*
+ * Privacy masks: up to XMV200_MASK_MAX filled rectangles over a sensor's
+ * picture, drawn into every stream that shows it before encoding (by VPSS,
+ * or VI on the XM533 and XM535W1). x, y, width and height are thousandths
+ * of the sensor's picture, so a mask covers the same thing at each stream's
+ * size. color is 0xYYUUVV, as the OSD's (xmv200_osd_color; the alpha byte
+ * is ignored): 0x108080 is black. Setting a mask again moves it. They are
+ * forgotten when a layout starts.
+ */
+#define XMV200_MASK_MAX 8
+struct xmv200_mask {
+  uint32_t sensor; /* the layout's sensor (0 where VI draws) */
+  uint32_t x, y, width, height;
+  uint32_t color;
+};
+int xmv200_mask_set(int id, const struct xmv200_mask *m);
+int xmv200_mask_clear(int id);
+
+/*
+ * Motion detection per sensor, as the vendor's isp daemon does it: an 8x8
+ * grid of block brightness compared about every 20 frames, a change of
+ * light not counted. It runs on the frames given to xmv200_ae_frame (each
+ * stream's frames should go there). level 1..XMV200_MD_LEVELS, the higher
+ * the more sensitive; region: the blocks watched, a byte a row, bit x for
+ * column x (0xff in each: all). The state is the last comparison's: motion
+ * (2% of the watched blocks or more), that percentage, the blocks that
+ * changed, and a count of comparisons with motion.
+ */
+#define XMV200_MD_LEVELS 6
+struct xmv200_md {
+  uint8_t enable, level;
+  uint8_t region[8];
+};
+struct xmv200_md_state {
+  uint8_t motion, percent;
+  uint8_t blocks[8];
+  uint32_t events;
+};
+int xmv200_md_set(int sensor, const struct xmv200_md *m);
+/* -1 where not enabled */
+int xmv200_md_get(int sensor, struct xmv200_md_state *s);
+
+/*
+ * Blind detection per sensor, as the vendor's isp daemon does it: about
+ * every 20 frames the mean of the ISP's brightness statistics (AE's) is
+ * checked: covered (dark), blinded (bright), or a sudden change of it.
+ * level 1..XMV200_MD_LEVELS, the higher the more sensitive. xmv200_bd_get
+ * returns what was seen since the last call (0 nothing, else XMV200_BD_*),
+ * -1 where not enabled. Needs the ISP's statistics (not on the frames).
+ */
+#define XMV200_BD_CHANGE 1
+#define XMV200_BD_BRIGHT 2
+#define XMV200_BD_DARK 3
+int xmv200_bd_set(int sensor, int enable, int level);
+int xmv200_bd_get(int sensor);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

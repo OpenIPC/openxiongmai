@@ -50,11 +50,17 @@ MODULE_DESCRIPTION("Hantro 6280/7280/8270/8290 Encoder driver");
 #define VIDEO_ENC_CHRDEV_NAME "h264"
 
 /* Same parameter names as the vendor xm530_h264.ko, which defaults to 77 */
+#ifdef H264_V200
+/* the XM533's and XM535s' h264.ko, the same encoder moved */
+static unsigned long base_port = 0x21100000;
+static int irq = 78;
+#else
 static unsigned long base_port = 0x20070000;
 #ifdef CONFIG_ARCH_XM530
 static int irq = 77;
 #else
 static int irq = 0x1A; /* XM510 */
+#endif
 #endif
 
 /* module_param(name, type, perm) */
@@ -807,6 +813,17 @@ static int __init hx280_video_enc_init(void)
 	hx280enc_data.iobaseaddr = base_port;
 	hx280enc_data.irq = irq;
 
+#ifdef H264_V200
+	{
+		/* the encoder's clock, which the V200 series' h264.ko turns on */
+		void __iomem *crg = ioremap(0x20000120, 4);
+
+		if (crg) {
+			writel(readl(crg) | 3, crg);
+			iounmap(crg);
+		}
+	}
+#endif
 	if (ReserveIO() < 0) {
 		pr_err("Unable reserve IO\n");
 		return -1;

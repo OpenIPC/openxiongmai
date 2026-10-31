@@ -1,0 +1,11 @@
+# name address pairs what-the-vendor-logs
+sc2336_dvp 0x85f72 158 SC2336 (@202207_dvp)
+sc2336_720p_mipi 0x861ea 168 SC2336_720P mipi 25fps
+sc2336_mipi_1lane 0x8648a 158 SC2336_1080P (@202308_mipi_1lane)
+sc2336_mipi 0x86702 149 SC2336_1080P (@202311_mipi)
+sc2336p_mipi_1lane 0x86956 151 SC2336P_1080P (202404_mipi_1lane)
+sc2336p_mipi 0x86bb2 149 SC2336P_1080P (mipi)
+sc2336p_dvp 0x86e06 160 SC2336P_1080P (dvp)
+sc2337p_dvp 0x87f5e 158 SC2337_1080p (@20241008_dvp)
+sc2337p_mipi_1lane 0x881d6 158 SC2337_1080P (@20241008_mipi_1lane)
+sc2337p_mipi 0x8844e 150 SC2337_1080P (@20241008_mipi)

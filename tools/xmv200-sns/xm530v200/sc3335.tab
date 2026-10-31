@@ -1,0 +1,5 @@
+# name address pairs what-the-vendor-logs
+sc3335_1m_dvp 0x9007c 126 sc3335(DVP) 1M init ok! (@20230408)
+sc3335_1m_mipi 0x90274 115 sc3335(mipi) 1M init ok! (@20230408)
+sc3335_3m_dvp 0x90440 108 sc3335(DVP) 3M init ok! (@20220526)
+sc3335_3m_mipi 0x905f0 111 sc3335(mipi) 3M init ok! (@20220411)
