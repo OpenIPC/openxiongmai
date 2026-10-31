@@ -17,12 +17,23 @@
  *   +0x000 1: start; +0x044 the scan's length
  * The engine writes only the entropy-coded scan; the header (SOI, JFIF,
  * DQT, SOF0, DHT, SOS) and the EOI are ours.
+ *
+ * The XM533 and XM535s have no such engine: their snapshots are the Hantro
+ * H1's (hx280enc, /dev/h264, its registers mapped), as the vendor library
+ * drives it there (its job from qemu-bench's dump of a stock XM535D1
+ * snapshot): the header ours up to an 8-byte aligned output pointer, the
+ * rest of it (up to 7 bytes) in +0x058/+0x05c for the H1 to emit first,
+ * their bits in +0x094[28:23]; the quantisers four to a word, big endian,
+ * in the H1's order, at +0x100 (luma) and +0x140 (chroma); +0x03c the row
+ * length << 12 | NV12 << 2; +0x038 the picture in macroblocks, JPEG mode,
+ * intra, start. Done, +0x060 holds the bits written; the H1 ends with EOI.
  */
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include "xmv200.h"
@@ -35,18 +46,34 @@
 #define N_REG 136
 #define SCAN_ROOM 0x400 /* the scan's place in the buffer */
 
+/* hx280enc: the registers' place and size; they are mapped through
+ * /dev/mem, as Hantro's EWL does */
+#define H1_IOCGHWOFFSET _IOR('k', 3, unsigned long *)
+#define H1_IOCGHWIOSIZE _IOR('k', 4, unsigned int *)
+#define H1_IOCWAITDONE _IO('k', 12)
+
 struct jreg {
   uint32_t off, val, changed;
 };
 
 struct xmv200_jpeg {
   int fd;
+  int h1;                /* the Hantro H1's, not jpeg.ko's */
+  volatile uint32_t *hw; /* its registers */
+  size_t hw_size;
   struct xmv200_buf buf;
   struct jreg t[N_REG];
   int n; /* writes queued, from entry 1 */
 };
 
 #include "jpeg_tables.h"
+
+/* the H1's quantiser order: word k holds Q[h1_order[4k..4k+3]] */
+static const uint8_t h1_order[64] = {
+    0,  8,  16, 24, 1,  9,  17, 25, 32, 40, 48, 56, 33, 41, 49, 57,
+    2,  10, 18, 26, 3,  11, 19, 27, 34, 42, 50, 58, 35, 43, 51, 59,
+    4,  12, 20, 28, 5,  13, 21, 29, 36, 44, 52, 60, 37, 45, 53, 61,
+    6,  14, 22, 30, 7,  15, 23, 31, 38, 46, 54, 62, 39, 47, 55, 63};
 
 /* Annex K's tables at quality 50, natural order */
 static const uint8_t std_q[2][64] = {
@@ -72,13 +99,35 @@ int xmv200_jpeg_create(struct xmv200_jpeg **pj, uint32_t max_width,
   if (!j)
     return -1;
   j->fd = open("/dev/jpeg", O_RDWR);
-  if (j->fd < 0 ||
+  if (j->fd < 0) {
+    unsigned long base = 0;
+    unsigned int size = 0;
+    int mem;
+
+    j->fd = open("/dev/h264", O_RDWR);
+    if (j->fd >= 0 && !ioctl(j->fd, H1_IOCGHWOFFSET, &base) &&
+        !ioctl(j->fd, H1_IOCGHWIOSIZE, &size) && base && size &&
+        (mem = open("/dev/mem", O_RDWR | O_SYNC)) >= 0) {
+      j->hw = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, mem, base);
+      close(mem);
+      if (j->hw == MAP_FAILED)
+        j->hw = NULL;
+      j->hw_size = size;
+      j->h1 = j->hw != NULL;
+    }
+    if (!j->h1) {
+      xmv200_jpeg_destroy(j);
+      return -1;
+    }
+  }
+  if (
       xmv200_mmz_alloc(&j->buf, "jpeg_stream",
                        SCAN_ROOM + max_width * max_height + 0x10000, 0)) {
     xmv200_jpeg_destroy(j);
     return -1;
   }
-  ioctl(j->fd, JPEG_RESET, 0);
+  if (!j->h1)
+    ioctl(j->fd, JPEG_RESET, 0);
   *pj = j;
   return 0;
 }
@@ -86,6 +135,8 @@ int xmv200_jpeg_create(struct xmv200_jpeg **pj, uint32_t max_width,
 void xmv200_jpeg_destroy(struct xmv200_jpeg *j) {
   if (!j)
     return;
+  if (j->hw)
+    munmap((void *)j->hw, j->hw_size);
   if (j->fd >= 0)
     close(j->fd);
   free(j);
@@ -148,6 +199,56 @@ static int header(uint8_t *out, int cap, uint8_t q[2][64], uint32_t w_,
   return p - out;
 }
 
+/* the H1's job: the header n bytes in out, the scan after it */
+static int h1_encode(struct xmv200_jpeg *j, const struct xmv200_frame *f,
+                     uint8_t q[2][64], uint8_t *out, int n, int cap) {
+  volatile uint32_t *r = j->hw;
+  uint32_t aligned = n & ~7u, nrem = n - aligned, mbw = (f->width + 15) / 16,
+           mbh = (f->height + 15) / 16, len, st;
+  uint64_t rem = 0;
+
+  if (aligned + 0x10 > SCAN_ROOM)
+    return -1;
+  memcpy(j->buf.virt, out, aligned);
+  for (uint32_t i = 0; i < nrem; i++)
+    rem |= (uint64_t)out[aligned + i] << (56 - 8 * i);
+  r[0x004 / 4] = 0;
+  r[0x008 / 4] = 0xd01f; /* the bus: the vendor's */
+  r[0x014 / 4] = j->buf.phys + aligned;
+  r[0x02c / 4] = f->y;
+  r[0x030 / 4] = f->c;
+  r[0x034 / 4] = 0;
+  r[0x03c / 4] = f->stride << 12 | 1 << 2; /* NV12 */
+  r[0x058 / 4] = rem >> 32;
+  r[0x05c / 4] = (uint32_t)rem;
+  r[0x060 / 4] = j->buf.size - aligned;
+  r[0x094 / 4] = nrem * 8 << 23;
+  for (int t = 0; t < 2; t++)
+    for (int k = 0; k < 16; k++)
+      r[(0x100 + t * 0x40) / 4 + k] =
+          (uint32_t)q[t][h1_order[4 * k]] << 24 |
+          q[t][h1_order[4 * k + 1]] << 16 | q[t][h1_order[4 * k + 2]] << 8 |
+          q[t][h1_order[4 * k + 3]];
+  r[0x038 / 4] = 1u << 31 | mbw << 19 | mbh << 10 | 2 << 1 | 1 << 3 | 1;
+  if (ioctl(j->fd, H1_IOCWAITDONE, 0) < 0)
+    return -1;
+  st = r[0x004 / 4];
+  len = r[0x060 / 4] / 8;
+  r[0x004 / 4] = 0;
+  if (!(st & 1 << 2) || !len || aligned + len > j->buf.size ||
+      (int)(aligned + len) + 2 > cap) {
+    fprintf(stderr, "libxmv200: jpeg (H1) status %#x\n", st);
+    return -1;
+  }
+  memcpy(out + aligned, j->buf.virt + aligned, len);
+  n = aligned + len;
+  if (out[n - 2] != 0xff || out[n - 1] != 0xd9) {
+    out[n++] = 0xff;
+    out[n++] = 0xd9;
+  }
+  return n;
+}
+
 int xmv200_jpeg_encode(struct xmv200_jpeg *j, const struct xmv200_frame *f,
                        int quality, uint8_t *out, int cap) {
   uint8_t q[2][64];
@@ -168,6 +269,8 @@ int xmv200_jpeg_encode(struct xmv200_jpeg *j, const struct xmv200_frame *f,
   if (f->width * f->height + SCAN_ROOM > j->buf.size ||
       (n = header(out, cap, q, f->width, f->height)) < 0)
     return -1;
+  if (j->h1)
+    return h1_encode(j, f, q, out, n, cap);
 
   if (ioctl(j->fd, JPEG_TAKE, 0) < 0)
     return -1;

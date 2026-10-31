@@ -177,7 +177,7 @@ void xmv200_venc_get_stats(const struct xmv200_venc *v,
 /*
  * JPEG snapshots of a picture from xmv200_frame_get (any stream's; the
  * frame stays the caller's to release), on the XM530V200's JPEG encoder
- * (jpeg.ko). Made after xmv200_layout_start, for pictures up to max_width
+ * (jpeg.ko) or the XM533's and XM535s' Hantro H1 (hx280enc). Made after xmv200_layout_start, for pictures up to max_width
  * x max_height. quality 1..100 (the IJG scale of Annex K's tables).
  * Returns the JFIF file's length in out, or -1.
  */
