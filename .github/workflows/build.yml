@@ -29,6 +29,27 @@ jobs:
   # the entry points the vendor ISP / application expects are exported,
   # and confirms the shared objects depend only on libc.
   #
+  # sensor-tunings
+  #
+  # Runs libxmv200's sensor drivers on the build machine against every
+  # tuning the vendor stack was recorded with (tools/xmv200-sns): each
+  # driver has to make exactly the sensor writes its tuning holds.
+  #
+  sensor-tunings:
+    name: libxmv200 sensor drivers against their tunings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: make check, every chip family
+        run: |
+          for f in xm530v200 xm533 xm535 xm535w1; do
+            echo "::group::$f"
+            make -C tools/xmv200-sns check FAMILY=$f
+            echo "::endgroup::"
+          done
+
+  #
   libraries-cross-compile:
     name: Libraries cross-compile (XM530)
     runs-on: ubuntu-latest
