@@ -320,6 +320,28 @@ picture (the exposure cut to 13 lines), the chart's darkest patches came up
 3-4 levels (black Y 37 to 41) with the noise unchanged. The vendor daemon
 does the same: `0x45` up to 12.5×, `0x30` at 23×.
 
+## Sharpening in daylight (XM510)
+
+The scripts' sharpening (`KD`, `KM0`, `KH0`: `0x40075018`, `0x4007514c`,
+`0x40075174`) is the vendor's, strong enough to draw a dark outline along
+every bright edge. On the JX-H62 in daylight, the three scaled together,
+measured on the chart's top edges into its dark band (luma profile across
+the edge, averaged over 30 columns and 10 frames) and on the chair's mesh:
+
+| Share of the script's | Edge 10-90% | Halo, bright / dark side | Mesh noise |
+|---|---|---|---|
+| 1 (`0x3a`/`0x28`/`0x22`) | 1.3 px | 14% / 67% | 2.9 |
+| 0.75 | 1.3 px | 9% / 54% | 1.9 |
+| **0.5** | **1.3 px** | **2% / 40%** | **1.2** |
+| 0 | 3.3 px | 1% / 14% | 0.9 |
+
+Half keeps the edges as sharp and loses most of the halo and half the
+noise; side by side the mesh is still fully resolved. A sensor driver's
+`sharpen` is that share (the JX-H62's 0.5; 0 keeps the script's). The noise
+schedule takes sharpening from there towards its high set, but never up:
+where the high set is stronger (the JX-H62's, `0x26`/`0x20`/`0x17`, against
+half the script's `0x1d`/`0x14`/`0x11`), the low value holds at every gain.
+
 ## Tone curve (XM510)
 
 The RGB gamma (`GAMMA60`, `0x40062040`.., two banks and a switch at

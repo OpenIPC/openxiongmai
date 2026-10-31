@@ -55,6 +55,16 @@ const struct xmisp_sensor xmisp_sensor_h62 = {
      * night-like picture's darkest patches came up 3-4 levels (Y 37 to 41
      * on the chart's black), noise unchanged. */
     .black_high = 0x32,
+    /* Daylight, the chart's top edges into its dark band and the chair's
+     * mesh, KD/KM0/KH0 scaled together from the script's 0x3a/0x28/0x22:
+     *   share  edge 10-90%  halo bright/dark  mesh noise
+     *   1      1.3 px       14% / 67%         2.9
+     *   0.75   1.3 px        9% / 54%         1.9
+     *   0.5    1.3 px        2% / 40%         1.2
+     *   0      3.3 px        1% / 14%         0.9
+     * Half keeps the edges' sharpness and loses most of the halos (the
+     * dark outlines around bright edges) and half the noise. */
+    .sharpen = 0.5f,
     .get_exposure = get_exposure,
     .set_exposure = set_exposure,
 };
