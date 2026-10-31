@@ -182,7 +182,14 @@ jobs:
                 xmisp_sc2145h_720p xmisp_sc2235_1080p xmisp_ar0130_720p \
                 xmisp_ov9750_720p xmisp_ov9732_720p xmisp_mis1002_720p \
                 xmisp_sc1135_720p xmisp_sc1135_960p xmisp_sc1235_960p \
-                xmisp_h65_960p xmisp_start_mode xmisp_sensor_ar0130
+                xmisp_h65_960p xmisp_start_mode xmisp_sensor_ar0130 \
+                xmisp_sensor_h42 xmisp_sensor_h65_720p xmisp_sensor_h65_960p \
+                xmisp_sensor_sc1135_720p xmisp_sensor_sc1135_960p \
+                xmisp_sensor_sc1235_720p xmisp_sensor_sc1235_960p \
+                xmisp_sensor_sc2145h xmisp_sensor_sc2235 xmisp_sensor_ov9750 \
+                xmisp_sensor_ov9732 xmisp_soi_gain xmisp_soi_gain_reg \
+                xmisp_soi_get xmisp_soi_set xmisp_ss_gain xmisp_ss_gain_regs \
+                xmisp_ss_get xmisp_ss_set
           exit $fail
 
       - name: Assert no vendor libs in NEEDED

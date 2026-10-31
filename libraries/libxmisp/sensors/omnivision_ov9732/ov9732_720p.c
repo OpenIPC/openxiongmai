@@ -231,6 +231,7 @@ static const struct xmisp_op fixed[] = {
 
 const struct xmisp_script xmisp_ov9732_720p = {
     .name = "OV9732 720p",
+    .sensor = &xmisp_sensor_ov9732,
     .width = 1280,
     .height = 720,
     .i2c_dev = 0x36,

@@ -148,18 +148,18 @@ step the one its trace gave before the template was split out
 | Script | Sensor (I2C, ID) | Mode | 3A driver | Source |
 |---|---|---|---|---|
 | `sensors/soi_jxh62/jxh62_720p.c` | JX-H62 (`0x30`, `0xa062`) | 1280x720 | yes | lab XM510 |
-| `sensors/soi_jxh42/h42_720p.c` | JX-H42 (`0x30`, `0xa042`) | 1280x720 | no | emulated |
-| `sensors/soi_jxh65/h65_720p.c` | JX-H65 (`0x30`, `0x0a65`) | 1280x720 | no | emulated |
-| `sensors/smartsens_sc1235/sc1235_720p.c` | SC1235 (`0x30`, `0x1235`) | 1280x720 | no | emulated |
-| `sensors/smartsens_sc2145h/sc2145h_720p.c` | SC2145H (`0x30`, `0x1245`) | 1280x720 | no | emulated |
-| `sensors/smartsens_sc2235/sc2235_1080p.c` | SC2235 (`0x30`, `0x2235`) | 1136x1080 | no | emulated |
+| `sensors/soi_jxh42/h42_720p.c` | JX-H42 (`0x30`, `0xa042`) | 1280x720 | from the trace | emulated |
+| `sensors/soi_jxh65/h65_720p.c` | JX-H65 (`0x30`, `0x0a65`) | 1280x720 | from the trace | emulated |
+| `sensors/smartsens_sc1235/sc1235_720p.c` | SC1235 (`0x30`, `0x1235`) | 1280x720 | from the trace | emulated |
+| `sensors/smartsens_sc2145h/sc2145h_720p.c` | SC2145H (`0x30`, `0x1245`) | 1280x720 | from the trace | emulated |
+| `sensors/smartsens_sc2235/sc2235_1080p.c` | SC2235 (`0x30`, `0x2235`) | 1136x1080 | from the trace | emulated |
 | `sensors/onsemi_ar0130/ar0130_720p.c` | AR0130 (`0x10`, `0x2402`) | 1280x720 | yes | 53X13 XM510 board |
-| `sensors/omnivision_ov9750/ov9750_720p.c` | OV9750 (`0x36`, `0x9750` at `0x300b`) | 1280x720 | no | emulated |
-| `sensors/omnivision_ov9732/ov9732_720p.c` | OV9732 (`0x36`, `0x9732` at `0x300a`, `0x302a` = `0xa0`) | 1280x720 | no | emulated |
+| `sensors/omnivision_ov9750/ov9750_720p.c` | OV9750 (`0x36`, `0x9750` at `0x300b`) | 1280x720 | from the trace | emulated |
+| `sensors/omnivision_ov9732/ov9732_720p.c` | OV9732 (`0x36`, `0x9732` at `0x300a`, `0x302a` = `0xa0`) | 1280x720 | from the trace | emulated |
 | `sensors/imagedesign_mis1002/mis1002_720p.c` | MIS1002 (`0x30`, `0x2f` = `0x02`) | 1280x720 | no | emulated |
-| `sensors/smartsens_sc1135/sc1135_720p.c`, `sc1135_960p.c` | SC1135 (`0x30`, `0x3008`/`0x3005` = `0x60`/`0x22`) | 1280x720, 1280x960 | no | emulated |
-| `sensors/smartsens_sc1235/sc1235_960p.c` | SC1235 | 1280x960 | no | emulated |
-| `sensors/soi_jxh65/h65_960p.c` | JX-H65 | 1280x960 | no | emulated |
+| `sensors/smartsens_sc1135/sc1135_720p.c`, `sc1135_960p.c` | SC1135 (`0x30`, `0x3008`/`0x3005` = `0x60`/`0x22`) | 1280x720, 1280x960 | from the trace | emulated |
+| `sensors/smartsens_sc1235/sc1235_960p.c` | SC1235 | 1280x960 | from the trace | emulated |
+| `sensors/soi_jxh65/h65_960p.c` | JX-H65 | 1280x960 | from the trace | emulated |
 
 A sensor's modes are separate scripts, each with its picture size
 (`width`, `height`: VI channel 0). `xmisp_start_mode()` tries the scripts
@@ -178,12 +178,53 @@ start from it.
 "Emulated" means traced from the vendor daemon in qemu-bench (`xm510`
 machine, a lab camera's flash dump, the generic `xm-sensor` showing the
 sensor's chip ID). None of the emulated ones has run on hardware yet, and without a
-3A driver xmispd holds the fixed state. Two kinds of value can't be traced
+3A driver (MIS1002) xmispd holds the fixed state. Two kinds of value can't be traced
 there:
 - the ISP values the daemon computes from what it reads of the hardware
   (`0x4005104c`, `0x40040148`), which keep the JX-H62's;
 - sensor writes computed from a sensor read, which the model answers with
   what was written, or 0.
+
+## 3A drivers from emulated traces
+
+Every emulated sensor but the MIS1002 has a 3A driver taken from its
+trace, untested on hardware:
+- **Gain encoding.** Emulated, the statistics read 0, and the vendor's AE
+  steps exposure to its longest and gain up by about 1.37x every other
+  frame. On the two sensors whose gain was measured it passes through the
+  same gains (JX-H62 `0x06`, `0x0e`, `0x14` … `0x4f`: 1.375x, 1.875x, 2.5x …
+  31x; AR0130 within 3%), so a sensor's ramp gives its codes for known
+  gains, and an encoding has to reproduce them. JX-H42 and JX-H65 write the
+  JX-H62's codes; SC1235, SC2145H and SC2235 a coarse doubling in `0x3e08`
+  (`0x03`, `0x07`, `0x0f`, `0x1f`) times `0x3e09`/16, exactly; OV9732
+  `0x350b`/16, exactly; OV9750 `0x3508`/`0x3509` /128 (its ramp started at
+  1.05x, and goes on 1.37x a step); SC1135 bits 6:4 of `0x3e09` as
+  doublings times 1 + [3:0]/16 (three of its codes are the known gains,
+  the rest within a fine step). `test/sensor_test.c` checks every driver
+  against its ramp. The MIS1002's `0x02`/`0x03` values don't rise with the
+  gain in any reading tried, so it has none.
+- **Gain ceiling:** where the vendor's analogue gain ends (15.5x or 16x);
+  past it the vendor used digital gain, which the drivers don't.
+- **Settings by gain.** The SmartSens sensors and the JX-H65 get sensor
+  writes with the gain (SC1235: `0x3631`, `0x3301`, `0x3633`, and `0x5781`,
+  `0x5785`; JX-H65: `0x1f`), different per mode for the SC1235. They're
+  known at the ramp's gains only: they change with the coarse step, or a
+  range starts at the lowest gain that showed them.
+- **Exposure:** the vendor's longest, two or four lines short of the frame
+  the script sets (1/16 lines on the SmartSens and OmniVision parts). The
+  line time assumes 25 fps, which the daemon logs for SC2145H and SC2235.
+  Where the script leaves the frame length at the chip's (SC1235 960p,
+  SC2235) it's the longest exposure plus four.
+- **White balance range:** the one the vendor's AWB searches under
+  emulation. On the JX-H62 and AR0130 that is wider than on the hardware,
+  and a range too wide let the AR0130's AWB settle on an orange chair, so
+  these are the first thing to narrow on a camera.
+- **Not set:** colour matrix (the script's stays), AE target (the SoC's),
+  noise reduction (the JX-H62's schedule).
+
+Run in qemu-bench under majestic with the AE statistics preset to a dark
+picture, xmispd starts each of them with AE and AWB on, and AE takes
+exposure and gain to the ceiling with the vendor's codes.
 
 ## JX-H62
 
