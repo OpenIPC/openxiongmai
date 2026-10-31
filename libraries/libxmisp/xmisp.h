@@ -56,6 +56,16 @@ int xmisp_set_antiflicker(struct xmisp *isp, unsigned hz);
  * The strength now, 0 to 1. */
 float xmisp_nr_strength(const struct xmisp *isp);
 
+/* Day and night (daynight.h's struct xmisp_dn_cfg): at night the picture
+ * is black and white (Cb/Cr gain 0) and AWB holds; by day the colour comes
+ * back. NULL turns it off, back to day. Needs AE. 0, or -1 with
+ * xmisp_error(). */
+struct xmisp_dn_cfg;
+int xmisp_set_daynight(struct xmisp *isp, const struct xmisp_dn_cfg *cfg);
+
+/* 1 at night. */
+int xmisp_night(const struct xmisp *isp);
+
 /* 1 if AWB runs: the sensor driver gives its white balance range. */
 int xmisp_awb_enabled(const struct xmisp *isp);
 

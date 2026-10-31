@@ -14,6 +14,16 @@
  * start and again on SIGHUP. XMISPD_ANTIFLICKER in the environment (0, 50
  * or 60) overrides it.
  *
+ * Day and night follow majestic's automatic night mode, whose keys it
+ * reads the same way: with nightMode.lightMonitor true (and no
+ * lightSensorPin or min/maxThreshold, which are majestic's own sources),
+ * the picture goes black and white once AE has run out of exposure and gain
+ * for nightMode.autoNightDelay seconds (default 15), or the gain has
+ * reached nightMode.autoNightGain, and back to colour once the gain stays
+ * at or below nightMode.autoDayGain (default 2) for autoDayDelay seconds
+ * (default 60). On the XM510 majestic cannot see the exposure, which this
+ * daemon holds.
+ *
  * The sensor mode follows the vendor daemon's own configuration, which
  * majestic writes from its video0.size: "Profile=960" in ISP_CONFIG prefers
  * a sensor's 960P script (1280x960). The script that started is reported as
@@ -37,6 +47,7 @@
 #include <sys/file.h>
 #include <unistd.h>
 
+#include "daynight.h"
 #include "xmisp.h"
 
 #define LOCK_FILE "/tmp/Isplock"
@@ -71,31 +82,81 @@ static int hz_of(const char *v) {
   return -1;
 }
 
-/* isp.antiFlicker from majestic's YAML: the "antiFlicker:" key indented
- * under the top-level "isp:". */
-static int antiflicker_hz(void) {
-  const char *env = getenv("XMISPD_ANTIFLICKER");
-  if (env)
-    return hz_of(env);
+/* A key of majestic's YAML, indented under a top-level section: its value
+ * (spaces and quotes trimmed) into val, 1 if present, 0 if not. */
+static int yaml_get(const char *section, const char *key, char *val,
+                    size_t len) {
   FILE *f = fopen(MAJESTIC_YAML, "r");
   if (!f)
     return 0;
   char line[256];
-  int in_isp = 0, hz = 0;
-  while (fgets(line, sizeof(line), f)) {
+  const size_t sl = strlen(section), kl = strlen(key);
+  int in = 0, found = 0;
+  while (!found && fgets(line, sizeof(line), f)) {
     line[strcspn(line, "\r\n#")] = 0;
     if (line[0] && line[0] != ' ') {
-      in_isp = !strncmp(line, "isp:", 4);
+      in = !strncmp(line, section, sl) && line[sl] == ':';
       continue;
     }
     const char *k = line + strspn(line, " ");
-    if (in_isp && !strncmp(k, "antiFlicker:", 12)) {
-      hz = hz_of(k + 12);
-      break;
+    if (in && !strncmp(k, key, kl) && k[kl] == ':') {
+      const char *v = k + kl + 1;
+      v += strspn(v, " \"'");
+      snprintf(val, len, "%s", v);
+      val[strcspn(val, "\"' ")] = 0;
+      found = 1;
     }
   }
   fclose(f);
-  return hz;
+  return found;
+}
+
+/* isp.antiFlicker. */
+static int antiflicker_hz(void) {
+  const char *env = getenv("XMISPD_ANTIFLICKER");
+  if (env)
+    return hz_of(env);
+  char v[32];
+  return yaml_get("isp", "antiFlicker", v, sizeof(v)) ? hz_of(v) : 0;
+}
+
+/* A nightMode number, or def if absent or empty. */
+static float night_num(const char *key, float def) {
+  char v[32];
+  if (!yaml_get("nightMode", key, v, sizeof(v)) || !v[0])
+    return def;
+  return strtof(v, NULL);
+}
+
+/* Day and night from nightMode, at start and on SIGHUP. */
+static void daynight(struct xmisp *isp) {
+  char v[32];
+  const int on =
+      yaml_get("nightMode", "lightMonitor", v, sizeof(v)) && !strcmp(v, "true");
+  /* majestic's other sources take precedence over the exposure */
+  const int other =
+      (yaml_get("nightMode", "lightSensorPin", v, sizeof(v)) && v[0]) ||
+      (yaml_get("nightMode", "minThreshold", v, sizeof(v)) && v[0] &&
+       yaml_get("nightMode", "maxThreshold", v, sizeof(v)) && v[0]);
+  if (!on || other) {
+    if (xmisp_set_daynight(isp, NULL) < 0)
+      error("%s", xmisp_error(isp));
+    return;
+  }
+  const struct xmisp_dn_cfg cfg = {
+      night_num("autoNightGain", 0.0f),
+      night_num("autoDayGain", 2.0f),
+      (uint32_t)(night_num("autoNightDelay", 15.0f) * 1000.0f),
+      (uint32_t)(night_num("autoDayDelay", 60.0f) * 1000.0f),
+  };
+  if (xmisp_set_daynight(isp, &cfg) < 0)
+    error("%s", xmisp_error(isp));
+  else
+    debug("day/night: black and white once %s for %.0f s, colour at %.1fx "
+          "or less for %.0f s",
+          cfg.night_gain > 0 ? "the gain reaches its night value"
+                             : "the exposure runs out",
+          cfg.night_ms / 1000.0f, cfg.day_gain, cfg.day_ms / 1000.0f);
 }
 
 static void antiflicker(struct xmisp *isp) {
@@ -167,6 +228,7 @@ int main(void) {
     error("no frame signal: %s", strerror(errno));
 
   antiflicker(isp);
+  daynight(isp);
 
   /* The vendor daemon's last start-up line; the streamer starts video once
    * it has it. */
@@ -174,6 +236,7 @@ int main(void) {
 
   unsigned long frames = 0;
   int failing = 0; /* AE errors are logged when they start and stop */
+  int night = 0;
   for (;;) {
     siginfo_t si;
     const int sig = sigwaitinfo(&set, &si);
@@ -185,6 +248,14 @@ int main(void) {
       else if (r >= 0 && failing)
         debug("3A recovered after frame %lu", frames - 1);
       failing = r < 0;
+      if (xmisp_night(isp) != night) {
+        night = xmisp_night(isp);
+        float mean, gain;
+        uint32_t lines;
+        xmisp_exposure(isp, &mean, &lines, &gain);
+        debug("%s (gain %.1f, mean %.1f)",
+              night ? "night: black and white" : "day: colour", gain, mean);
+      }
       if (r > 0 && verbose) {
         float mean, gain;
         uint32_t lines;
@@ -199,6 +270,7 @@ int main(void) {
       }
     } else if (sig == SIGHUP) {
       antiflicker(isp);
+      daynight(isp);
     } else if (sig == SIGTERM || sig == SIGINT)
       break;
   }
