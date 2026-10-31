@@ -171,6 +171,8 @@ struct vpss_rec {
 #define VPSS_INIT 0x5000
 #define VPSS_CREATE_GRP 0x40805001
 #define VPSS_START_GRP 0x40045008
+#define VPSS_STOP_GRP 0x40045009
+#define VPSS_DESTROY_ALL 0x5010
 #define VPSS_SET_CHN_ATTR 0x40805004
 #define VPSS_ENABLE_CHN 0x40805006
 #define VPSS_SET_SPLICE 0x40805012
@@ -186,6 +188,7 @@ struct vpss_rec {
 #define VI_SET_CHN_ATTR 0x40505602 /* +0x10: x, y, in w, h, format, out w,
                                     * h, -, -, source fps, fps */
 #define VI_ENABLE_CHN 0x40045603   /* {chn} */
+#define VI_DISABLE_CHN 0x40045604  /* {chn} */
 #define VI_BIND 0x40505605         /* +0x10: {module, device, channel} */
 
 /* sys.ko keeps the whole bind table: {src{mod,dev,chn}, dst{mod,dev,chn}} */
@@ -602,6 +605,57 @@ int xmv200_board_start(const char *name, struct xmv200_board_info *info) {
   return xmv200_layout_start(&l, info);
 }
 
+/* the running pipeline, for xmv200_layout_stop */
+static struct {
+  int started;
+  int fd_vpss, fd_sys, fd_venc, fd_rgn, fd_hevc, fd_vb, fd_vi;
+  int n_groups, n_streams, vi_scaler;
+  int n_sensors;
+  struct xmv200_isp_sensor sensor[XMV200_MAX_SENSORS];
+  int sensor_standby; /* SmartSens: their stream off */
+} run = {.fd_vpss = -1, .fd_sys = -1, .fd_venc = -1, .fd_rgn = -1,
+         .fd_hevc = -1, .fd_vb = -1, .fd_vi = -1};
+
+static void close_fd(int *fd) {
+  if (*fd >= 0)
+    close(*fd);
+  *fd = -1;
+}
+
+void xmv200_layout_stop(void) {
+  xmv200_isp_stop();
+  if (!run.started)
+    return;
+  for (int c = 0; run.sensor_standby && c < run.n_sensors; c++)
+    xmv200_i2c_write(run.sensor[c].bus, run.sensor[c].addr, 0x0100, 2, 0, 1);
+  for (int s = 0; run.vi_scaler && run.fd_vi >= 0 && s < run.n_streams; s++) {
+    uint32_t chn = s;
+
+    ioctl(run.fd_vi, VI_DISABLE_CHN, &chn);
+  }
+  for (int g = 0; run.fd_vpss >= 0 && g < run.n_groups; g++) {
+    uint32_t grp = g;
+
+    ioctl(run.fd_vpss, VPSS_STOP_GRP, &grp);
+  }
+  if (run.fd_vpss >= 0)
+    ioctl(run.fd_vpss, VPSS_DESTROY_ALL, 0);
+  if (run.fd_rgn >= 0)
+    ioctl(run.fd_rgn, 0x5200, 0); /* every region gone */
+  if (run.fd_sys >= 0) { /* every bind gone */
+    memset(binds, 0, sizeof(binds));
+    ioctl(run.fd_sys, 0x400c5300, binds);
+  }
+  close_fd(&run.fd_vpss);
+  close_fd(&run.fd_sys);
+  close_fd(&run.fd_venc);
+  close_fd(&run.fd_rgn);
+  close_fd(&run.fd_hevc);
+  close_fd(&run.fd_vb);
+  close_fd(&run.fd_vi);
+  run.started = 0;
+}
+
 int xmv200_layout_start(const struct xmv200_layout *l,
                         struct xmv200_board_info *info) {
   static struct board board;
@@ -610,6 +664,7 @@ int xmv200_layout_start(const struct xmv200_layout *l,
   const struct xmv200_chip *chip;
   uint32_t reset;
 
+  xmv200_layout_stop(); /* a running one first */
   if (layout_board(l, &board))
     return -1;
   n = b->isp.n_chn;
@@ -798,6 +853,20 @@ int xmv200_layout_start(const struct xmv200_layout *l,
   }
   xmv200_ae_init(&b->isp, where, chip->frame_answer);
 
+  run = (__typeof__(run)){.started = 1,
+                          .fd_vpss = fd_vpss,
+                          .fd_sys = fd_sys,
+                          .fd_venc = fd_venc,
+                          .fd_rgn = fd_rgn,
+                          .fd_hevc = fd_hevc,
+                          .fd_vb = fd_vb,
+                          .fd_vi = fd_vi,
+                          .n_groups = chip->vi_scaler ? 0 : n,
+                          .n_streams = b->n_streams,
+                          .vi_scaler = chip->vi_scaler,
+                          .n_sensors = n,
+                          .sensor_standby = !(b->isp.drv && b->isp.drv->probe)};
+  memcpy(run.sensor, b->isp.sensor, sizeof(run.sensor));
   if (info) {
     memset(info, 0, sizeof(*info));
     info->n_streams = b->n_streams;

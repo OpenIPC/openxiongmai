@@ -135,6 +135,108 @@ static int modes(const char *chip) {
   return 0;
 }
 
+/* the board's pipeline from libxmv200 alone, n frames of its streams to
+ * files */
+static int run(const char *board, int n, int osd) {
+  /* the board's pipeline from libxmv200 alone, its streams to files */
+  static uint8_t buf[2 << 20];
+  struct xmv200_board_info info;
+  struct xmv200_venc *e[XMV200_MAX_STREAMS];
+  FILE *out[XMV200_MAX_STREAMS];
+  int got[XMV200_MAX_STREAMS] = {0};
+  int done = 0;
+
+  struct xmv200_layout l;
+  int r;
+
+  /* a board's name, or a layout file */
+  if (strchr(board, '/') || strstr(board, ".conf")) {
+    static char text[8192];
+    FILE *lf = fopen(board, "r");
+    size_t len = lf ? fread(text, 1, sizeof(text) - 1, lf) : 0;
+
+    if (lf)
+      fclose(lf);
+    text[len] = 0;
+    r = !lf || xmv200_layout_parse(text, &l);
+  } else {
+    r = xmv200_board_layout(board, &l);
+  }
+  if (r || xmv200_layout_start(&l, &info)) {
+    fprintf(stderr, "board %s: start failed\n", board);
+    return 1;
+  }
+  if (osd)
+    osd_card(info.n_streams);
+  for (int s = 0; s < info.n_streams; s++) {
+    char path[32];
+
+    snprintf(path, sizeof(path), "/tmp/stream%d.h265", s);
+    out[s] = fopen(path, "wb");
+    if (xmv200_venc_create(&e[s], info.stream[s].width,
+                           info.stream[s].height, info.fps, 35,
+                           2 * info.fps)) {
+      fprintf(stderr, "venc %d: create failed\n", s);
+      return 1;
+    }
+  }
+  /* XMV200_RC="cbr:KBPS", "vbr:KBPS[:QP]" or "qp:QP": stream 0's rate
+   * control */
+  const char *rcs = getenv("XMV200_RC");
+  if (rcs && info.n_streams) {
+    struct xmv200_venc_rc rc = {0};
+    unsigned a = 0, b = 0;
+    char m[4] = "";
+
+    sscanf(rcs, "%3[a-z]:%u:%u", m, &a, &b);
+    rc.mode = !strcmp(m, "cbr")   ? XMV200_RC_CBR
+              : !strcmp(m, "vbr") ? XMV200_RC_VBR
+                                  : XMV200_RC_FIXQP;
+    if (rc.mode == XMV200_RC_FIXQP)
+      rc.qp = a;
+    else
+      rc.kbps = a, rc.qp = b;
+    if (xmv200_venc_set_rc(e[0], &rc))
+      fprintf(stderr, "XMV200_RC=%s: not taken\n", rcs);
+  }
+  for (int i = 0; i < 4 * n * info.n_streams / 2 && done < info.n_streams;
+       i++) {
+    struct xmv200_frame f;
+    int len;
+
+    if (xmv200_frame_get(&f)) {
+      printf("frame %d: none\n", i);
+      continue;
+    }
+    xmv200_ae_frame(&f);
+    len = (int)f.chn < info.n_streams
+              ? xmv200_venc_encode(e[f.chn], &f, buf, sizeof(buf))
+              : -1;
+    xmv200_frame_release(&f);
+    if (len < 0) {
+      printf("frame %d: chn %u %ux%u not encoded\n", i, f.chn, f.width,
+             f.height);
+      continue;
+    }
+    fwrite(buf, 1, len, out[f.chn]);
+    if (++got[f.chn] == n)
+      done++;
+    if (got[f.chn] <= 2 || got[f.chn] % 10 == 0) {
+      struct xmv200_venc_stats st;
+
+      xmv200_venc_get_stats(e[f.chn], &st);
+      printf("stream %u frame %d: %d bytes, qp %u, %u kbit/s\n", f.chn,
+             got[f.chn], len, st.qp, st.kbps);
+    }
+  }
+  for (int s = 0; s < info.n_streams; s++) {
+    fclose(out[s]);
+    xmv200_venc_destroy(e[s]);
+    printf("stream %d: %d frames\n", s, got[s]);
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "probe"))
     return probe();
@@ -193,102 +295,20 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc > 2 && !strcmp(argv[1], "run")) {
-    /* the board's pipeline from libxmv200 alone, its streams to files */
-    static uint8_t buf[2 << 20];
-    struct xmv200_board_info info;
-    struct xmv200_venc *e[XMV200_MAX_STREAMS];
-    FILE *out[XMV200_MAX_STREAMS];
-    int n = argc > 3 ? atoi(argv[3]) : 30, got[XMV200_MAX_STREAMS] = {0};
-    int done = 0;
+    /* run BOARD [N [osd]] [then BOARD2 [N2]]: BOARD2 after stopping BOARD,
+     * in the same process */
+    int n = argc > 3 ? atoi(argv[3]) : 30, k = 4, r;
 
-    struct xmv200_layout l;
-    int r;
-
-    /* a board's name, or a layout file */
-    if (strchr(argv[2], '/') || strstr(argv[2], ".conf")) {
-      static char text[8192];
-      FILE *lf = fopen(argv[2], "r");
-      size_t len = lf ? fread(text, 1, sizeof(text) - 1, lf) : 0;
-
-      if (lf)
-        fclose(lf);
-      text[len] = 0;
-      r = !lf || xmv200_layout_parse(text, &l);
-    } else {
-      r = xmv200_board_layout(argv[2], &l);
+    r = run(argv[2], n, argc > 4 && !strcmp(argv[4], "osd"));
+    while (k < argc && strcmp(argv[k], "then"))
+      k++;
+    if (!r && k + 1 < argc) {
+      xmv200_layout_stop();
+      printf("stopped; then %s\n", argv[k + 1]);
+      r = run(argv[k + 1], k + 2 < argc ? atoi(argv[k + 2]) : n, 0);
     }
-    if (r || xmv200_layout_start(&l, &info)) {
-      fprintf(stderr, "board %s: start failed\n", argv[2]);
-      return 1;
-    }
-    if (argc > 4 && !strcmp(argv[4], "osd"))
-      osd_card(info.n_streams);
-    for (int s = 0; s < info.n_streams; s++) {
-      char path[32];
-
-      snprintf(path, sizeof(path), "/tmp/stream%d.h265", s);
-      out[s] = fopen(path, "wb");
-      if (xmv200_venc_create(&e[s], info.stream[s].width,
-                             info.stream[s].height, info.fps, 35,
-                             2 * info.fps)) {
-        fprintf(stderr, "venc %d: create failed\n", s);
-        return 1;
-      }
-    }
-    /* XMV200_RC="cbr:KBPS", "vbr:KBPS[:QP]" or "qp:QP": stream 0's rate
-     * control */
-    const char *rcs = getenv("XMV200_RC");
-    if (rcs && info.n_streams) {
-      struct xmv200_venc_rc rc = {0};
-      unsigned a = 0, b = 0;
-      char m[4] = "";
-
-      sscanf(rcs, "%3[a-z]:%u:%u", m, &a, &b);
-      rc.mode = !strcmp(m, "cbr")   ? XMV200_RC_CBR
-                : !strcmp(m, "vbr") ? XMV200_RC_VBR
-                                    : XMV200_RC_FIXQP;
-      if (rc.mode == XMV200_RC_FIXQP)
-        rc.qp = a;
-      else
-        rc.kbps = a, rc.qp = b;
-      if (xmv200_venc_set_rc(e[0], &rc))
-        fprintf(stderr, "XMV200_RC=%s: not taken\n", rcs);
-    }
-    for (int i = 0; i < 4 * n * info.n_streams / 2 && done < info.n_streams;
-         i++) {
-      struct xmv200_frame f;
-      int len;
-
-      if (xmv200_frame_get(&f)) {
-        printf("frame %d: none\n", i);
-        continue;
-      }
-      xmv200_ae_frame(&f);
-      len = (int)f.chn < info.n_streams
-                ? xmv200_venc_encode(e[f.chn], &f, buf, sizeof(buf))
-                : -1;
-      xmv200_frame_release(&f);
-      if (len < 0) {
-        printf("frame %d: chn %u %ux%u not encoded\n", i, f.chn, f.width,
-               f.height);
-        continue;
-      }
-      fwrite(buf, 1, len, out[f.chn]);
-      if (++got[f.chn] == n)
-        done++;
-      if (got[f.chn] <= 2 || got[f.chn] % 10 == 0) {
-        struct xmv200_venc_stats st;
-
-        xmv200_venc_get_stats(e[f.chn], &st);
-        printf("stream %u frame %d: %d bytes, qp %u, %u kbit/s\n", f.chn,
-               got[f.chn], len, st.qp, st.kbps);
-      }
-    }
-    for (int s = 0; s < info.n_streams; s++) {
-      fclose(out[s]);
-      printf("stream %d: %d frames\n", s, got[s]);
-    }
-    return 0;
+    xmv200_layout_stop();
+    return r;
   }
   if (argc > 2 && !strcmp(argv[1], "layout")) {
     /* a board's layout as text, to start a layout file from */

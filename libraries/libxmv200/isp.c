@@ -29,6 +29,7 @@
 
 #define ISP_PAGES 0x400c490c   /* {-, count, -}: the shared pages */
 #define ISP_RESET_PAGES 0x4963 /* {0} */
+#define ISP_EXIT 0x495f        /* everything stopped and reset */
 #define ISP_COMM_INIT 0x4962   /* 56 bytes, then the same to 0x49d2 */
 #define ISP_COMM_INIT_VPSS 0x49d2
 #define ISP_CHN_ENABLE 0x4961 /* {chn, 8, chn, 0} */
@@ -50,6 +51,7 @@ static const struct xmv200_chip *cur_chip;
 
 static int isp_fd = -1;
 static uint8_t *isp_page;
+static size_t isp_page_len;
 static pthread_t isp_thread;
 static volatile int isp_running;
 
@@ -376,10 +378,13 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   uint32_t zero = 0, pages[3] = {0, (t->page_size + 0xfff) >> 12, 0};
   if (isp_cmd(ISP_RESET_PAGES, &zero) || isp_cmd(ISP_PAGES, pages))
     return -1;
-  isp_page = mmap(NULL, pages[1] << 12, PROT_READ | PROT_WRITE, MAP_SHARED,
+  isp_page_len = pages[1] << 12;
+  isp_page = mmap(NULL, isp_page_len, PROT_READ | PROT_WRITE, MAP_SHARED,
                   isp_fd, 0);
-  if (isp_page == MAP_FAILED)
+  if (isp_page == MAP_FAILED) {
+    isp_page = NULL;
     return -1;
+  }
   memset(isp_page, 0, pages[1] << 12);
   memcpy(isp_page, t->page, t->page_size);
 
@@ -434,10 +439,20 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
 }
 
 void xmv200_isp_stop(void) {
+  uint32_t zero = 0;
+
   if (isp_running) {
     isp_running = 0;
     pthread_join(isp_thread, NULL);
   }
+  if (isp_fd < 0)
+    return;
+  ioctl(isp_fd, ISP_EXIT, &zero);
+  if (isp_page)
+    munmap(isp_page, isp_page_len);
+  isp_page = NULL;
+  close(isp_fd);
+  isp_fd = -1;
 }
 
 uint32_t xmv200_isp_max_lines(uint32_t chn) {

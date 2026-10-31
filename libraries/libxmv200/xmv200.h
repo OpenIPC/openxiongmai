@@ -115,6 +115,12 @@ int xmv200_sensor_modes(const char *chip, struct xmv200_sensor_mode *m,
 
 int xmv200_layout_start(const struct xmv200_layout *l,
                         struct xmv200_board_info *info);
+/* The pipeline stopped: the ISP and its thread, the sensors' streams,
+ * VPSS (or VI's channels), the overlays and binds. Encoders and frames are
+ * the caller's to have destroyed and released first. xmv200_layout_start
+ * stops a running one itself, so a new resolution or frame rate is another
+ * start. */
+void xmv200_layout_stop(void);
 /* a known board's layout ("x6c-weq", ...), or "auto": the sensors found on
  * I2C, one picture each or two of a kind spliced, and a 640-wide stream */
 int xmv200_board_layout(const char *board, struct xmv200_layout *l);
