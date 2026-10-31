@@ -393,6 +393,16 @@ static const struct xmv200_sns *probe(int bus, uint8_t addr,
     fprintf(stderr, "libxmv200: %s at %d-%02x: no %s tuning", name, bus, addr,
             family);
   }
+  /* SC223A and SC223AP both read 0xcb3e: 0x801b is 0 on the SC223A (the
+   * vendor ISP's test); a family with one of them takes it for both */
+  if (id == 0xcb3e) {
+    const char *name = "SC223AP";
+
+    if (!xmv200_i2c_read(bus, addr, 0x801b, 2, &ext, 1) && !(ext & 0xff))
+      name = "SC223A";
+    if (sensor_named(name, family))
+      return sensor_named(name, family);
+  }
   for (int i = 0; i < xmv200_n_sensors; i++)
     if (xmv200_sensors[i].chip_id == id &&
         !strcmp(xmv200_sensors[i].tuning->chip, family)) {

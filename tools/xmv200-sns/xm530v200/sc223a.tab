@@ -1,4 +1,5 @@
 # name address pairs what-the-vendor-logs
+sc223a_hdr 0x7ca48 213 sc233A 1080P HDR25fps init ok!@20230427
 sc223a_dvp 0x7cd9c 180 SC223A (@20230323_dvp)
 sc223a_720p_mipi 0x7d06c 187 SC223A (@20230908_mipi 1M)
 sc223a_mipi 0x7d358 174 SC223A (@202107_mipi)

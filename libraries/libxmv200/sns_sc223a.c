@@ -6,8 +6,11 @@
  * takes it for the SC223A where 0x801b reads 0. The mode tables are the
  * vendor's (sns_sc223a_regs.c, tools/xmv200-sns/extract.py).
  *
- * The vendor's also has a 1080p HDR mode (attr +0x1c = 2: its table at
- * 0x7ca48, a short frame's exposure, 0x3e23/0x3e24); that is not here.
+ * Its 1080p HDR mode (the vendor's attr +0x1c = 2, which its isp daemon
+ * picks with Isp.json "HDR": 2): the table at 0x7ca48, 2250 lines at any
+ * frame rate, the exposures in quarter lines, the short frame's in
+ * 0x3e04/0x3e05 at 1/16 of the long one, and 0x3e23/0x3e24 where the long
+ * frame ends.
  *
  * Exposure is 0x3e00..0x3e02 in half lines (lines << 5), the coarse analog
  * gain 0x3e09 (0x3e13), the fine gain 0x3e06/0x3e07 (0x3e10/0x3e11), line
@@ -23,7 +26,7 @@
 #include "xmv200.h"
 
 extern const struct xmv200_sns_reg sc223a_dvp[180], sc223a_720p_mipi[187],
-    sc223a_mipi[174], sc223a_mipi_max[176];
+    sc223a_mipi[174], sc223a_mipi_max[176], sc223a_hdr[213];
 
 #define N(a) ((int)(sizeof(a) / sizeof((a)[0])))
 #define MAX_CHN 3
@@ -33,9 +36,16 @@ static const uint32_t again_val[7] = {0x20,  0x39,  0x73, 0xe7,
                                       0x1cf, 0x39e, 0x73d};
 static const uint8_t again_reg[7] = {0x00, 0x40, 0x48, 0x49, 0x4b, 0x4f, 0x5f};
 
+/* HDR: the long exposure over the short one, in 1/64 (16x) */
+#define RATIO 0x400
+#define HDR_VTS 0x8ca
+
 static struct {
   int valid;
   uint32_t exposure, again, dgain, vts;
+  int hdr;
+  uint32_t split_vts, split; /* 0x3e23/0x3e24, for that frame length */
+  uint32_t long_max, short_max, short_exp;
 } st[MAX_CHN];
 
 static void w(const struct xmv200_sns_dev *d, uint16_t reg, uint32_t val) {
@@ -61,8 +71,14 @@ static void init(const struct xmv200_sns_dev *d,
                  const struct xmv200_sns_mode *m,
                  const struct xmv200_sns_attr *a) {
   /* the vendor's has the exposure and gain written again after it */
-  if (d->chn < MAX_CHN)
+  if (d->chn < MAX_CHN) {
     memset(&st[d->chn], 0, sizeof(st[d->chn]));
+    st[d->chn].hdr = m->attr.hdr;
+  }
+  if (m->attr.hdr) { /* the table alone */
+    table(d, m->regs, m->n);
+    return;
+  }
   if (m->regs == sc223a_dvp) {
     w(d, 0x0103, 0x01);
     usleep(20000);
@@ -104,8 +120,8 @@ static void init(const struct xmv200_sns_dev *d,
 /* the vendor's keeps 1080p's exposure limit in 720p */
 static void ae_default(const struct xmv200_sns_attr *a,
                        struct xmv200_sns_ae *ae) {
-  ae->full_lines = a->p720 ? 800 : 1125;
-  ae->max_lines = 1120;
+  ae->full_lines = a->hdr ? HDR_VTS : a->p720 ? 800 : 1125;
+  ae->max_lines = a->hdr ? 0x422 : 1120;
   ae->again_min = 0x20;
   ae->again_max = 0x73e;
   ae->dgain_min = 0x20;
@@ -114,8 +130,12 @@ static void ae_default(const struct xmv200_sns_attr *a,
 
 /* ---- exposure ---- */
 
+static int hdr(const struct xmv200_sns_dev *d) {
+  return d->chn < MAX_CHN && st[d->chn].hdr;
+}
+
 static void set_exposure(const struct xmv200_sns_dev *d, uint32_t lines) {
-  uint32_t v = lines * 2;
+  uint32_t v = lines * (hdr(d) ? 4 : 2);
 
   if (d->chn < MAX_CHN) {
     if (st[d->chn].valid & 1 && st[d->chn].exposure == lines)
@@ -135,6 +155,45 @@ static void clamp_exposure(const struct xmv200_sns_dev *d,
     set_exposure(d, ae->max_lines);
 }
 
+/* HDR: where the long frame ends in a frame of vts lines (0x3e23/0x3e24),
+ * and the longest exposures that leaves */
+static void split(const struct xmv200_sns_dev *d, uint32_t vts,
+                  struct xmv200_sns_ae *ae) {
+  uint32_t s;
+
+  if (!hdr(d))
+    return;
+  s = (RATIO + (vts - 25) * 0x40) / (RATIO + 0x40) & ~1u;
+  st[d->chn].long_max = ((vts - 7) - s) >> 1;
+  st[d->chn].short_max = (s - 6) >> 1;
+  if (ae)
+    ae->max_lines = st[d->chn].long_max;
+  if (st[d->chn].valid & 8 && st[d->chn].split_vts == vts)
+    return;
+  st[d->chn].split_vts = vts;
+  st[d->chn].split = s;
+  st[d->chn].valid |= 8;
+  w(d, 0x3e23, (s & 0xffff) >> 8);
+  w(d, 0x3e24, s & 0xff);
+}
+
+static void set_exposure_short(const struct xmv200_sns_dev *d,
+                               uint32_t lines) {
+  uint32_t v;
+
+  if (!hdr(d))
+    return;
+  if (st[d->chn].short_max && lines > st[d->chn].short_max)
+    lines = st[d->chn].short_max;
+  if (st[d->chn].valid & 16 && st[d->chn].short_exp == lines)
+    return;
+  st[d->chn].short_exp = lines;
+  st[d->chn].valid |= 16;
+  v = lines * 4 < 5 ? 5 : lines * 4;
+  w(d, 0x3e05, (v & 0xf) << 4);
+  w(d, 0x3e04, (v & 0xfff) >> 4);
+}
+
 /* ---- frame rate ---- */
 
 /* 15 and 12 fps from 30 and 25 by the frame length; 26 and 31 the
@@ -145,6 +204,18 @@ static void set_fps(const struct xmv200_sns_dev *d,
                     struct xmv200_sns_ae *ae) {
   uint32_t hts, vts = 0x465;
 
+  if (hdr(d)) { /* by the line length, 2250 lines; the split once the AE
+                 * has started */
+    hts = 66000 / (fps ? fps : 1);
+    ae->full_lines = HDR_VTS;
+    ae->max_lines = st[d->chn].valid & 8 ? st[d->chn].long_max : 0x422;
+    w(d, 0x320c, (hts & 0xffff) >> 8);
+    w(d, 0x320d, hts & 0xff);
+    w(d, 0x320e, HDR_VTS >> 8);
+    w(d, 0x320f, HDR_VTS & 0xff);
+    st[d->chn].vts = HDR_VTS;
+    return;
+  }
   switch (fps) {
   case 24:
     hts = 0xabe;
@@ -195,6 +266,11 @@ static void set_vts(const struct xmv200_sns_dev *d, uint32_t vts,
   }
   ae->full_lines = vts;
   ae->max_lines = vts - 5;
+  if (hdr(d)) {
+    split(d, vts, ae);
+    if (st[d->chn].short_exp > st[d->chn].short_max)
+      set_exposure_short(d, st[d->chn].short_max);
+  }
   clamp_exposure(d, ae);
   w(d, 0x320e, vts >> 8);
   w(d, 0x320f, vts & 0xff);
@@ -270,11 +346,17 @@ static void set_flip(const struct xmv200_sns_dev *d, int mirror, int flip) {
   w(d, 0x3221, v);
 }
 
+static void run(const struct xmv200_sns_dev *d, int n,
+                const struct xmv200_sns_ctx *c);
+
 static const struct xmv200_sns_mode modes[] = {
     {"1080p mipi", {0, 0, 0, 0}, sc223a_mipi, N(sc223a_mipi)},
     {"1080p mipi max", {0, 0, 0, 0}, sc223a_mipi_max, N(sc223a_mipi_max)},
     {"720p mipi", {0, 0, 1, 0}, sc223a_720p_mipi, N(sc223a_720p_mipi)},
     {"1080p dvp", {1, 0, 0, 0}, sc223a_dvp, N(sc223a_dvp)},
+    /* the vendor's start: init, the frame rate, the AE's start, the frame
+     * rate and the frame length again */
+    {"1080p mipi HDR", {0, 0, 0, 0, 0, 1}, sc223a_hdr, N(sc223a_hdr), 5},
 };
 
 const struct xmv200_sns_drv xmv200_sns_sc223a = {
@@ -287,11 +369,56 @@ const struct xmv200_sns_drv xmv200_sns_sc223a = {
     .set_fps = set_fps,
     .set_vts = set_vts,
     .set_exposure = set_exposure,
+    .set_exposure_short = set_exposure_short,
+    .hdr_ratio = RATIO / 0x40,
     .again_calc = again_calc,
     .dgain_calc = dgain_calc,
     .set_gain = set_gain,
     .set_flip = set_flip,
+    .run = run,
 };
+
+/* the tuning's exposure is the register's: half lines, in HDR quarter
+ * lines. HDR's runs: 0 init, 1 and 3 the frame rate, 2 the AE's start
+ * (the short exposure 1/16 of the long one, rounded up), 4 the frame
+ * length */
+static void run(const struct xmv200_sns_dev *d, int n,
+                const struct xmv200_sns_ctx *c) {
+  uint32_t areg, dreg, real, lines = c->exp_lines / 4;
+
+  if (!c->mode->attr.hdr) { /* the tuning's exposure in half lines */
+    if (n == 2) {
+      set_exposure(d, c->exp_lines / 2);
+      again_calc(0x20, &areg, &real);
+      dgain_calc(0x20, &dreg, &real);
+      set_gain(d, areg, dreg);
+    } else {
+      xmv200_sns_run_steps(&xmv200_sns_sc223a, d, n, c);
+    }
+    return;
+  }
+  switch (n) {
+  case 0:
+    init(d, c->mode, &c->attr);
+    ae_default(&c->attr, c->ae);
+    break;
+  case 1:
+  case 3:
+    set_fps(d, &c->attr, c->attr.fps, c->ae);
+    break;
+  case 2:
+    split(d, c->ae->full_lines, c->ae);
+    set_exposure(d, lines);
+    set_exposure_short(d, (lines * 0x40 + RATIO - 1) / RATIO);
+    again_calc(0x20, &areg, &real);
+    dgain_calc(0x20, &dreg, &real);
+    set_gain(d, areg, dreg);
+    break;
+  default:
+    w(d, 0x320e, (c->ae->full_lines & 0xffff) >> 8);
+    w(d, 0x320f, c->ae->full_lines & 0xff);
+  }
+}
 
 /* ---- XM535W1 ----
  *
