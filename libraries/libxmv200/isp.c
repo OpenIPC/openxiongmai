@@ -311,7 +311,9 @@ static int run_program(const struct xmv200_isp_cfg *cfg,
       memcpy(a, t->chn_attr, sizeof(a));
       a[0] = c->chn | (chip->chn_attr_idx ? c->vi_idx << 4 : 0);
       if (cfg->drv && sns_ae[c->chn < 3 ? c->chn : 0].full_lines)
-        a[2] = sns_ae[c->chn < 3 ? c->chn : 0].full_lines;
+        a[2] = sns_ae[c->chn < 3 ? c->chn : 0].isp_lines
+                   ? sns_ae[c->chn < 3 ? c->chn : 0].isp_lines
+                   : sns_ae[c->chn < 3 ? c->chn : 0].full_lines;
       r = isp_cmd(ISP_CHN_ATTR, a);
       break;
     }

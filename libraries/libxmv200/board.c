@@ -530,7 +530,21 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
               ls->model ? ls->model : "probed", family);
       return -1;
     }
-    if (!(sn = in_mode(sn, ls))) {
+    /* a sensor whose mode the layout leaves open: on the XM535D2 with
+     * several, the vendor's two lanes frame-synced (as its X9-WE2Q); alone,
+     * not synced, if there is such a tuning */
+    struct xmv200_layout_sensor pref = *ls;
+    const struct xmv200_sns *found = NULL;
+    const char *chip = l->chip ? l->chip : xmv200_chip_name();
+
+    if (!ls->hdr && !ls->sync && !ls->lanes) {
+      if (chip && !strcmp(chip, "xm535d2") && l->n_sensors > 1)
+        pref.sync = 1, pref.lanes = 2;
+      else if (l->n_sensors == 1)
+        pref.sync = -1;
+      found = in_mode(sn, &pref);
+    }
+    if (!(sn = found ? found : in_mode(sn, ls))) {
       fprintf(stderr,
               "libxmv200: sensor %d: no %s tuning with hdr %d sync %d lanes "
               "%d\n",
@@ -591,6 +605,11 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
       if (l->sensor[c].efsync)
         b->isp.attr.sync_cfg = l->sensor[c].efsync > 0 ? 0x11 : 0;
     }
+    /* synced on two lanes with no master named: the last sensor, as the
+     * vendor's X9-WE2Q (SensorSync 0x100) */
+    if (b->isp.attr.sync && b->isp.attr.lanes == 2 &&
+        !b->isp.attr.sync_roles && l->n_sensors > 1 && l->n_sensors <= 8)
+      b->isp.attr.sync_roles = 1u << (4 * (l->n_sensors - 1));
     /* the frame rate the tuning's ISP program is for */
     b->isp.attr.fps = xmv200_sns_capture_fps(b->isp.drv, b->isp.mode, t, &d,
                                              b->fps);

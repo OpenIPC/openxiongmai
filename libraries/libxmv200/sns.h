@@ -56,6 +56,9 @@ struct xmv200_sns_mode {
  * frame rate functions give them */
 struct xmv200_sns_ae {
   uint32_t full_lines; /* the frame length (VTS) */
+  /* the frame length the ISP is told (0x4908), where not full_lines: the
+   * XM535s' 2-lane synced slaves report 1113, as the vendor's do */
+  uint32_t isp_lines;
   uint32_t max_lines;  /* the longest exposure */
   uint32_t again_min, again_max; /* 1/32: 0x20 = 1x */
   uint32_t dgain_min, dgain_max;

@@ -323,6 +323,10 @@ static void xm535_init(const struct xmv200_sns_dev *d,
     return;
   }
   init(d, m, a);
+  /* DVP frame-synced (the daemon's +0x20 0x19 on the DVP table): master or
+   * slave alike, after the table */
+  if (a->dvp && a->sync)
+    w(d, 0x32b2, 0x0b);
 }
 
 static void xm535_set_exposure(const struct xmv200_sns_dev *d,
@@ -383,6 +387,8 @@ static void xm535_set_fps(const struct xmv200_sns_dev *d,
   w(d, 0x320f, vts & 0xef);
   if (d->chn < MAX_CHN)
     st[d->chn].vts = vts;
+  /* a 2-lane synced slave tells the ISP 1113 lines (the daemon's) */
+  ae->isp_lines = d->chn < MAX_CHN && st[d->chn].sync2 == 1 ? 1113 : 0;
   /* two lanes synced: a slave's frame 4 lines shorter */
   if (d->chn < MAX_CHN && st[d->chn].sync2 == 1 && d->chn < 2) {
     w(d, 0x320e, (vts - 4) >> 8);

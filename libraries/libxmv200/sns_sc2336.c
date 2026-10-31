@@ -687,6 +687,8 @@ static void xm535_set_fps(const struct xmv200_sns_dev *d,
     hts = 66000 / (fps ? fps : 1), vts = 1125;
   }
   timing(d, hts, vts, 0xff, 0xef, ae);
+  /* a 2-lane synced slave tells the ISP 1113 lines (the daemon's) */
+  ae->isp_lines = d->chn < MAX_CHN && xm535_sync2[d->chn] == 1 ? 1113 : 0;
   if (xm535_slave(d) && a->one_lane) {
     w(d, 0x301f, 0x47);
     w(d, 0x322e, (vts - 4) >> 8);
