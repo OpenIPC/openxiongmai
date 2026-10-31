@@ -11,6 +11,11 @@
  * (VENC: list 2; VPSS: list 1; VO through vo.ko) or to its queue for user
  * space. isp.ko takes part through vpss_isp_set_val/_post_deal.
  *
+ * With the ISP's BPU online (HDR) no picture comes to list 1: the BPU's
+ * output goes straight to the scalers, and the store channels write it,
+ * driven by their frame start and end interrupts (IRQ 68), as the vendor's
+ * vi.ko does; see online().
+ *
  * The engine scales in two stages: the input (cropped by the group) to a
  * "middle" picture as wide and high as the largest channel or the input,
  * then each channel from that. A channel the size of an uncropped input
@@ -113,6 +118,8 @@ int vpss_isp_init(void __iomem *base);
 int vpss_isp_set_attr(u32 grp, u32 w, u32 h, u32 *attr);
 int vpss_isp_set_val(u32 grp, u32 w, u32 h, u32 first);
 int vpss_isp_post_deal(u32 grp, u32 w, u32 h);
+/* open_isp only, taken with symbol_get */
+u32 vpss_isp_online(u32 grp);
 
 static int rst = 1;
 module_param(rst, int, 0444);
@@ -698,6 +705,246 @@ static void drop_all(struct grp *g, void **bufs, void *in)
 	}
 }
 
+/*
+ * Online (HDR): the BPU's output goes straight to the scalers, and each
+ * channel's store writes it at its frame end, as the vendor's vi.ko drives
+ * it (vi_yuv_store_int; vpss.ko has no such path). At a channel's frame
+ * start (+0x8705C) the next buffer is programmed, at its end (+0x8704C) the
+ * one filled is done; the thread hands it on. Group 0 alone (one sensor),
+ * its channels' sizes and rates; no splices or VO.
+ */
+#define ON_IRQ 68
+#define ON_DONE 16
+
+static u32 (*isp_online)(u32 grp);
+static bool isp_asked;
+static DEFINE_SPINLOCK(on_lock);
+static u32 on_wh, on_gen, on_set;
+static void *on_now[N_CHN], *on_next[N_CHN];
+static bool on_valid[N_CHN];
+static struct {
+	void *b;
+	u32 chn;
+	u64 pts;
+} on_done[ON_DONE];
+static u32 on_head, on_tail;
+
+static void on_drop(void *b)
+{
+	memset(&WORD(b, W_BIND), 0, 12);
+	vb_put_buf(VB_FREE, b);
+}
+
+static void on_program(int i, struct chn *c, void *b)
+{
+	u32 stride = ALIGN(c->w, 16), y = stride * c->h, uv = y / 2;
+	u32 o = WORD(b, W_PHYS) - DDR_BASE, r = i * 0x1000 + 0x90000;
+
+	WORD(b, W_STRIDE) = stride;
+	WORD(b, W_WIDTH) = c->w;
+	WORD(b, W_HEIGHT) = c->h;
+	reg_w(r + 0x00, o >> 4);
+	reg_w(r + 0x10, (o + y) >> 4);
+	/* the last lines, for mirror and flip */
+	reg_w(r + 0x80, (o - stride + y) >> 4);
+	reg_w(r + 0x90, (o - stride + y + uv) >> 4);
+	reg_w(r + 0x58, y >> 4);
+	reg_w(r + 0x5c, uv >> 4);
+	reg_w(r + 0x34, 1);
+}
+
+static void on_frame_start(int i)
+{
+	struct chn *c = &grps[0].chn[i];
+	u32 k;
+
+	if (c->enabled && takes_frame(c)) {
+		if (on_next[i])
+			on_drop(on_next[i]);
+		on_next[i] = NULL;
+		if (vb_get_buf(VB_FREE, ALIGN(c->w, 16) * c->h * 3 / 2,
+			       &on_next[i], 0) == 0)
+			c->vb_ok++;
+		else
+			c->vb_fail++;
+	}
+	if (on_next[i])
+		on_program(i, c, on_next[i]);
+	else
+		reg_w(i * 0x1000 + 0x90034, 0);
+	/* rgn.ko's covers */
+	for (k = 0; k < N_WIN; k++)
+		if (c->win[k][0]) {
+			const u32 *a = c->win[k];
+			u32 o = i * 0x1000 + 0x84140 + k * 0x10;
+
+			reg_w(o, a[1] | a[2] << 16);
+			reg_w(o + 4, (a[1] + a[3]) | (a[2] + a[4]) << 16);
+			reg_w(o + 8, a[5]);
+			reg_w(o + 12, a[7]);
+		}
+}
+
+static void on_frame_end(int i, u64 pts)
+{
+	void *last = on_now[i];
+
+	on_now[i] = on_next[i];
+	on_next[i] = NULL;
+	if (last && on_valid[i] && (on_head + 1) % ON_DONE != on_tail) {
+		on_done[on_head].b = last;
+		on_done[on_head].chn = i;
+		on_done[on_head].pts = pts;
+		on_head = (on_head + 1) % ON_DONE;
+	} else if (last) {
+		on_drop(last);
+	}
+	reg_w(i * 0x1000 + 0x90034, 0);
+	/* the hardware took the buffer at the frame start */
+	on_valid[i] = on_now[i] && readl(regs + i * 0x1000 + 0x90100) !=
+				   readl(regs + i * 0x1000 + 0x90108);
+}
+
+static irqreturn_t on_int(int irq, void *dev)
+{
+	irqreturn_t ret = IRQ_NONE;
+	unsigned long flags;
+	u64 pts;
+	int i;
+
+	clk_get_pts(&pts);
+	spin_lock_irqsave(&on_lock, flags);
+	for (i = 0; i < N_CHN; i++) {
+		u32 c = i * 0x1000;
+
+		if (readl(regs + c + 0x8704c)) {
+			writel(0, regs + c + 0x8704c);
+			if (on_wh)
+				on_frame_end(i, pts);
+			ret = IRQ_HANDLED;
+		}
+		if (readl(regs + c + 0x8705c)) {
+			writel(0, regs + c + 0x8705c);
+			if (on_wh)
+				on_frame_start(i);
+			ret = IRQ_HANDLED;
+		}
+	}
+	spin_unlock_irqrestore(&on_lock, flags);
+	return ret;
+}
+
+/* the store and scalers for in_w x in_h; with on_lock held */
+static void on_setup(u32 in_w, u32 in_h)
+{
+	u32 i, k, h[7], v[7];
+
+	reg_w(0x87044, 0x1e);
+	for (i = 0; i < N_CHN; i++) {
+		struct chn *c = &grps[0].chn[i];
+		u32 n = i * 0x1000, s = n + 0x90000, sc = 0x80000 + i * 0x40;
+		bool on = c->enabled && c->w && c->h &&
+			  !ratio(in_w, c->w, h) && !ratio(in_h, c->h, v);
+
+		reg_w(s + 0x34, 0);
+		reg_w(n + 0x87040, 0);
+		reg_w(n + 0x87050, 0);
+		if (!on)
+			continue;
+		reg_w(s + 0x54, 3);
+		reg_w(s + 0x38, 0);
+		for (k = 0; k < 4; k++)
+			reg_w(s + 0x20 + 4 * k, ALIGN(c->w, 16) >> 4);
+		reg_w(s + 0x30, c->mirror << 2 | c->flip << 1 | c->mirror);
+		reg_w(s + 0x78, c->fmt);
+		reg_w(s + 0x40, 0xff);
+		reg_w(s + 0x44, 0xffffffff);
+		reg_w(sc + 0x00, in_w > c->w || in_h > c->h);
+		for (k = 0; k < 6; k++) {
+			reg_w(sc + 0x04 + 4 * k, v[k]);
+			reg_w(sc + 0x1c + 4 * k, h[k]);
+		}
+		reg_w(sc + 0x34, h[6]);
+		reg_w(sc + 0x3c, v[6]);
+		reg_w(n + 0x81000, 0);
+		reg_w(n + 0x81004, c->w);
+		reg_w(n + 0x81008, 0);
+		reg_w(n + 0x8100c, c->h);
+		reg_w(n + 0x81020, 1);
+		reg_w(n + 0x84100, 0);
+		for (k = 0; k < N_WIN; k++)
+			if (c->win[k][0])
+				reg_w(n + 0x84100, readl(regs + n + 0x84100) | 1u << k);
+		reg_w(n + 0x87044, 3);
+		reg_w(n + 0x87040, 1);
+		reg_w(n + 0x87054, c->h * 15 / 16);
+		reg_w(n + 0x87050, 1);
+	}
+}
+
+/* the thread, with vpss_mutex held: follows the ISP's mode, hands on the
+ * pictures stored */
+static void online(void)
+{
+	struct grp *g = &grps[0];
+	unsigned long flags;
+	u32 wh = 0, i;
+
+	if (!isp_online && !isp_asked && g->started) {
+		isp_online = symbol_get(vpss_isp_online);
+		isp_asked = true;
+	}
+	if (isp_online && g->created && g->started && atomic_read(&opens))
+		wh = isp_online(0);
+	if (!(wh & 0xffff) || !(wh >> 16))
+		wh = 0;
+	spin_lock_irqsave(&on_lock, flags);
+	if (wh != on_wh || (wh && on_set != on_gen)) {
+		on_wh = wh;
+		on_set = on_gen;
+		if (wh) {
+			on_setup(wh & 0xffff, wh >> 16);
+		} else {
+			for (i = 0; i < N_CHN; i++) {
+				reg_w(i * 0x1000 + 0x90034, 0);
+				reg_w(i * 0x1000 + 0x87040, 0);
+				reg_w(i * 0x1000 + 0x87050, 0);
+			}
+		}
+		for (i = 0; i < N_CHN; i++) {
+			if (on_now[i])
+				on_drop(on_now[i]);
+			if (on_next[i])
+				on_drop(on_next[i]);
+			on_now[i] = on_next[i] = NULL;
+			on_valid[i] = false;
+		}
+	}
+	while (on_tail != on_head) {
+		void *b = on_done[on_tail].b;
+		struct chn *c = &g->chn[on_done[on_tail].chn];
+		u64 pts = on_done[on_tail].pts;
+
+		on_tail = (on_tail + 1) % ON_DONE;
+		spin_unlock_irqrestore(&on_lock, flags);
+		if (c == &g->chn[0]) {
+			g->recv++;
+			g->src_w = wh & 0xffff;
+			g->src_h = wh >> 16;
+			g->src_s = ALIGN(g->src_w, 16);
+		}
+		WORD(b, W_PTS) = (u32)pts;
+		WORD(b, W_PTS + 1) = pts >> 32;
+		memcpy(&WORD(b, W_BIND), c->bind, sizeof(c->bind));
+		if (c->enabled && c->bind[0] != MOD_VO)
+			deliver(c, b, pts);
+		else
+			on_drop(b);
+		spin_lock_irqsave(&on_lock, flags);
+	}
+	spin_unlock_irqrestore(&on_lock, flags);
+}
+
 /* one input picture of group g; with vpss_mutex held */
 static void process(struct grp *g, u32 grp, void *in)
 {
@@ -771,6 +1018,9 @@ static int vpss_thread(void *arg)
 		u32 grp;
 
 		if (!atomic_read(&opens) || vb_get_buf(VB_VPSS, 0, &in, 0)) {
+			mutex_lock(&vpss_mutex);
+			online();
+			mutex_unlock(&vpss_mutex);
 			schedule_timeout_interruptible(1);
 			continue;
 		}
@@ -781,6 +1031,7 @@ static int vpss_thread(void *arg)
 		}
 		g = &grps[grp];
 		mutex_lock(&vpss_mutex);
+		online();
 		g->recv++;
 		g->src_s = WORD(in, W_STRIDE);
 		g->src_w = WORD(in, W_WIDTH);
@@ -847,6 +1098,7 @@ static void vpss_init(void)
 			INIT_LIST_HEAD(&grps[g].chn[c].q);
 			init_waitqueue_head(&grps[g].chn[c].wq);
 		}
+	isp_asked = false;
 	mutex_unlock(&vpss_mutex);
 	vpss_isp_init(regs);
 }
@@ -1078,6 +1330,8 @@ static long vpss_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	default:
 		ret = -ENOTTY;
 	}
+	if (w[0] == 0)
+		on_gen++;
 	mutex_unlock(&vpss_mutex);
 done:
 	if (back && copy_to_user(uarg, w, sizeof(w)))
@@ -1184,6 +1438,12 @@ static int __init xm530v200_vpss_init(void)
 		pr_err("vpss: request_irq failed\n");
 		goto misc;
 	}
+	ret = request_irq(ON_IRQ, on_int, 0, "vpss_store", NULL);
+	if (ret) {
+		pr_err("vpss: request_irq failed\n");
+		free_irq(VPSS_IRQ, NULL);
+		goto misc;
+	}
 	thread = kthread_run(vpss_thread, NULL, "vpss");
 	if (IS_ERR(thread)) {
 		ret = PTR_ERR(thread);
@@ -1193,6 +1453,7 @@ static int __init xm530v200_vpss_init(void)
 	pr_info("vpss: openxiongmai xm530v200_vpss init ok\n");
 	return 0;
 irq:
+	free_irq(ON_IRQ, NULL);
 	free_irq(VPSS_IRQ, NULL);
 misc:
 	misc_deregister(&vpss_misc);
@@ -1206,7 +1467,10 @@ static void __exit xm530v200_vpss_exit(void)
 {
 	if (thread)
 		kthread_stop(thread);
+	if (isp_online)
+		symbol_put(vpss_isp_online);
 	misc_deregister(&vpss_misc);
+	free_irq(ON_IRQ, NULL);
 	free_irq(VPSS_IRQ, NULL);
 	remove_proc_entry("umap/vpss", NULL);
 	iounmap(regs);

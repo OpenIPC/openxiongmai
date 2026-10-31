@@ -696,6 +696,21 @@ int vpss_isp_set_val(u32 grp, u32 w, u32 h)
 }
 EXPORT_SYMBOL(vpss_isp_set_val);
 
+/*
+ * Not in isp.ko: whether the BPU runs online (HDR) for group grp, its
+ * output then going straight to VPSS's scalers and store, not to a vb.ko
+ * buffer; the picture's height << 16 | width if so, else 0. The open VPSS
+ * takes the frames from its store then (vpss.ko has no such path).
+ */
+u32 vpss_isp_online(u32 grp)
+{
+	if (C32(CM_RUN) != 1 || C8(CM_MODE) == 1 ||
+	    C32(CM_GRP(0) + 0x14) != grp)
+		return 0;
+	return C32(CM_CHN + 0x20);
+}
+EXPORT_SYMBOL(vpss_isp_online);
+
 /* {cmd, size, offset in the block, bytes} of the plain copies */
 static const struct {
 	u16 cmd, size, dst, len;

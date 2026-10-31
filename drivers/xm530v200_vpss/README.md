@@ -9,6 +9,13 @@ On the XM530V200, VPSS is a memory-to-memory engine. The ISP stores each group's
 
 `isp.ko` takes part through `vpss_isp_set_val` and `vpss_isp_post_deal`.
 
+HDR is different. There the ISP's BPU runs online: its output goes straight to the engine's scalers, and no picture reaches list 1. The vendor's `vpss.ko` has no path for that; the vendor's `vi.ko` (`vi_yuv_store_int`), which stock images don't load, does. This driver takes that part:
+- `open_isp` reports the online mode and the picture's size through `vpss_isp_online`, which the driver finds with `symbol_get` (the vendor `isp.ko` lacks it, so the driver stays offline with it).
+- While the ISP is online, the driver programs group 0's channels into the scalers and the store.
+- At each channel's frame start (IRQ 68, +0x8705C) it programs the next buffer. At the frame end (+0x8704C) the filled buffer goes on to the channel's binding, as above.
+
+The online path covers one group and no splices or VO.
+
 The engine scales in two stages. First the input, cropped by the group, goes to a middle picture as large as the largest channel or the input (at most 2640 wide). Then each channel is scaled from that. A channel the size of an uncropped input takes the input buffer itself. Splicing puts two groups' channels into one picture: modes 1/2 top/bottom, 3/4 left/right.
 
 | ioctl (128-byte record: group, channel, words 4..) | |
