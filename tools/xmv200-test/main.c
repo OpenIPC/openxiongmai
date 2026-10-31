@@ -180,6 +180,15 @@ static int run(const char *board, int n, int osd) {
       return 1;
     }
   }
+  /* XMV200_SNAP=S: a JPEG of stream S's fifth picture, /tmp/snap.jpg */
+  const char *snap = getenv("XMV200_SNAP");
+  struct xmv200_jpeg *jpeg = NULL;
+  int snap_s = snap ? atoi(snap) : -1;
+
+  if (snap_s >= 0 && snap_s < info.n_streams &&
+      xmv200_jpeg_create(&jpeg, info.stream[snap_s].width,
+                         info.stream[snap_s].height))
+    fprintf(stderr, "jpeg: create failed\n");
   /* XMV200_RC="cbr:KBPS", "vbr:KBPS[:QP]" or "qp:QP": stream 0's rate
    * control */
   const char *rcs = getenv("XMV200_RC");
@@ -209,6 +218,16 @@ static int run(const char *board, int n, int osd) {
       continue;
     }
     xmv200_ae_frame(&f);
+    if (jpeg && (int)f.chn == snap_s && got[f.chn] == 4) {
+      int jl = xmv200_jpeg_encode(jpeg, &f, 80, buf, sizeof(buf));
+      FILE *jf = jl > 0 ? fopen("/tmp/snap.jpg", "wb") : NULL;
+
+      printf("snapshot of stream %d: %d bytes\n", snap_s, jl);
+      if (jf) {
+        fwrite(buf, 1, jl, jf);
+        fclose(jf);
+      }
+    }
     len = (int)f.chn < info.n_streams
               ? xmv200_venc_encode(e[f.chn], &f, buf, sizeof(buf))
               : -1;
@@ -234,6 +253,7 @@ static int run(const char *board, int n, int osd) {
     xmv200_venc_destroy(e[s]);
     printf("stream %d: %d frames\n", s, got[s]);
   }
+  xmv200_jpeg_destroy(jpeg);
   return 0;
 }
 

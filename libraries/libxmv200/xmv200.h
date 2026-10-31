@@ -174,6 +174,21 @@ struct xmv200_venc_stats {
 void xmv200_venc_get_stats(const struct xmv200_venc *v,
                            struct xmv200_venc_stats *st);
 
+/*
+ * JPEG snapshots of a picture from xmv200_frame_get (any stream's; the
+ * frame stays the caller's to release), on the XM530V200's JPEG encoder
+ * (jpeg.ko). Made after xmv200_layout_start, for pictures up to max_width
+ * x max_height. quality 1..100 (the IJG scale of Annex K's tables).
+ * Returns the JFIF file's length in out, or -1.
+ */
+struct xmv200_jpeg;
+int xmv200_jpeg_create(struct xmv200_jpeg **j, uint32_t max_width,
+                       uint32_t max_height);
+void xmv200_jpeg_destroy(struct xmv200_jpeg *j);
+struct xmv200_frame;
+int xmv200_jpeg_encode(struct xmv200_jpeg *j, const struct xmv200_frame *f,
+                       int quality, uint8_t *out, int cap);
+
 /* A picture VPSS queued for a VENC channel (venc.ko's FIFO, every channel's
  * pictures in one queue). Each must be released. */
 struct xmv200_frame {
