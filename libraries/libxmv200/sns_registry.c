@@ -64,8 +64,6 @@ extern const struct xmv200_sns_tuning xmv200_tuning_gc2083_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_h63p_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_imx307_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_mis2009_xm535;
-extern const struct xmv200_sns_tuning xmv200_tuning_sc1336_xm535;
-extern const struct xmv200_sns_tuning xmv200_tuning_sc1345_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1346_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1346_xm535_nosync;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc1a4t_xm535;
@@ -77,8 +75,6 @@ extern const struct xmv200_sns_tuning xmv200_tuning_sc2336p_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336p_xm535_nosync;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm535_nosync;
-extern const struct xmv200_sns_tuning xmv200_tuning_sc307c_xm535;
-extern const struct xmv200_sns_tuning xmv200_tuning_sc3235_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc3335_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc401ai_xm535;
 extern const struct xmv200_sns_tuning xmv200_tuning_imx307_xm535w1;
@@ -152,8 +148,6 @@ const struct xmv200_sns xmv200_sensors[] = {
     {0x0848, "H63P", &xmv200_tuning_h63p_xm535},
     {0xa0b2, "IMX307", &xmv200_tuning_imx307_xm535},
     {0x2008, "MIS2009", &xmv200_tuning_mis2009_xm535},
-    {0xca3f, "SC1336", &xmv200_tuning_sc1336_xm535},
-    {0xda23, "SC1345", &xmv200_tuning_sc1345_xm535},
     {0xda4d, "SC1346", &xmv200_tuning_sc1346_xm535},
     {0xda4d, "SC1346", &xmv200_tuning_sc1346_xm535_nosync},
     {0x9a4d, "SC1A4T", &xmv200_tuning_sc1a4t_xm535},
@@ -165,8 +159,6 @@ const struct xmv200_sns xmv200_sensors[] = {
     {0x9b3a, "SC2336P", &xmv200_tuning_sc2336p_xm535_nosync},
     {0xcb3a, "SC2336", &xmv200_tuning_sc2336_xm535},
     {0xcb3a, "SC2336", &xmv200_tuning_sc2336_xm535_nosync},
-    {0xcb07, "SC307C", &xmv200_tuning_sc307c_xm535},
-    {0xcc05, "SC3235", &xmv200_tuning_sc3235_xm535},
     {0xcc1a, "SC3335", &xmv200_tuning_sc3335_xm535},
     {0xcd2e, "SC401AI", &xmv200_tuning_sc401ai_xm535},
     {0xa0b2, "IMX307", &xmv200_tuning_imx307_xm535w1},

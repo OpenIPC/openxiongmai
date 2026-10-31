@@ -40,7 +40,7 @@ Every family's tunings give the same writes through their drivers (`make check`)
 |--------|---------------|
 | xm530v200 | 33: the SmartSens (with SC202CS, SC2210, SC307E, SC5239AI), IMX307, IMX335, F37P, Q03, Q03P, H63, H63P, GC3003, MIS2009, MIS40C1 |
 | xm533 | 16: with GC1084, OV2735, MIS2009, MIS4001, MIS40C1 |
-| xm535 | 14: with IMX307, H63P, GC1084, GC2083, MIS2009 (SC1336, SC1345, SC307C and SC3235 have no D1 driver: its libsns only logs them) |
+| xm535 | 14: with IMX307, H63P, GC1084, GC2083, MIS2009 (SC1336, SC1345, SC307C and SC3235 have no D1/D2 driver: its daemon only logs them, so there is no tuning for them) |
 | xm535w1 | 8: with IMX307 |
 
 The other families add these sensors, unverified:
