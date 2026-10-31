@@ -690,8 +690,6 @@ static int nr_frame(struct xmisp *s) {
     if (i == NR_3D) /* the strength bits only */
       v = (s->nr_low[i] & ~NR_3D_STRENGTH) |
           xmisp_lerp(s->nr_low[i] & NR_3D_STRENGTH, t->high[i], n);
-    else if (i >= NR_SHARPEN && t->high[i] > s->nr_low[i])
-      v = s->nr_low[i]; /* sharpening never rises with gain */
     else
       v = xmisp_lerp(s->nr_low[i], t->high[i], n);
     if (isp_w(s, nr_regs[i], v) < 0)

@@ -112,9 +112,11 @@ const struct xmisp_sensor xmisp_sensor_ar0130 = {
     .awb_b_max = 2.9f,
     .ccm = ccm_ar0130,
     .nr = &nr_ar0130,
-    /* The dark level, measured as on the JX-H62: 0xa4, 0xa3 and 0xa2 at
-     * 1x, 8x and 32x; the script subtracts 0xaa. */
-    .black_high = 0xa2, /* at 32x, the schedule's high end */
+    /* The dark level, measured as on the JX-H62 (2 lines, dark lab): 0xa6
+     * at 1x and 8x, 0xab at 16x, 0xb3 at 32x; the script subtracts 0xaa,
+     * which leaves a grey veil at 32x: at 0xb3 the darkest 5% of a night
+     * picture came down 3-4 levels, noise unchanged, nothing crushed. */
+    .black_high = 0xb3, /* at 32x, the schedule's high end */
     .get_exposure = get_exposure,
     .set_exposure = set_exposure,
 };

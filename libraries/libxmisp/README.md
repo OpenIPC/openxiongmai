@@ -302,23 +302,36 @@ In the running daemon at 15× the result is chroma noise 2.9 (was 5.1) and dE
 The black level offsets (`BLACKLEVEL_OFFSET_R/G/B`, `0x40004000`/`04`/`08`)
 are subtracted from the sensor data in 12-bit units, before the white
 balance gains: a step moves the AE statistics' 8-bit mean by about 0.08.
-The sensor's dark level was measured in daylight: with the daemon frozen,
-the exposure at 2 and 4 lines (53 µs a line, so almost no light) and the
-offset swept, the mean falls linearly until the offset passes the dark
-level, and the two exposures extrapolate to no light.
+The sensor's dark level was measured in the dark lab (#69): the daemon
+frozen, the exposure at 2 lines (53 µs a line: no light, no dark current),
+the offset swept. The mean falls by about 0.08 a step until the offset
+nears the dark level, where the noise is clipped at 0 and the curve
+flattens, so the dark level is the mean at offset 0 over that slope.
 
-| Sensor | Dark level | Script's offset |
+| Sensor | Dark level by gain | Script's offset |
 |---|---|---|
-| JX-H62 | `0x3b` at 1×, `0x32` at 16× | `0x45` |
-| AR0130 | `0xa4`, `0xa3`, `0xa2` at 1×, 8×, 32× | `0xaa` |
+| JX-H62 | `0x3d` 1×, `0x3b` 4×, `0x39` 8×, `0x37` 16× | `0x45` |
+| AR0130 | `0xa6` 1× and 8×, `0xab` 16×, `0xb3` 32× | `0xaa` |
 
-The scripts crush the darkest level or so, which hides noise at low gain
-and loses the shadows of a dark scene. A sensor driver's `black_high`
-(the dark level at the high gain) is where the noise schedule's strength
-takes the offset, from the script's. On the JX-H62 at 16×, in a night-like
-picture (the exposure cut to 13 lines), the chart's darkest patches came up
-3-4 levels (black Y 37 to 41) with the noise unchanged. The vendor daemon
-does the same: `0x45` up to 12.5×, `0x30` at 23×.
+At the longest exposure (746 lines) the JX-H62's is ~2 higher at 16×. A
+first estimate in daylight, from 2 and 4 lines with the light extrapolated
+away, came out low (`0x32` and `0xa2` at the top gains): extrapolating
+across the knee biases it.
+
+A sensor driver's `black_high` (the dark level at the noise schedule's high
+gain) is where the schedule's strength takes the offset, from the script's.
+On the JX-H62 the script's crush (`0x45`) eases off with gain; the vendor
+daemon too goes from `0x45` to `0x30`-`0x36` at 23-31×. On the AR0130 the
+script under-subtracts at high gain: at 32× its offset leaves a grey veil,
+and `0xb3` brought the darkest 5% of a night picture down 3-4 levels with
+the noise unchanged and nothing crushed.
+
+Defect pixels (`DDPC`, `0x40023000`/`04`/`08`): in dark frames at the top
+gain and the longest exposure, the scripts' `DDPC_DIFF_THD` already removes
+them, so it stays at every gain. JX-H62 at 16×, isolated outliers in a
+10-frame mean / per frame: `0x400` 61/58, `0x200` 4/6, `0x11a` (the
+script's) 0/0.4, lower 0/0. AR0130 at 32×: `0x400` 182/246, `0x200` 45/83,
+`0x11a` 16/16, `0x96` (the script's) 4-6/8-12, `0x60` 3/7, `0x40` 7/11.
 
 ## Sharpening in daylight (XM510)
 
@@ -338,9 +351,12 @@ the edge, averaged over 30 columns and 10 frames) and on the chair's mesh:
 Half keeps the edges as sharp and loses most of the halo and half the
 noise; side by side the mesh is still fully resolved. A sensor driver's
 `sharpen` is that share (the JX-H62's 0.5; 0 keeps the script's). The noise
-schedule takes sharpening from there towards its high set, but never up:
-where the high set is stronger (the JX-H62's, `0x26`/`0x20`/`0x17`, against
-half the script's `0x1d`/`0x14`/`0x11`), the low value holds at every gain.
+schedule takes sharpening from there to its high set, even where that is
+stronger: on the JX-H62 at night (~15×, the dimmed bulbs), the high set
+`0x26`/`0x20`/`0x17` against half the script's `0x1d`/`0x14`/`0x11` gave
+mesh detail 15.7 against 12.5 for mesh noise 3.2 against 2.0 (grey patches
+1.5 against 0.8): detail minus noise 12.6 against 10.5, the measure the
+high set was chosen by.
 
 ## Tone curve (XM510)
 

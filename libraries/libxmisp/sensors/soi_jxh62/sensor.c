@@ -49,12 +49,11 @@ const struct xmisp_sensor xmisp_sensor_h62 = {
     .awb_b_min = 1.1f,
     .awb_b_max = 3.6f,
     .ccm = ccm_h62,
-    /* The dark level, with the exposure at 1-8 lines and the black level
-     * swept (the AE statistics' mean against it, extrapolated to no
-     * light): 0x3b at 1x, 0x32 at 16x; the script subtracts 0x45. At 16x a
-     * night-like picture's darkest patches came up 3-4 levels (Y 37 to 41
-     * on the chart's black), noise unchanged. */
-    .black_high = 0x32,
+    /* The dark level, in the dark lab with the exposure at 2 lines and the
+     * black level swept (the AE statistics' mean against it): 0x3d at 1x,
+     * 0x3b at 4x, 0x39 at 8x, 0x37 at 16x; 746 lines adds ~2 at 16x. The
+     * script subtracts 0x45. */
+    .black_high = 0x37,
     /* Daylight, the chart's top edges into its dark band and the chair's
      * mesh, KD/KM0/KH0 scaled together from the script's 0x3a/0x28/0x22:
      *   share  edge 10-90%  halo bright/dark  mesh noise
@@ -63,7 +62,10 @@ const struct xmisp_sensor xmisp_sensor_h62 = {
      *   0.5    1.3 px        2% / 40%         1.2
      *   0      3.3 px        1% / 14%         0.9
      * Half keeps the edges' sharpness and loses most of the halos (the
-     * dark outlines around bright edges) and half the noise. */
+     * dark outlines around bright edges) and half the noise. At night
+     * (~15x) the noise schedule's high set (0x26/0x20/0x17) beats half the
+     * script's on mesh detail minus noise (12.6 against 10.5), so the
+     * schedule raises it from here. */
     .sharpen = 0.5f,
     .get_exposure = get_exposure,
     .set_exposure = set_exposure,

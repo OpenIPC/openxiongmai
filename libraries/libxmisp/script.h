@@ -84,8 +84,8 @@ struct xmisp_sensor {
    * script's. */
   uint32_t black_high;
   /* Sharpening at low gain (KD, KM0, KH0) as a share of the script's; 0
-   * keeps the script's. It never rises with gain: where the noise
-   * schedule's high set is stronger, the low value is kept. */
+   * keeps the script's. The noise schedule takes it to its high set as the
+   * gain rises, up or down. */
   float sharpen;
   /* The exposure the sensor has now. 0 or -1. */
   int (*get_exposure)(struct xmisp *isp, uint32_t *lines, float *gain);
