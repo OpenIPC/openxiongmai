@@ -156,7 +156,8 @@ typedef char nr_tune_fits[NR_REGS == 8 ? 1 : -1];
  * CIELAB dE (20.6 to 23.3); Cb/Cr alone at 0.7 gave 3.1 for the same dE.
  * Turning SHARPEN_CBCR_ENABLE off raises chroma noise (5.1 to 7.7), so it
  * stays. Both follow the noise reduction's strength. */
-#define NR_3D 4 /* index of NR_3D_YCTRL_ERR70 */
+#define NR_3D 4      /* index of NR_3D_YCTRL_ERR70 */
+#define NR_SHARPEN 5 /* index of the first sharpening register, to the end */
 /* Black level offsets, R, G and B (BLACKLEVEL_OFFSET_*, 0x40004000/04/08),
  * subtracted from the sensor data in 12-bit units, before the white balance
  * gains: a step moved the AE statistics' mean by 0.08 of an 8-bit level. */
@@ -665,6 +666,10 @@ static int nr_start(struct xmisp *s) {
   for (unsigned c = 0; c < 3; c++)
     if (isp_r(s, BLACK_LEVEL + c * 4, &s->black_low[c]) < 0)
       return fail(s, "black level read: %s", strerror(errno));
+  /* The sensor's daylight sharpening, as a share of the script's. */
+  const float sharpen = s->script->sensor->sharpen;
+  for (unsigned i = NR_SHARPEN; sharpen > 0 && i < NR_REGS; i++)
+    s->nr_low[i] = (uint32_t)lrintf((float)s->nr_low[i] * sharpen);
   s->nr_on = 1;
   /* For the gain the script left, so the strength is known from here. */
   return nr_frame(s) < 0 ? -1 : 0;
@@ -685,6 +690,8 @@ static int nr_frame(struct xmisp *s) {
     if (i == NR_3D) /* the strength bits only */
       v = (s->nr_low[i] & ~NR_3D_STRENGTH) |
           xmisp_lerp(s->nr_low[i] & NR_3D_STRENGTH, t->high[i], n);
+    else if (i >= NR_SHARPEN && t->high[i] > s->nr_low[i])
+      v = s->nr_low[i]; /* sharpening never rises with gain */
     else
       v = xmisp_lerp(s->nr_low[i], t->high[i], n);
     if (isp_w(s, nr_regs[i], v) < 0)

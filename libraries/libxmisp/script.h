@@ -83,6 +83,10 @@ struct xmisp_sensor {
    * hides noise at low gain and loses shadows at high gain. 0 keeps the
    * script's. */
   uint32_t black_high;
+  /* Sharpening at low gain (KD, KM0, KH0) as a share of the script's; 0
+   * keeps the script's. It never rises with gain: where the noise
+   * schedule's high set is stronger, the low value is kept. */
+  float sharpen;
   /* The exposure the sensor has now. 0 or -1. */
   int (*get_exposure)(struct xmisp *isp, uint32_t *lines, float *gain);
   /* Sets it; *gain comes back as the step the sensor took. 0 or -1. */
