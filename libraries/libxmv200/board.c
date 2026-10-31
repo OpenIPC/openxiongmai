@@ -630,9 +630,10 @@ int xmv200_layout_start(const struct xmv200_layout *l,
     pools[np++] = (struct xmv200_vb_pool){
         size, chip->vb_count + (size < 0x100000 ? 2 : 0)};
   }
+  /* the BPU's picture: the width rounded up (SC5239AI's 2600 takes 2608) */
   if (chip->isp_pool)
     pools[np++] = (struct xmv200_vb_pool){
-        (b->isp.tuning->width & ~0xfu) *
+        ((b->isp.tuning->width + 15) & ~15u) *
             ((b->isp.tuning->height + 15) & ~15u) * 3 / 2,
         3};
   if (xmv200_vb_init(pools, np))
