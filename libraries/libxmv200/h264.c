@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: MIT AND Apache-2.0
 /*
  * H.264 on the XM533's and XM535s' Hantro H1 (hx280enc, /dev/h264), which
- * their vendor library uses only for JPEG: no vendor job to follow, so the
- * H1's H.264 registers and the per-QP tables below are the ones Rockchip's
- * MPP programs its VEPU1 (the same H1) with (mpp/hal/vpu/h264e:
- * hal_h264e_vepu1_v2.c, hal_h264e_vpu_tbl.c; Copyright 2015 Rockchip
- * Electronics Co. LTD, Apache License 2.0).
+ * their vendor library uses only for JPEG. The H1 is the 8290 the XM530 and
+ * XM550 carry (the same 0x1c4-byte window in their hx280enc), so it is
+ * programmed as libxmvenc programs that one: Rockchip VEPU1's layout (MPP,
+ * Apache License 2.0) with the 8290's differences measured on an XM550
+ * (OpenIPC/openxiongmai#13): frame_num in 0x048[15:0], 0x044 a constant
+ * per frame type, the vendor's constants in 0x04c/0x054/0x0f8 and
+ * 0x180..0x1c0, no tables from 0x200.
  *
- * Baseline profile, CAVLC, one slice a picture, one reference. The SPS and
- * PPS are ours; the H1 writes each slice's NAL (header and data) from its
- * registers, so the SPS is what it assumes: POC type 2, a 16-bit frame_num.
- * As for JPEG, what we write goes up to an 8-byte aligned output pointer and
- * the rest (up to 7 bytes) to +0x058/+0x05c, for the H1 to emit first. The
+ * Baseline (CAVLC) or Main (CABAC, cabac_init_idc 0, its context tables
+ * for every QP in MMZ at 0x0cc), one slice a picture, one reference. The
+ * SPS and PPS are ours; the H1 writes each slice's NAL from its registers,
+ * so the SPS is what it assumes: POC type 2, a 16-bit frame_num. As for
+ * JPEG, what we write goes up to an 8-byte aligned output pointer and the
+ * rest (up to 7 bytes) to +0x058/+0x05c, for the H1 to emit first. The
  * reconstruction of each picture is the next one's reference: two frame
  * buffers in turn.
  */
@@ -30,54 +33,28 @@
 #define H1_IOCGHWIOSIZE _IOR('k', 4, unsigned int *)
 #define H1_IOCWAITDONE _IO('k', 12)
 
-/* MPP's tables (hal_h264e_vpu_tbl.c), by QP */
-static const uint32_t prev_mode_favor[52] = {
-    7,  7,  8,  8,  9,  9,  10, 10, 11,  12,  12,  13,  14,  15,  16,  17, 18,
-    19, 20, 21, 22, 24, 25, 27, 29, 30,  32,  34,  36,  38,  41,  43,  46, 49,
-    51, 55, 58, 61, 65, 69, 73, 78, 82,  87,  93,  98,  104, 110, 117, 124,
-    132, 140};
-static const uint32_t diff_mv_penalty[52] = {
-    2,   2,   3,   3,   3,   4,   4,   4,   5,   6,   6,   7,   8,
-    9,   10,  11,  13,  14,  16,  18,  20,  23,  26,  29,  32,  36,
-    40,  45,  51,  57,  64,  72,  81,  91,  102, 114, 128, 144, 161,
-    181, 203, 228, 256, 287, 323, 362, 406, 456, 512, 575, 645, 724};
-static const uint32_t diff_mv_penalty4p[52] = {
-    2,   2,   2,   3,   3,   3,   4,   4,   5,   5,   6,   7,   8,
-    9,   10,  11,  12,  14,  16,  17,  20,  22,  25,  28,  31,  35,
-    39,  44,  49,  55,  62,  70,  78,  88,  98,  110, 124, 139, 156,
-    175, 197, 221, 248, 278, 312, 351, 394, 442, 496, 557, 625, 701};
-static const uint32_t intra16_favor[52] = {
-    24,   24,   24,   26,   27,   30,   32,   35,   39,   43,   48,
-    53,   58,   64,   71,   78,   85,   93,   102,  111,  121,  131,
-    142,  154,  167,  180,  195,  211,  229,  248,  271,  296,  326,
-    361,  404,  457,  523,  607,  714,  852,  1034, 1272, 1588, 2008,
-    2568, 3318, 4323, 5672, 7486, 9928, 13216, 17648};
-static const uint32_t inter_favor[52] = {
-    0,   0,   0,   0,   0,   0,   45,   48,   51,   53,   55,   60,   62,
-    67,  69,  72,  78,  84,  90,  96,   110,  120,  135,  152,  170,  189,
-    210, 235, 265, 297, 335, 376, 420,  470,  522,  572,  620,  670,  724,
-    770, 820, 867, 915, 970, 1020, 1076, 1132, 1180, 1230, 1275, 1320, 1370};
-static const uint32_t skip_sad_penalty[52] = {
-    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 233, 205, 182,
-    163, 146, 132, 120, 109, 100, 92,  84,  78,  71,  66,  61,  56,
-    52,  48,  44,  41,  38,  35,  32,  30,  27,  25,  23,  21,  19,
-    17,  15,  14,  12,  11,  9,   8,   7,   5,   4,   3,   2,   1};
+/* the XM530/XM550 vendor's values (libxmvenc's chip_xm530), [0] IDR, [1] P */
+static const uint32_t ctrl1[2] = {0x006a00eb, 0x0081011d};
+static const uint32_t ctrl3[2] = {0x00009c28, 0x0000c433};
+static const uint32_t ctrl4[2] = {0x2d000087, 0x33000087};
+static const uint32_t ext[6] = {0x00000003, 0x606a707a, 0x4148545a,
+                                0x10112131, 0x11111100, 0x11111100};
+static const uint32_t r1b8[2] = {0x000abcdd, 0x999acdee};
+#define MVC 0x80002000
+#define R1BC 0x64209bdf
+#define R1C0 0x1b6db6db
 
-/* MPP's exp_golomb_signed: the bits of a signed Exp-Golomb code */
-static uint32_t eg_bits(int32_t v) {
-  int32_t t = 0;
-
-  v = v > 0 ? 2 * v : -2 * v + 1;
-  while (v >> ++t)
-    ;
-  return t * 2 - 1;
-}
+/* libxmvenc's CABAC context initialisations (cabac_tbl.c) */
+extern const signed char xmvenc__cabac_init_intra[460][2];
+extern const signed char xmvenc__cabac_init[3][460][2];
+#define CABAC_TBL_SIZE (52 * 2 * 464)
 
 struct h264enc {
   int fd;
   volatile uint32_t *hw;
   size_t hw_size;
-  struct xmv200_buf out, rec[2];
+  struct xmv200_buf out, rec[2], cabac_tbl;
+  int cabac, cabac_next; /* Main profile; from the next IDR */
   uint32_t w, h, mbw, mbh, fps;
   uint32_t frame_num, idr_id;
   int cur; /* the reconstruction buffer this picture writes */
@@ -152,8 +129,8 @@ static int sps_pps(const struct h264enc *e, uint8_t *out, int cap) {
   uint32_t cw = e->mbw * 16 - e->w, ch = e->mbh * 16 - e->h;
   int n, m;
 
-  put(&b, 66, 8);   /* Baseline */
-  put(&b, 0xc0, 8); /* constraint_set0/1 */
+  put(&b, e->cabac ? 77 : 66, 8);  /* Main or (Constrained) Baseline */
+  put(&b, e->cabac ? 0 : 0xc0, 8); /* constraint_set0/1 */
   put(&b, e->mbw * e->mbh > 3600 ? 40 : e->mbw * e->mbh > 1620 ? 31 : 30, 8);
   ue(&b, 0);  /* seq_parameter_set_id */
   ue(&b, 12); /* log2_max_frame_num - 4: the H1's 16 bits */
@@ -186,7 +163,8 @@ static int sps_pps(const struct h264enc *e, uint8_t *out, int cap) {
 
   ue(&p, 0);     /* pic_parameter_set_id */
   ue(&p, 0);     /* seq_parameter_set_id */
-  put(&p, 0, 2); /* CAVLC, no bottom field POC */
+  put(&p, e->cabac, 1); /* entropy_coding_mode */
+  put(&p, 0, 1);        /* no bottom field POC */
   ue(&p, 0);     /* one slice group */
   ue(&p, 0);     /* num_ref_idx_l0_default_active - 1 */
   ue(&p, 0);
@@ -203,6 +181,39 @@ static int sps_pps(const struct h264enc *e, uint8_t *out, int cap) {
 }
 
 /* ---- the H1 ---- */
+
+/* the CABAC context states for every QP, intra then inter (cabac_init_idc
+ * 0), 464 bytes each, in the H1's word order: libxmvenc's, which matches
+ * the vendor stack's table */
+static int cabac_table(uint8_t *dst) {
+  uint8_t *t = calloc(1, CABAC_TBL_SIZE);
+
+  if (!t)
+    return -1;
+  for (int qp = 0; qp < 52; qp++)
+    for (int j = 0; j < 2; j++) {
+      const signed char(*ctx)[2] =
+          j ? xmvenc__cabac_init[0] : xmvenc__cabac_init_intra;
+
+      for (int i = 0; i < 460; i++) {
+        int pre = ((ctx[i][0] * qp) >> 4) + ctx[i][1];
+
+        pre = pre < 1 ? 1 : pre > 126 ? 126 : pre;
+        t[qp * 928 + j * 464 + i] =
+            pre <= 63 ? (63 - pre) << 1 : ((pre - 64) << 1) | 1;
+      }
+    }
+  /* each pair of 32-bit words swapped, and each byte-reversed */
+  for (int k = 0; k < CABAC_TBL_SIZE; k += 8)
+    for (int b = 0; b < 4; b++) {
+      dst[k + b] = t[k + 7 - b];
+      dst[k + 4 + b] = t[k + 3 - b];
+    }
+  free(t);
+  return 0;
+}
+
+void xmv200_h264_set_cabac(struct h264enc *e, int on) { e->cabac_next = !!on; }
 
 void xmv200_h264_destroy(struct h264enc *e) {
   if (!e)
@@ -260,8 +271,7 @@ int xmv200_h264_encode(struct h264enc *e, const struct xmv200_frame *f,
                        int idr, int qp, uint8_t *out, int cap) {
   volatile uint32_t *r = e->hw;
   uint32_t mbw = e->mbw, mbh = e->mbh, ysize = mbw * 16 * mbh * 16;
-  uint32_t hdr = 0, aligned, nrem, len, st, v;
-  uint32_t scaler = 200 / (mbw + mbh) ? 200 / (mbw + mbh) : 1;
+  uint32_t hdr = 0, aligned, nrem, len, st;
   uint64_t rem = 0;
   int n;
 
@@ -269,6 +279,13 @@ int xmv200_h264_encode(struct h264enc *e, const struct xmv200_frame *f,
     return -1;
   qp = qp < 0 ? 0 : qp > 51 ? 51 : qp;
   if (idr) {
+    if (e->cabac_next != e->cabac) {
+      if (e->cabac_next && !e->cabac_tbl.phys &&
+          (xmv200_mmz_alloc(&e->cabac_tbl, "h264_cabac", CABAC_TBL_SIZE, 0) ||
+           cabac_table(e->cabac_tbl.virt)))
+        e->cabac_next = 0;
+      e->cabac = e->cabac_next;
+    }
     e->frame_num = 0;
     e->idr_id = (e->idr_id + 1) & 0xf;
     if ((n = sps_pps(e, e->out.virt, 0x200)) < 0)
@@ -282,8 +299,9 @@ int xmv200_h264_encode(struct h264enc *e, const struct xmv200_frame *f,
 
   const struct xmv200_buf *rec = &e->rec[e->cur], *ref = &e->rec[!e->cur];
 
+  r[0x038 / 4] = 0;
   r[0x004 / 4] = 0;
-  r[0x008 / 4] = 0xd01f; /* the bus, as the vendor's JPEG */
+  r[0x008 / 4] = 0xd01f; /* burst 16, clock gating, all swaps (vendor) */
   r[0x014 / 4] = e->out.phys + aligned;
   r[0x018 / 4] = 0; /* no NAL size table */
   r[0x01c / 4] = ref->phys;
@@ -292,46 +310,44 @@ int xmv200_h264_encode(struct h264enc *e, const struct xmv200_frame *f,
   r[0x028 / 4] = rec->phys + ysize;
   r[0x02c / 4] = f->y;
   r[0x030 / 4] = f->c;
-  r[0x034 / 4] = 0;
+  r[0x034 / 4] = f->c + 1;
   r[0x03c / 4] = f->stride << 12 |
                  (e->w & 15 ? (16 - (e->w & 15)) / 4 : 0) << 10 |
                  (e->h & 15 ? 16 - (e->h & 15) : 0) << 6 | 1 << 2; /* NV12 */
-  r[0x040 / 4] = 26u << 26 | e->idr_id << 1; /* PPS QP, deblocking 0/0 */
-  r[0x044 / 4] = prev_mode_favor[qp] << 16 | e->frame_num;
-  v = intra16_favor[qp];
-  if (mbw * mbh > 3600)
-    v |= 1u << 22; /* no quarter-pixel MVs */
-  r[0x048 / 4] = v;
-  r[0x04c / 4] = 1u << 30 | diff_mv_penalty[qp] << 20 |
-                 diff_mv_penalty4p[qp] << 10 | diff_mv_penalty[qp];
-  v = skip_sad_penalty[qp] * scaler;
-  r[0x054 / 4] = (v > 255 ? 255 : v) << 24 | inter_favor[qp];
+  /* pic_init_qp (the PPS's 26), idr_pic_id (P pictures keep the IDR's) */
+  r[0x040 / 4] = 26u << 26 | e->idr_id << 1;
+  r[0x044 / 4] = ctrl1[!idr];
+  /* deblocking as the vendor, quarter-pel MVs off, CABAC (init_idc 0) or
+   * CAVLC, frame_num */
+  r[0x048 / 4] = 0xc0400000 | (uint32_t)e->cabac << 18 | e->frame_num;
+  r[0x04c / 4] = ctrl3[!idr];
+  r[0x054 / 4] = ctrl4[!idr];
   r[0x058 / 4] = rem >> 32;
   r[0x05c / 4] = (uint32_t)rem;
   r[0x060 / 4] = (e->out.size - aligned) >> 3 & ~7u;
   r[0x064 / 4] = 0; /* no MAD QP adjustment */
+  /* the picture's QP as init, min and max; the H1 codes slice_qp_delta
+   * against 0x040's */
   r[0x06c / 4] = (uint32_t)qp << 26 | (uint32_t)qp << 20 | (uint32_t)qp << 14;
-  for (int i = 0; i < 10; i++)
+  for (int i = 0; i < 9; i++)
     r[0x070 / 4 + i] = 0; /* no checkpoints */
-  r[0x090 / 4] = 0;
   r[0x094 / 4] = nrem * 8 << 23;
-  r[0x09c / 4] = 0;
-  r[0x0a0 / 4] = 0;
-  r[0x0cc / 4] = 0; /* CAVLC: no CABAC table */
+  r[0x098 / 4] = 0;
+  r[0x0cc / 4] = e->cabac ? e->cabac_tbl.phys : 0;
   r[0x0d0 / 4] = 0;
-  r[0x0e0 / 4] = mbw << 24 | mbw << 16 | mbh << 8 | mbh; /* no intra area */
-  r[0x0f0 / 4] = mbw << 24 | mbw << 16 | mbh << 8 | mbh; /* no ROI */
+  r[0x0d4 / 4] = 0x962b4c85;
+  r[0x0d8 / 4] = 0x90901d50;
+  r[0x0dc / 4] = 0x0000b694;
+  /* intra area and ROIs outside the picture */
+  r[0x0e0 / 4] = mbw << 24 | mbw << 16 | mbh << 8 | mbh;
+  r[0x0f0 / 4] = mbw << 24 | mbw << 16 | mbh << 8 | mbh;
   r[0x0f4 / 4] = mbw << 24 | mbw << 16 | mbh << 8 | mbh;
-  r[0x0f8 / 4] = 10u << 28; /* zero MV favour */
-  for (int i = 0; i < 128; i += 4) {
-    r[0x180 / 4 + i / 4] = (uint32_t)i << 24 | (uint32_t)(i + 1) << 16 |
-                           (uint32_t)(i + 2) << 8 | (uint32_t)(i + 3);
-    uint32_t q[4];
-
-    for (int k = 0; k < 4; k++)
-      q[k] = eg_bits(i + k) > 255 ? 255 : eg_bits(i + k);
-    r[0x200 / 4 + i / 4] = q[0] << 24 | q[1] << 16 | q[2] << 8 | q[3];
-  }
+  r[0x0f8 / 4] = MVC;
+  for (int i = 0; i < 6; i++)
+    r[0x180 / 4 + i] = ext[i];
+  r[0x1b8 / 4] = r1b8[!idr];
+  r[0x1bc / 4] = R1BC;
+  r[0x1c0 / 4] = R1C0;
   r[0x038 / 4] = 1u << 31 | mbw << 19 | mbh << 10 | (idr ? 1 : 0) << 3 |
                  3 << 1 | 1; /* H.264, start */
   if (ioctl(e->fd, H1_IOCWAITDONE, 0) < 0)

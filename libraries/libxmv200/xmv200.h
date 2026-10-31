@@ -150,6 +150,9 @@ int xmv200_venc_create(struct xmv200_venc **v, uint32_t width,
 int xmv200_venc_create_h264(struct xmv200_venc **v, uint32_t width,
                             uint32_t height, uint32_t fps, uint32_t qp,
                             uint32_t gop);
+/* H.264: Main profile with CABAC (on), or Baseline with CAVLC, from an IDR
+ * it asks for; -1 for H.265 */
+int xmv200_venc_set_cabac(struct xmv200_venc *v, int on);
 void xmv200_venc_destroy(struct xmv200_venc *v);
 void xmv200_venc_request_idr(struct xmv200_venc *v);
 

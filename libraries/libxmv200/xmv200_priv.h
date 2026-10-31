@@ -133,6 +133,8 @@ struct xmv200_frame;
 struct h264enc *xmv200_h264_create(uint32_t w, uint32_t h, uint32_t fps);
 void xmv200_h264_destroy(struct h264enc *e);
 void xmv200_h264_set_fps(struct h264enc *e, uint32_t fps);
+/* Main profile (CABAC) from the next IDR, or back to Baseline */
+void xmv200_h264_set_cabac(struct h264enc *e, int on);
 int xmv200_h264_encode(struct h264enc *e, const struct xmv200_frame *f,
                        int idr, int qp, uint8_t *out, int cap);
 

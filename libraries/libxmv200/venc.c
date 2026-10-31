@@ -748,6 +748,14 @@ int xmv200_venc_create_h264(struct xmv200_venc **pv, uint32_t width,
   return 0;
 }
 
+int xmv200_venc_set_cabac(struct xmv200_venc *v, int on) {
+  if (!v->h264)
+    return -1;
+  xmv200_h264_set_cabac(v->h264, on);
+  xmv200_venc_request_idr(v);
+  return 0;
+}
+
 void xmv200_venc_destroy(struct xmv200_venc *v) {
   if (!v)
     return;

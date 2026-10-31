@@ -12,8 +12,12 @@ DRIVERS = sns.o $(patsubst %.c,%.o,$(filter-out %_tuning.c sns_registry.c,\
 OBJECTS = sys.o venc.o jpeg.o h264.o audio.o isp.o ae.o image.o mask.o md.o chip.o board.o layout.o osd.o $(DRIVERS) \
 	$(SENSORS)
 
-libxmv200.a: $(OBJECTS)
+libxmv200.a: $(OBJECTS) cabac_tbl.o
 	$(AR) rcs $@ $^
+
+# H.264's CABAC context initialisations: libxmvenc's (Apache-2.0)
+cabac_tbl.o: ../libxmvenc/cabac_tbl.c ../libxmvenc/cabac_tbl.h
+	$(CC) $(CFLAGS) -I../libxmvenc -c -o $@ $<
 
 $(OBJECTS): xmv200.h xmv200_priv.h sns_tuning.h sns.h
 

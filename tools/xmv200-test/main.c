@@ -172,8 +172,10 @@ static int run(const char *board, int n, int osd) {
   for (int s = 0; s < info.n_streams; s++) {
     char path[32];
 
-    /* XMV200_CODEC=h264: H.264 (the H1's) in place of H.265 */
-    int h264 = getenv("XMV200_CODEC") && !strcmp(getenv("XMV200_CODEC"), "h264");
+    /* XMV200_CODEC=h264 (Baseline) or h264main (Main, CABAC): H.264 (the
+     * H1's) in place of H.265 */
+    const char *codec = getenv("XMV200_CODEC");
+    int h264 = codec && !strncmp(codec, "h264", 4);
 
     snprintf(path, sizeof(path), "/tmp/stream%d.%s", s, h264 ? "h264" : "h265");
     out[s] = fopen(path, "wb");
@@ -184,6 +186,8 @@ static int run(const char *board, int n, int osd) {
       fprintf(stderr, "venc %d: create failed\n", s);
       return 1;
     }
+    if (h264 && !strcmp(codec, "h264main"))
+      xmv200_venc_set_cabac(e[s], 1);
   }
   /* XMV200_SNAP=S: a JPEG of stream S's fifth picture, /tmp/snap.jpg */
   const char *snap = getenv("XMV200_SNAP");
