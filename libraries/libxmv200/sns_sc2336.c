@@ -361,6 +361,8 @@ static void set_flip(const struct xmv200_sns_dev *d, int mirror, int flip) {
 /* ---- the drivers ---- */
 
 #define MODE(nm, dv, one, p7, t) {nm, {dv, one, p7, 0}, t, N(t)}
+/* frame-synced (the XM535D1's) */
+#define SYNC_MODE(nm, dv, one, p7, t) {nm, {dv, one, p7, 0, 0, 0, 1}, t, N(t)}
 
 static const struct xmv200_sns_mode sc2336_modes[] = {
     MODE("1080p mipi 1 lane", 0, 1, 0, sc2336_mipi_1lane),
@@ -518,11 +520,11 @@ extern const struct xmv200_sns_reg xm535_sc2336_mipi[145],
     xm535_sc2336p_mipi_1lane[167], xm535_sc2336p_mipi[149];
 
 static const struct xmv200_sns_mode xm535_sc2336_modes[] = {
-    MODE("1080p mipi 1 lane, frame sync", 0, 1, 0, xm535_sc2336_mipi),
+    SYNC_MODE("1080p mipi 1 lane, frame sync", 0, 1, 0, xm535_sc2336_mipi),
     MODE("1080p mipi 1 lane", 0, 1, 0, xm535_sc2336_mipi),
 };
 static const struct xmv200_sns_mode xm535_sc2336p_modes[] = {
-    MODE("1080p mipi 1 lane, frame sync", 0, 1, 0,
+    SYNC_MODE("1080p mipi 1 lane, frame sync", 0, 1, 0,
          xm535_sc2336p_mipi_1lane_sync),
     MODE("1080p mipi 1 lane", 0, 1, 0, xm535_sc2336p_mipi_1lane),
     MODE("1080p mipi", 0, 0, 0, xm535_sc2336p_mipi),

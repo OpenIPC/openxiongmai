@@ -42,6 +42,9 @@ NAMED = {0x49e9: 'XMV200_OP_LDC', 0x4908: 'XMV200_OP_CHN_ATTR',
          0x4964: 'XMV200_OP_AE_INIT', 0x4965: None,
          0x490e: 'XMV200_OP_CHN_INIT', 0x4980: 'XMV200_OP_CHN_SIZE',
          0x495e: 'XMV200_OP_VICU_RUN'}
+# isp.ko's commands for every channel at once (iw.c: 0x4970, the WDR
+# blocks), whatever their first word
+ALL_CHN = (0x4970,)
 # the program starts with channel 0's first command of its own
 START = (0x4913, 0x4974)
 
@@ -241,7 +244,14 @@ for f in lines:
             if n in bufs:
                 prog.append('XMV200_OP_ALLOC(%d)' % bufs.index(n))
             continue
-        if dev != 'isp' or d[:1] not in (b'\0', b''):
+        # the BPU's WDR mode, {chn << 24 | mode}: channel 0's
+        if dev == 'isp' and cmd == 0x4959:
+            if len(d) >= 4 and d[3] == 0:
+                prog.append('XMV200_OP_WDR(%d)' % d[0])
+            continue
+        # blocks for every channel: their first word is not a channel
+        raw = cmd in ALL_CHN
+        if dev != 'isp' or (not raw and d[:1] not in (b'\0', b'')):
             continue
         if cmd == 0x4914:
             prog.append('XMV200_OP_CHN_ENABLE(%d)' % struct.unpack_from('<I', d, 4)[0])
@@ -258,8 +268,9 @@ for f in lines:
                    for off, i, sh, rel in find_patches(cmd, d)]
         assert len(patches) <= 16, (hex(cmd), patches)
         prog.append('XMV200_OP_BLOCK(%d)' % len(blocks))
-        blocks.append('    {0x%04x, %s, sizeof(%s),\n     {%s}},' %
-                      (cmd, cn, cn, ', '.join(patches) or '{0}'))
+        blocks.append('    {0x%04x, %s, sizeof(%s),\n     {%s}%s},' %
+                      (cmd, cn, cn, ', '.join(patches) or '{0}',
+                       ', 1' if raw else ''))
     elif on and len(f) == 5 and f[1] == 'U':
         o_, v_ = int(f[3], 16), int(f[4], 16)
         op = REG_OP.get(o_) if f[2] == 'isp2.vi' else None

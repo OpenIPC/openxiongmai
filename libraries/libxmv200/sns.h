@@ -35,6 +35,9 @@ struct xmv200_sns_attr {
    * +0x20): 25 for some sensors' 25 fps table, 21, 100 ("car"), frame sync
    * bits on the XM535; 0 for none of these */
   uint32_t vmode;
+  int hdr;   /* the two-frame HDR (WDR) mode */
+  int sync;  /* frame-synced sensors (the XM535D1's: channel 0 the slave) */
+  int lanes; /* MIPI lanes where a mode is for a count (2, 4); 0: any */
 };
 
 struct xmv200_sns_mode {
@@ -42,6 +45,7 @@ struct xmv200_sns_mode {
   struct xmv200_sns_attr attr; /* what selects it (fps unused) */
   const struct xmv200_sns_reg *regs;
   int n;
+  int n_runs; /* its tunings' sensor runs, where not the driver's */
 };
 
 /* the AE's limits in a mode, as the vendor's cmos_get_ae_default and
@@ -80,6 +84,9 @@ struct xmv200_sns_drv {
   void (*set_vts)(const struct xmv200_sns_dev *d, uint32_t vts,
                   struct xmv200_sns_ae *ae);
   void (*set_exposure)(const struct xmv200_sns_dev *d, uint32_t lines);
+  /* HDR: the short frame's exposure, and its ratio to the long one's */
+  void (*set_exposure_short)(const struct xmv200_sns_dev *d, uint32_t lines);
+  uint32_t hdr_ratio;
   /* gain in 1/32 to what the sensor takes: the analog step's index and its
    * gain, the digital gain's register value and its gain */
   void (*again_calc)(uint32_t gain, uint32_t *idx, uint32_t *real);
@@ -148,6 +155,10 @@ uint32_t xmv200_sns_capture_fps(const struct xmv200_sns_drv *drv,
                                 uint32_t fallback);
 /* while set, xmv200_i2c_write gives the writes to it instead of the bus */
 extern void (*xmv200_i2c_divert)(uint32_t reg, uint32_t val);
+
+/* the sensor runs a tuning of mode m has */
+int xmv200_sns_n_runs(const struct xmv200_sns_drv *drv,
+                      const struct xmv200_sns_mode *m);
 
 /* the tuning's sensor run n, by the driver; the default: run 0 the mode's
  * init, run 1 the frame rate, run 2 the exposure the tuning starts from and

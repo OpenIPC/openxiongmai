@@ -15,6 +15,7 @@
  * sensor's default is the other way round). There is no digital gain.
  */
 
+#include <string.h>
 #include <unistd.h>
 
 #include "sns.h"
@@ -45,6 +46,9 @@ static uint32_t r(const struct xmv200_sns_dev *d, uint8_t reg) {
 static void init(const struct xmv200_sns_dev *d,
                  const struct xmv200_sns_mode *m,
                  const struct xmv200_sns_attr *a) {
+  /* what the vendor's process starts with: nothing written yet */
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
   if (d->chn < MAX_CHN)
     st[d->chn].valid = 0;
   for (int i = 0; i < m->n; i++)
@@ -273,7 +277,7 @@ extern const struct xmv200_sns_reg xm535_h63p_dvp[98], xm535_h63p_mipi[106];
 
 static const struct xmv200_sns_mode xm535_modes[] = {
     {"720p mipi", {0, 0, 1, 0}, xm535_h63p_mipi, N(xm535_h63p_mipi)},
-    {"720p mipi, frame sync", {0, 0, 1, 0}, xm535_h63p_mipi,
+    {"720p mipi, frame sync", {0, 0, 1, 0, 0, 0, 1}, xm535_h63p_mipi,
      N(xm535_h63p_mipi)},
     {"720p dvp", {1, 0, 1, 0}, xm535_h63p_dvp, N(xm535_h63p_dvp)},
 };
@@ -281,6 +285,9 @@ static const struct xmv200_sns_mode xm535_modes[] = {
 static void xm535_init(const struct xmv200_sns_dev *d,
                        const struct xmv200_sns_mode *m,
                        const struct xmv200_sns_attr *a) {
+  /* what the vendor's process starts with: nothing written yet */
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
   if (d->chn < MAX_CHN)
     st[d->chn].valid = 0;
   for (int i = 0; i < m->n; i++)

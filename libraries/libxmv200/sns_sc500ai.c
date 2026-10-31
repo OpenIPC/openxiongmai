@@ -219,8 +219,10 @@ static void run(const struct xmv200_sns_dev *d, int n,
 
 /* the lane count is not in xmv200_sns_attr: the 2-lane mode first */
 static const struct xmv200_sns_mode modes[] = {
-    {"5m mipi 2 lanes", {0, 0, 0, 0}, sc500ai_5m_2lane, N(sc500ai_5m_2lane)},
-    {"5m mipi 4 lanes", {0, 0, 0, 0}, sc500ai_5m_4lane, N(sc500ai_5m_4lane)},
+    {"5m mipi 2 lanes", {0, 0, 0, 0, 0, 0, 0, 2}, sc500ai_5m_2lane,
+     N(sc500ai_5m_2lane)},
+    {"5m mipi 4 lanes", {0, 0, 0, 0, 0, 0, 0, 4}, sc500ai_5m_4lane,
+     N(sc500ai_5m_4lane)},
 };
 
 const struct xmv200_sns_drv xmv200_sns_sc500ai = {
@@ -314,9 +316,9 @@ static void w1_run(const struct xmv200_sns_dev *d, int n,
                    const struct xmv200_sns_ctx *c);
 
 static const struct xmv200_sns_mode w1_modes[] = {
-    {"5m mipi 2 lanes", {0, 0, 0, 0}, xm535w1_sc500ai_5m_2lane,
+    {"5m mipi 2 lanes", {0, 0, 0, 0, 0, 0, 0, 2}, xm535w1_sc500ai_5m_2lane,
      N(xm535w1_sc500ai_5m_2lane)},
-    {"5m mipi 4 lanes", {0, 0, 0, 0}, xm535w1_sc500ai_5m_4lane,
+    {"5m mipi 4 lanes", {0, 0, 0, 0, 0, 0, 0, 4}, xm535w1_sc500ai_5m_4lane,
      N(xm535w1_sc500ai_5m_4lane)},
 };
 
@@ -365,9 +367,9 @@ extern const struct xmv200_sns_reg xm535_sc500ai_5m_2lane[126],
     xm535_sc500ai_5m_4lane[125];
 
 static const struct xmv200_sns_mode xm535_modes[] = {
-    {"5m mipi 2 lanes", {0, 0, 0, 0}, xm535_sc500ai_5m_2lane,
+    {"5m mipi 2 lanes", {0, 0, 0, 0, 0, 0, 0, 2}, xm535_sc500ai_5m_2lane,
      N(xm535_sc500ai_5m_2lane)},
-    {"5m mipi 4 lanes", {0, 0, 0, 0}, xm535_sc500ai_5m_4lane,
+    {"5m mipi 4 lanes", {0, 0, 0, 0, 0, 0, 0, 4}, xm535_sc500ai_5m_4lane,
      N(xm535_sc500ai_5m_4lane)},
 };
 

@@ -49,6 +49,11 @@ static void sync_w(const struct xmv200_sns_dev *d, int i, uint16_t reg,
 static void init(const struct xmv200_sns_dev *d,
                  const struct xmv200_sns_mode *m,
                  const struct xmv200_sns_attr *a) {
+  /* what the vendor's process starts with: nothing written yet */
+  for (int i = 0; i < 4; i++)
+    last[i] = -1;
+  shs = 0xffff;
+  vts_cache = 0;
   w(d, 0x3000, 1);
   for (int i = 0; i < m->n; i++)
     w(d, m->regs[i].reg, m->regs[i].val);
@@ -138,9 +143,9 @@ static void set_gain(const struct xmv200_sns_dev *d, uint32_t idx,
 static void set_flip(const struct xmv200_sns_dev *d, int mirror, int flip) {}
 
 static const struct xmv200_sns_mode modes[] = {
-    {"1080p mipi 2 lanes", {0, 0, 0, 0}, imx307_mipi_2lane,
+    {"1080p mipi 2 lanes", {0, 0, 0, 0, 0, 0, 0, 2}, imx307_mipi_2lane,
      N(imx307_mipi_2lane)},
-    {"1080p mipi 4 lanes", {0, 0, 0, 0}, imx307_mipi_4lane,
+    {"1080p mipi 4 lanes", {0, 0, 0, 0, 0, 0, 0, 4}, imx307_mipi_4lane,
      N(imx307_mipi_4lane)},
 };
 
@@ -204,9 +209,9 @@ static void w1_init(const struct xmv200_sns_dev *d,
 }
 
 static const struct xmv200_sns_mode w1_modes[] = {
-    {"1080p mipi 2 lanes", {0, 0, 0, 0}, xm535w1_imx307_mipi_2lane,
+    {"1080p mipi 2 lanes", {0, 0, 0, 0, 0, 0, 0, 2}, xm535w1_imx307_mipi_2lane,
      N(xm535w1_imx307_mipi_2lane)},
-    {"1080p mipi 4 lanes", {0, 0, 0, 0}, xm535w1_imx307_mipi_4lane,
+    {"1080p mipi 4 lanes", {0, 0, 0, 0, 0, 0, 0, 4}, xm535w1_imx307_mipi_4lane,
      N(xm535w1_imx307_mipi_4lane)},
 };
 
@@ -250,13 +255,15 @@ static struct {
 } xm535_st[MAX_CHN];
 
 static const struct xmv200_sns_mode xm535_modes[] = {
-    {"1080p mipi 2 lanes", {0, 0, 0, 0}, xm535_imx307_mipi_2lane,
+    {"1080p mipi 2 lanes", {0, 0, 0, 0, 0, 0, 0, 2}, xm535_imx307_mipi_2lane,
      N(xm535_imx307_mipi_2lane)},
-    {"1080p mipi 4 lanes", {0, 0, 0, 0}, xm535_imx307_mipi_4lane,
+    {"1080p mipi 4 lanes", {0, 0, 0, 0, 0, 0, 0, 4}, xm535_imx307_mipi_4lane,
      N(xm535_imx307_mipi_4lane)},
-    {"1080p mipi 2 lanes 10-bit", {0, 0, 0, 0}, xm535_imx307_mipi_2lane,
+    {"1080p mipi 2 lanes 10-bit", {0, 0, 0, 0, 0, 0, 0, 2},
+     xm535_imx307_mipi_2lane,
      N(xm535_imx307_mipi_2lane)},
-    {"1080p mipi 4 lanes 10-bit", {0, 0, 0, 0}, xm535_imx307_mipi_4lane,
+    {"1080p mipi 4 lanes 10-bit", {0, 0, 0, 0, 0, 0, 0, 4},
+     xm535_imx307_mipi_4lane,
      N(xm535_imx307_mipi_4lane)},
 };
 

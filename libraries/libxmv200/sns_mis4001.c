@@ -199,7 +199,8 @@ static const struct xmv200_sns_mode modes[] = {
     {"4M 15fps", {0, 0, 0, 0}, mis4001_4m_15fps, N(mis4001_4m_15fps)},
 };
 
-/* the probe: the vendor's MIS probe (0x1311: MIS4001 unless the product says MIS5001) */
+/* the probe: the vendor's MIS probe (0x1311: MIS4001 unless the product
+ * says MIS5001) */
 static uint32_t probe(int bus, uint8_t addr) {
   return xmv200_sns_mis_id(bus, addr) == 0x1311 ? 0x1311 : 0;
 }
@@ -330,7 +331,7 @@ extern const struct xmv200_sns_reg xm535_mis4001_4m[175];
 
 static const struct xmv200_sns_mode xm535_modes[] = {
     {"4M mipi", {0, 0, 0, 0}, xm535_mis4001_4m, N(xm535_mis4001_4m)},
-    {"4M mipi, frame sync", {0, 0, 0, 0}, xm535_mis4001_4m,
+    {"4M mipi, frame sync", {0, 0, 0, 0, 0, 0, 1}, xm535_mis4001_4m,
      N(xm535_mis4001_4m)},
 };
 

@@ -17,6 +17,7 @@
  * do.
  */
 
+#include <string.h>
 #include <unistd.h>
 
 #include "sns.h"
@@ -46,6 +47,9 @@ static uint32_t r(const struct xmv200_sns_dev *d, uint8_t reg) {
 static void init(const struct xmv200_sns_dev *d,
                  const struct xmv200_sns_mode *m,
                  const struct xmv200_sns_attr *a) {
+  /* what the vendor's process starts with: nothing written yet */
+  if (d->chn < MAX_CHN)
+    memset(&st[d->chn], 0, sizeof(st[d->chn]));
   if (d->chn < MAX_CHN)
     st[d->chn].valid = 0;
   for (int i = 0; i < m->n; i++)

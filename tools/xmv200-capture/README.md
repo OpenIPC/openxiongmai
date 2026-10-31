@@ -73,3 +73,21 @@ The same capture and generator work on the XM533 and XM535 firmware. Name the fa
 The capture needs `CAP_H`, `CAP_ISZ` and `CAP_PAGEPTR` for the chip's modules and `isp` binary (see `capture.sh`), and `CAP_NCH` set to the board's sensor count. The families are `xm530v200`, `xm535` (XM535D1/D2), `xm535w1` and `xm533`. They differ in where VI's blocks are and in their kernel modules' structs; `libraries/libxmv200/chip.c` has the differences.
 
 A tuning holds the mode, not the board: the program is channel 0's, and libxmv200 builds what depends on the layout from the board's description. That covers the channel index and input, the receiver, the VI device and the windows.
+
+## Other modes
+
+A stock firmware runs its sensor in the mode its product settings choose (`/mnt/custom/CustomConfig/Isp.json`). To capture another mode, `isp_json.py` makes an image with those settings changed:
+
+- without `MipiAttr`, for the 2-lane MIPI modes;
+- with `Assign2336p` off, for the real SC2337P;
+- on the XM535D1, with `FunExt` 1 instead of 17, for the sensors without frame sync.
+
+Name the tuning after its mode (`sc2336_2lane`, `sc2336_xm535_nosync`). The registry's first tuning of a sensor is the default.
+
+```sh
+./isp_json.py stock.bin nolane.bin -MipiAttr
+IMAGE=nolane.bin ./capture.sh cb3a captures/nolane_cb3a
+./gen_tuning.py captures/nolane_cb3a/merged.trace ... sc2336_2lane
+```
+
+None of this is read at run time. The streamer picks the mode in its layout (`hdr`, `sync`, `lanes` in `struct xmv200_layout_sensor`), and `xmv200_sensor_modes()` lists the modes there are tunings for.

@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
       printf("no driver mode\n");
       continue;
     }
-    want = drv->n_runs ? drv->n_runs : 3;
+    want = xmv200_sns_n_runs(drv, m);
     printf("%s, %s: ", drv->name, m->name);
     if (t->n_runs != want) {
       printf("%d runs, the driver makes %d\n", t->n_runs, want);

@@ -47,6 +47,7 @@ struct ae_state {
 
 static struct ae_state st[MAX_SNS];
 static const struct xmv200_sns_drv *drv; /* NULL: SmartSens registers */
+static int hdr;                          /* the short frame's exposure too */
 static int n_sns, handoff;
 static int isp_fd = -1, mem_fd = -1;
 static unsigned count[XMV200_MAX_STREAMS];
@@ -65,6 +66,7 @@ void xmv200_ae_init(const struct xmv200_isp_cfg *c,
   n_sns = c->n_chn < MAX_SNS ? c->n_chn : MAX_SNS;
   handoff = give;
   drv = c->drv;
+  hdr = drv && c->attr.hdr && drv->set_exposure_short;
   for (int i = 0; i < n_sns; i++)
     st[i] = (struct ae_state){.where = where[i],
                               /* the frame length less the sensor's margin */
@@ -95,6 +97,9 @@ static void apply(struct ae_state *a) {
     uint32_t idx, reg, real;
 
     drv->set_exposure(&d, a->lines);
+    if (hdr) /* the long one over the ratio, rounded up */
+      drv->set_exposure_short(&d, (a->lines + drv->hdr_ratio - 1) /
+                                      (drv->hdr_ratio ? drv->hdr_ratio : 16));
     drv->again_calc(0x20u << a->again, &idx, &real);
     drv->dgain_calc(0x20, &reg, &real); /* the sensor's at 1x: */
     drv->set_gain(&d, idx, reg);        /* the ISP's takes the rest */

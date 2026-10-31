@@ -40,12 +40,15 @@ struct xmv200_isp_block {
     uint8_t buf, shift;
     uint32_t rel;
   } patch[16];
+  int raw; /* for every channel: its first word as recorded, not the channel */
 };
 
 /* program steps: a block, a buffer, a sensor run, or one of libxmv200's */
 #define XMV200_OP_BLOCK(n) (0x8000 | (n))
 #define XMV200_OP_ALLOC(n) (0x4000 | (n))   /* the tuning's buffer n */
 #define XMV200_OP_SNS_RUN(n) (0x2000 | (n)) /* the tuning's sensor run n */
+/* 0x4959 {chn << 24 | m}: the BPU's WDR mode (2 the two-frame HDR) */
+#define XMV200_OP_WDR(m) (0x1000 | (m))
 enum {
   XMV200_OP_NOP,
   XMV200_OP_SNS_FLIP,     /* the board's mirror/flip for this lens */

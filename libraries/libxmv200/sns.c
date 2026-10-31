@@ -251,6 +251,35 @@ static int init_writes_run0(const struct xmv200_sns_drv *drv,
   return same_rec(&t->runs[0]);
 }
 
+/* do all of a tuning's runs, done by mode m at one of the capture rates,
+ * write what it recorded */
+static int all_runs_match(const struct xmv200_sns_drv *drv,
+                          const struct xmv200_sns_mode *m,
+                          const struct xmv200_sns_tuning *t) {
+  static const uint32_t rates[] = {12, 25, 30, 15, 20, 10, 24};
+  struct xmv200_sns_dev d = {0, 0x30, 0};
+
+  if (t->n_runs != xmv200_sns_n_runs(drv, m))
+    return 0;
+  for (unsigned r = 0; r < sizeof(rates) / sizeof(rates[0]); r++) {
+    struct xmv200_sns_ae ae = {0};
+    struct xmv200_sns_ctx c = {m, m->attr, t->exp_lines, &ae};
+    int ok = 1;
+
+    c.attr.fps = rates[r];
+    for (int n = 0; ok && n < t->n_runs; n++) {
+      n_rec = 0;
+      xmv200_i2c_divert = record;
+      xmv200_sns_run(drv, &d, n, &c);
+      xmv200_i2c_divert = NULL;
+      ok = same_rec(&t->runs[n]);
+    }
+    if (ok)
+      return 1;
+  }
+  return 0;
+}
+
 static int same_regs(const struct xmv200_sns_mode *m,
                      const struct xmv200_sns_run *run) {
   if (m->n != run->n)
@@ -273,20 +302,30 @@ xmv200_sns_mode_for(const struct xmv200_sns_drv *drv,
       const struct xmv200_sns_attr *m = &drv->modes[i].attr;
 
       if (m->dvp == a->dvp && m->p720 == a->p720 &&
-          (a->dvp || m->one_lane == a->one_lane))
+          (a->dvp || m->one_lane == a->one_lane) && !m->hdr == !a->hdr &&
+          !m->sync == !a->sync &&
+          (!a->lanes || !m->lanes || m->lanes == a->lanes))
         return &drv->modes[i];
     }
     return NULL;
   }
   /* the mode the tuning was captured in: its table, or what its init
    * writes (done without writing) */
-  for (int i = 0; t && t->n_runs && i < drv->n_modes; i++)
-    if (same_regs(&drv->modes[i], &t->runs[0]))
-      return &drv->modes[i];
-  for (int i = 0; t && t->n_runs && i < drv->n_modes; i++)
-    if (init_writes_run0(drv, &drv->modes[i], t))
-      return &drv->modes[i];
-  return NULL;
+  const struct xmv200_sns_mode *first = NULL;
+
+  for (int i = 0; t && t->n_runs && i < drv->n_modes; i++) {
+    const struct xmv200_sns_mode *m = &drv->modes[i];
+
+    if (!same_regs(m, &t->runs[0]) && !init_writes_run0(drv, m, t))
+      continue;
+    /* modes with the same registers (frame sync) tell apart in the
+     * other runs */
+    if (all_runs_match(drv, m, t))
+      return m;
+    if (!first)
+      first = m;
+  }
+  return first;
 }
 
 const struct xmv200_sns_mode *
@@ -388,7 +427,7 @@ uint32_t xmv200_sns_capture_fps(const struct xmv200_sns_drv *drv,
   static const uint32_t rates[] = {12, 25, 30, 15, 20, 10, 24};
   uint32_t found = fallback;
 
-  if (!drv || !m || t->n_runs < 2)
+  if (!drv || !m || t->n_runs < 2 || m->attr.hdr)
     return fallback;
   for (unsigned i = 0; i < sizeof(rates) / sizeof(rates[0]); i++) {
     struct xmv200_sns_ae ae = {0};
@@ -477,4 +516,11 @@ uint32_t xmv200_sns_mis_id(int bus, uint8_t addr) {
   if (id != 0x2008 && id != 0x1311)
     id = xmv200_sns_id_pair(bus, addr, 2, 0x3004, 0x3005);
   return id;
+}
+
+int xmv200_sns_n_runs(const struct xmv200_sns_drv *drv,
+                      const struct xmv200_sns_mode *m) {
+  if (m && m->n_runs)
+    return m->n_runs;
+  return drv->n_runs ? drv->n_runs : 3;
 }

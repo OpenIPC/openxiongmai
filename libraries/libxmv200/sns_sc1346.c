@@ -283,7 +283,7 @@ extern const struct xmv200_sns_reg xm535_sc1346_mipi_sync[138],
     xm535_sc1346_mipi[131], xm535_sc1346_mipi_alt[112], xm535_sc1346_dvp[140];
 
 static const struct xmv200_sns_mode xm535_modes[] = {
-    {"720p mipi, frame sync", {0, 0, 1, 0}, xm535_sc1346_mipi_sync,
+    {"720p mipi, frame sync", {0, 0, 1, 0, 0, 0, 1}, xm535_sc1346_mipi_sync,
      N(xm535_sc1346_mipi_sync)},
     {"720p mipi", {0, 0, 1, 0}, xm535_sc1346_mipi, N(xm535_sc1346_mipi)},
     {"720p mipi alt", {0, 0, 1, 0}, xm535_sc1346_mipi_alt,

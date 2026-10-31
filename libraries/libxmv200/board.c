@@ -284,6 +284,70 @@ static int chip_id(int bus, uint8_t addr, uint32_t *id) {
   return 0;
 }
 
+/* a mode's MIPI lanes: 0 DVP, 1, else the mode's count (2 where it does
+ * not say) */
+static int mode_lanes(const struct xmv200_sns_mode *m) {
+  if (m->attr.dvp)
+    return 0;
+  if (m->attr.one_lane)
+    return 1;
+  return m->attr.lanes ? m->attr.lanes : 2;
+}
+
+/* is a tuning in the mode the layout asks for */
+static int mode_fits(const struct xmv200_sns *sn,
+                     const struct xmv200_layout_sensor *ls) {
+  const struct xmv200_sns_drv *drv;
+  const struct xmv200_sns_mode *m;
+
+  if (!ls->hdr && !ls->sync && !ls->lanes)
+    return 1;
+  if (!(m = xmv200_sns_find(sn->name, sn->tuning, &drv)))
+    return 0;
+  return (!ls->hdr || (ls->hdr > 0) == !!m->attr.hdr) &&
+         (!ls->sync || (ls->sync > 0) == !!m->attr.sync) &&
+         (!ls->lanes || mode_lanes(m) == ls->lanes);
+}
+
+/* sn's sensor on its family in the layout's mode: the first tuning that
+ * is, or NULL */
+static const struct xmv200_sns *in_mode(const struct xmv200_sns *sn,
+                                        const struct xmv200_layout_sensor *ls) {
+  for (int i = 0; sn && i < xmv200_n_sensors; i++)
+    if (!strcasecmp(xmv200_sensors[i].name, sn->name) &&
+        !strcmp(xmv200_sensors[i].tuning->chip, sn->tuning->chip) &&
+        mode_fits(&xmv200_sensors[i], ls))
+      return &xmv200_sensors[i];
+  return NULL;
+}
+
+int xmv200_sensor_modes(const char *chip, struct xmv200_sensor_mode *out,
+                        int n) {
+  const char *family = family_of(chip ? chip : xmv200_chip_name());
+  int k = 0;
+
+  for (int i = 0; i < xmv200_n_sensors; i++) {
+    const struct xmv200_sns *s = &xmv200_sensors[i];
+    const struct xmv200_sns_drv *drv;
+    const struct xmv200_sns_mode *m;
+
+    if (strcmp(s->tuning->chip, family))
+      continue;
+    m = xmv200_sns_find(s->name, s->tuning, &drv);
+    if (k < n)
+      out[k] = (struct xmv200_sensor_mode){
+          .sensor = s->name,
+          .mode = m ? m->name : "as captured",
+          .width = s->tuning->width & ~0xfu,
+          .height = s->tuning->height & ~0x7u,
+          .hdr = m && m->attr.hdr,
+          .sync = m && m->attr.sync,
+          .lanes = m ? mode_lanes(m) : -1};
+    k++;
+  }
+  return k;
+}
+
 static const struct xmv200_sns *registered(uint32_t id, const char *family) {
   for (int i = 0; i < xmv200_n_sensors; i++)
     if (xmv200_sensors[i].chip_id == id &&
@@ -447,6 +511,13 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
     if (!sn) {
       fprintf(stderr, "libxmv200: sensor %d (%s): no %s tuning\n", c,
               ls->model ? ls->model : "probed", family);
+      return -1;
+    }
+    if (!(sn = in_mode(sn, ls))) {
+      fprintf(stderr,
+              "libxmv200: sensor %d: no %s tuning with hdr %d sync %d lanes "
+              "%d\n",
+              c, family, ls->hdr, ls->sync, ls->lanes);
       return -1;
     }
     if (t && sn->tuning != t) {
@@ -651,11 +722,13 @@ int xmv200_layout_start(const struct xmv200_layout *l,
     for (int i = 0; first && i < b->isp.tuning->n_mipi; i++)
       xmv200_reg_write(b->isp.tuning->mipi[i].addr + ch->phy * 0x1000,
                        b->isp.tuning->mipi[i].val);
-    /* VI's input: on the XM535 the channel's VI device and its place */
-    xmv200_reg_write(VI + chip->vi_ctrl, !chip->vi_mode ? 2
-                                         : ch->vi_dev   ? 6
-                                         : ch->vi_idx   ? 0xa
-                                                        : 2);
+    /* VI's input: on the XM535 the channel's VI device and its place; on
+     * the XM530V200 bit 2 its two-frame HDR */
+    xmv200_reg_write(VI + chip->vi_ctrl,
+                     !chip->vi_mode ? (b->isp.attr.hdr ? 6 : 2)
+                     : ch->vi_dev   ? 6
+                     : ch->vi_idx   ? 0xa
+                                    : 2);
     if (chip->vi_ctrl_chn)
       xmv200_reg_write(VI + chip->vi_ctrl + 0x18, chip->vi_mode ? c > 0 : c);
   }

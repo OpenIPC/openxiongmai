@@ -133,7 +133,8 @@ static int block(const struct xmv200_isp_block *b, uint32_t chn,
   if (b->size > sizeof(p))
     return -1;
   memcpy(p, b->data, b->size);
-  memcpy(p, &chn, 4);
+  if (!b->raw)
+    memcpy(p, &chn, 4);
   for (int i = 0; i < 16 && b->patch[i].buf; i++) {
     uint32_t a = bufs[b->patch[i].buf - 1].phys + b->patch[i].rel;
     uint32_t w = b->patch[i].shift ? (a - 0x80000000u) >> b->patch[i].shift : a;
@@ -215,11 +216,17 @@ static int run_program(const struct xmv200_isp_cfg *cfg,
         return -1;
       continue;
     }
+    if ((op & 0xf000) == 0x1000) {
+      uint32_t w = c->chn << 24 | (op & 0xff);
+
+      if (isp_cmd(0x4959, &w) < 0)
+        return -1;
+      continue;
+    }
     if (op & 0x2000) {
       if ((op & 0xff) >= t->n_runs)
         return -1;
-      if (cfg->drv &&
-          t->n_runs == (cfg->drv->n_runs ? cfg->drv->n_runs : 3))
+      if (cfg->drv && t->n_runs == xmv200_sns_n_runs(cfg->drv, cfg->mode))
         sns_run(cfg, c, s, op & 0xff);
       else
         sns_table(s, t->runs[op & 0xff].regs, t->runs[op & 0xff].n);

@@ -73,6 +73,10 @@ struct xmv200_layout_sensor {
    * receiver input a second sensor takes (mipi) */
   uint32_t phy, vi_dev, vi_idx, mipi;
   int ldc; /* lens distortion correction, where the tuning has it */
+  /* the sensor's mode, as the streamer chooses it (xmv200_sensor_modes
+   * lists them): HDR and frame sync 1 on, -1 off, 0 the first tuning's;
+   * lanes the MIPI lanes, 0 the first tuning's */
+  int hdr, sync, lanes;
 };
 
 struct xmv200_layout_stream {
@@ -96,6 +100,18 @@ struct xmv200_board_info {
     uint32_t width, height; /* what VENC channel n gets */
   } stream[XMV200_MAX_STREAMS];
 };
+
+/* A sensor mode there is a tuning for, on a chip family */
+struct xmv200_sensor_mode {
+  const char *sensor; /* "SC2336" */
+  const char *mode;   /* "1080p mipi 1 lane" */
+  uint32_t width, height;
+  int hdr, sync, lanes; /* lanes 0: DVP */
+};
+/* the modes of every sensor libxmv200 has tunings for on chip ("xm535d1";
+ * NULL: the running one's), n at most; how many there are */
+int xmv200_sensor_modes(const char *chip, struct xmv200_sensor_mode *m,
+                        int n);
 
 int xmv200_layout_start(const struct xmv200_layout *l,
                         struct xmv200_board_info *info);

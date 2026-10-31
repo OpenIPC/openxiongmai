@@ -122,9 +122,24 @@ static int grab(int grp, int chn, int count, const char *path) {
   return 0;
 }
 
+/* the sensor modes there are tunings for on a chip, as a streamer lists
+ * them */
+static int modes(const char *chip) {
+  static struct xmv200_sensor_mode m[256];
+  int n = xmv200_sensor_modes(chip, m, 256);
+
+  for (int i = 0; i < n && i < 256; i++)
+    printf("%-9s %-30s %ux%u%s%s lanes %d\n", m[i].sensor, m[i].mode,
+           m[i].width, m[i].height, m[i].hdr ? " hdr" : "",
+           m[i].sync ? " sync" : "", m[i].lanes);
+  return 0;
+}
+
 int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "probe"))
     return probe();
+  if (argc > 1 && !strcmp(argv[1], "modes"))
+    return modes(argc > 2 ? argv[2] : NULL);
   if (argc > 1 && !strcmp(argv[1], "replay")) {
     pthread_t t;
 
@@ -263,7 +278,8 @@ int main(int argc, char **argv) {
     return 0;
   }
   fprintf(stderr,
-          "usage: %s probe | run <board|layout file> [frames [osd]] | layout <board>"
+          "usage: %s probe | modes [chip] | run <board|layout file> [frames [osd]] | "
+          "layout <board>"
           " | replay | encode [n]\n",
           argv[0]);
   return 1;

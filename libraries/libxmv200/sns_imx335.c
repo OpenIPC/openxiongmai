@@ -36,6 +36,9 @@ static void w(const struct xmv200_sns_dev *d, uint16_t reg, uint32_t val) {
 static void init(const struct xmv200_sns_dev *d,
                  const struct xmv200_sns_mode *m,
                  const struct xmv200_sns_attr *a) {
+  /* what the vendor's process starts with: nothing written yet */
+  shr = gain = -1;
+  hmax_cache = 0;
   w(d, 0x3000, 1);
   w(d, 0x3004, 4);
   usleep(50000);
@@ -171,7 +174,8 @@ static void run(const struct xmv200_sns_dev *d, int n,
                 const struct xmv200_sns_ctx *c);
 
 static const struct xmv200_sns_mode modes[] = {
-    {"5M mipi 4 lanes", {0, 0, 0, 0}, imx335_mipi_4lane, N(imx335_mipi_4lane)},
+    {"5M mipi 4 lanes", {0, 0, 0, 0, 0, 0, 0, 4}, imx335_mipi_4lane,
+     N(imx335_mipi_4lane)},
 };
 
 const struct xmv200_sns_drv xmv200_sns_imx335 = {
