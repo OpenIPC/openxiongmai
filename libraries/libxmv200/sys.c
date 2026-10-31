@@ -141,13 +141,39 @@ struct mmz_rec {
 #define MMZ_RESET _IO('M', 0)
 #define MMZ_ALLOC _IOWR('M', 1, struct mmz_rec)
 #define MMZ_ALLOC_CACHED _IOWR('M', 4, struct mmz_rec)
+#define MMZ_FREE _IOW('M', 2, struct mmz_rec)
 
 static int mmz_fd = -1;
+
+/* the blocks allocated since the last reset: only those are freed (after a
+ * reset an address may be another block's) */
+#define MMZ_LIVE 64
+static uint32_t mmz_live[MMZ_LIVE];
 
 int xmv200_mmz_reset(void) {
   if (open_once(&mmz_fd, "/dev/mmz") < 0)
     return -1;
+  memset(mmz_live, 0, sizeof(mmz_live));
   return ioctl(mmz_fd, MMZ_RESET, 0);
+}
+
+void xmv200_mmz_free(struct xmv200_buf *b) {
+  if (b->virt && b->virt != MAP_FAILED)
+    munmap(b->virt, b->size);
+  for (int i = 0; b->phys && mmz_fd >= 0 && i < MMZ_LIVE; i++)
+    if (mmz_live[i] == b->phys) {
+      struct mmz_rec r;
+
+      memset(&r, 0, sizeof(r));
+      r.phys = b->phys;
+      r.size = b->size;
+      /* the list allocator (the V200 series') frees it; the vendor's and
+       * the sequential one keep it until the next reset */
+      ioctl(mmz_fd, MMZ_FREE, &r);
+      mmz_live[i] = 0;
+      break;
+    }
+  memset(b, 0, sizeof(*b));
 }
 
 int xmv200_mmz_alloc(struct xmv200_buf *b, const char *name, uint32_t size,
@@ -162,12 +188,20 @@ int xmv200_mmz_alloc(struct xmv200_buf *b, const char *name, uint32_t size,
   if (ioctl(mmz_fd, cached ? MMZ_ALLOC_CACHED : MMZ_ALLOC, &r) < 0 || !r.phys)
     return -1;
   /* the vendor library maps the block through /dev/mmz itself */
-  b->virt = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, mmz_fd,
-                 r.phys);
-  if (b->virt == MAP_FAILED)
-    return -1;
   b->phys = r.phys;
   b->size = size;
+  for (int i = 0; i < MMZ_LIVE; i++)
+    if (!mmz_live[i]) {
+      mmz_live[i] = r.phys;
+      break;
+    }
+  b->virt = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, mmz_fd,
+                 r.phys);
+  if (b->virt == MAP_FAILED) {
+    b->virt = NULL;
+    xmv200_mmz_free(b);
+    return -1;
+  }
   return 0;
 }
 

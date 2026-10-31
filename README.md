@@ -387,6 +387,8 @@ Known boards (`xmv200_board_layout()`, or `xmv200-test layout <board>` for the t
 
 Sensors with a tuning, per chip family (each captured from that chip's vendor firmware; a sensor its firmware has no mode for can't be captured there):
 
+MIS4001 and MIS5001 have the same chip ID (0x1311), and the vendor tells them apart only by the product's preset, so probing (`auto`, `sensor auto`) finds an MIS4001; a board with an MIS5001 names it in its layout (`sensor MIS5001 ...`).
+
 | Family | Sensors |
 |--------|---------|
 | XM530V200 | F37P, GC3003, H63, H63P, IMX307, IMX335, MIS2009, MIS4001, MIS40C1, MIS5001, Q03, Q03P, SC035GS, SC1336, SC1345, SC1346, SC1A4T, SC200AI, SC202CS, SC2210, SC223A, SC223AP, SC231AI, SC2331, SC2335, SC2336, SC2336P, SC2337P, SC307C, SC307E, SC3235, SC3335, SC3338, SC401AI, SC4210, SC430AI, SC4336, SC500AI, SC5239AI, SC831HAI |
@@ -394,7 +396,7 @@ Sensors with a tuning, per chip family (each captured from that chip's vendor fi
 | XM535W1 | IMX307, SC1346, SC1A4T, SC200AI, SC2336, SC2336P, SC3338, SC500AI |
 | XM533 | GC1084, MIS2009, MIS4001, MIS40C1, OV2735, SC1346, SC1A4T, SC223A, SC231AI, SC2331, SC2336, SC2337P, SC3338, SC401AI, SC4336, SC500AI |
 
-A layout file (`xmv200_layout_parse()`):
+A layout file (`xmv200_layout_parse()`; its text is kept for the layout's names until `xmv200_layout_free()`, which may follow the layout's start):
 
 ```
 chip xm535d1

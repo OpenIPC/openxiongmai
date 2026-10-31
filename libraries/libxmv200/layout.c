@@ -84,13 +84,15 @@ static int sensor_key(struct xmv200_layout_sensor *s, const char *k,
 }
 
 int xmv200_layout_parse(const char *text, struct xmv200_layout *l) {
-  /* the model and chip names point into this copy, kept for the layout */
+  /* the model and chip names point into this copy, kept in l->text until
+   * xmv200_layout_free */
   char *buf = strdup(text), *line, *next;
   int n = 0;
 
   if (!buf)
     return -1;
   memset(l, 0, sizeof(*l));
+  l->text = buf;
   for (line = buf; line; line = next) {
     char *p, *w;
 
@@ -151,7 +153,13 @@ int xmv200_layout_parse(const char *text, struct xmv200_layout *l) {
 bad:
   fprintf(stderr, "libxmv200: layout line %d: not understood\n", n);
   free(buf);
+  l->text = NULL;
   return -1;
+}
+
+void xmv200_layout_free(struct xmv200_layout *l) {
+  free(l->text);
+  l->text = NULL;
 }
 
 int xmv200_layout_format(const struct xmv200_layout *l, char *out, int cap) {

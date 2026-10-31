@@ -140,6 +140,7 @@ void xmv200_jpeg_destroy(struct xmv200_jpeg *j) {
     munmap((void *)j->hw, j->hw_size);
   if (j->fd >= 0)
     close(j->fd);
+  xmv200_mmz_free(&j->buf);
   free(j);
 }
 

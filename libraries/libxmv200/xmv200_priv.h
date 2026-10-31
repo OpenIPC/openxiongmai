@@ -71,6 +71,18 @@ struct xmv200_chip {
 };
 const struct xmv200_chip *xmv200_chip_of(const struct xmv200_sns_tuning *t);
 
+/* What differs between chips of one family (the XM535D1 and D2 share
+ * theirs): the tunings' family, the sensor drivers' (NULL: the family's),
+ * and a multi-sensor layout's default sensor mode. */
+struct xmv200_model {
+  const char *name;       /* "xm535d2", ... */
+  const char *family;     /* its tunings' */
+  const char *sns_family; /* its libsns's own tables for modes, or NULL */
+  int multi_sync, multi_lanes; /* several sensors: frame-synced on lanes */
+};
+/* the chip's (NULL or unknown: the XM530V200's) */
+const struct xmv200_model *xmv200_model_of(const char *chip);
+
 int xmv200_isp_start(const struct xmv200_isp_cfg *cfg);
 void xmv200_isp_stop(void);
 /* the digital gain (isp.ko 0x4964, 0x100 = 1x) the frame thread sends with

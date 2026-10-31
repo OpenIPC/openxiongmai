@@ -259,13 +259,12 @@ const char *xmv200_chip_name(void) {
   return name[0] ? name : NULL;
 }
 
-/* the tuning family of a chip: the XM535D1 and D2 share theirs */
+/* the tuning family of a chip: the XM535D1 and D2 share theirs (an unknown
+ * chip its own name) */
 static const char *family_of(const char *chip) {
-  if (!chip)
-    return "xm530v200";
-  if (!strcmp(chip, "xm535d1") || !strcmp(chip, "xm535d2"))
-    return "xm535";
-  return chip;
+  const struct xmv200_model *m = xmv200_model_of(chip);
+
+  return chip && strcmp(m->name, chip) ? chip : m->family;
 }
 
 static const struct xmv200_sns *sensor_named(const char *name,
@@ -355,6 +354,10 @@ int xmv200_sensor_modes(const char *chip, struct xmv200_sensor_mode *out,
   return k;
 }
 
+/* the registry's first sensor with a chip ID on a family. Some IDs are
+ * two sensors': MIS4001 and MIS5001 both read 0x1311, and the vendor takes
+ * MIS5001 only from the product's preset (Isp.json SensorType), so a probe
+ * finds MIS4001 and a layout with an MIS5001 names it (model MIS5001). */
 static const struct xmv200_sns *registered(uint32_t id, const char *family) {
   for (int i = 0; i < xmv200_n_sensors; i++)
     if (xmv200_sensors[i].chip_id == id &&
@@ -530,16 +533,18 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
               ls->model ? ls->model : "probed", family);
       return -1;
     }
-    /* a sensor whose mode the layout leaves open: on the XM535D2 with
-     * several, the vendor's two lanes frame-synced (as its X9-WE2Q); alone,
-     * not synced, if there is such a tuning */
+    /* a sensor whose mode the layout leaves open: with several, the chip's
+     * default (the XM535D2's two lanes frame-synced, as its X9-WE2Q);
+     * alone, not synced, if there is such a tuning */
     struct xmv200_layout_sensor pref = *ls;
     const struct xmv200_sns *found = NULL;
     const char *chip = l->chip ? l->chip : xmv200_chip_name();
 
+    const struct xmv200_model *mdl = xmv200_model_of(chip);
+
     if (!ls->hdr && !ls->sync && !ls->lanes) {
-      if (chip && !strcmp(chip, "xm535d2") && l->n_sensors > 1)
-        pref.sync = 1, pref.lanes = 2;
+      if (mdl->multi_sync && l->n_sensors > 1)
+        pref.sync = mdl->multi_sync, pref.lanes = mdl->multi_lanes;
       else if (l->n_sensors == 1)
         pref.sync = -1;
       found = in_mode(sn, &pref);
@@ -578,13 +583,15 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
   b->fps = l->fps ? l->fps : 12;
   /* the sensor's driver, in the mode the tuning is of */
   b->isp.mode = xmv200_sns_find(model, t, &b->isp.drv);
-  /* the XM535D2's libsns has its own tables for a few of the D1's modes
-   * (its tunings are the D1's): its driver, in the mode of that name */
+  /* a chip whose libsns has its own tables for some of its family's modes
+   * (the XM535D2's; its tunings are the D1's): its driver, in the mode of
+   * that name */
   const char *chip = l->chip ? l->chip : xmv200_chip_name();
+  const struct xmv200_model *mdl = xmv200_model_of(chip);
 
-  if (b->isp.mode && chip && !strcmp(chip, "xm535d2")) {
+  if (b->isp.mode && mdl->sns_family) {
     const struct xmv200_sns_drv *d2 =
-        xmv200_sns_driver(b->isp.drv->name, "xm535d2");
+        xmv200_sns_driver(b->isp.drv->name, mdl->sns_family);
 
     for (int i = 0; d2 && i < d2->n_modes; i++)
       if (!strcmp(d2->modes[i].name, b->isp.mode->name)) {
@@ -684,7 +691,9 @@ void xmv200_layout_stop(void) {
   close_fd(&run.fd_hevc);
   close_fd(&run.fd_vb);
   close_fd(&run.fd_vi);
-  run.started = 0;
+  run = (__typeof__(run)){.fd_vpss = -1, .fd_sys = -1, .fd_venc = -1,
+                          .fd_rgn = -1, .fd_hevc = -1, .fd_vb = -1,
+                          .fd_vi = -1};
 }
 
 static struct xmv200_geom geom; /* the running layout's */
@@ -696,7 +705,7 @@ int xmv200_layout_geom(struct xmv200_geom *g) {
   return 0;
 }
 
-int xmv200_layout_start(const struct xmv200_layout *l,
+static int layout_start(const struct xmv200_layout *l,
                         struct xmv200_board_info *info) {
   static struct board board;
   const struct board *b = &board;
@@ -719,6 +728,21 @@ int xmv200_layout_start(const struct xmv200_layout *l,
   fd_hevc = open_dev("/dev/h265");
   fd_vb = open_dev("/dev/vb");
   fd_vi = chip->vi_scaler ? open_dev("/dev/vi") : -1;
+  /* what the stop takes down, from here on: a start that fails part-way is
+   * undone by it (xmv200_layout_start) */
+  run = (__typeof__(run)){.fd_vpss = fd_vpss,
+                          .fd_sys = fd_sys,
+                          .fd_venc = fd_venc,
+                          .fd_rgn = fd_rgn,
+                          .fd_hevc = fd_hevc,
+                          .fd_vb = fd_vb,
+                          .fd_vi = fd_vi,
+                          .n_groups = chip->vi_scaler ? 0 : n,
+                          .n_streams = b->n_streams,
+                          .vi_scaler = chip->vi_scaler,
+                          .n_sensors = n,
+                          .sensor_standby = !(b->isp.drv && b->isp.drv->probe)};
+  memcpy(run.sensor, b->isp.sensor, sizeof(run.sensor));
   if ((chip->vi_scaler ? fd_vi : fd_vpss) < 0 || fd_sys < 0 || fd_venc < 0 ||
       fd_hevc < 0)
     return -1;
@@ -903,20 +927,7 @@ int xmv200_layout_start(const struct xmv200_layout *l,
     geom.stream[s].sensors = b->stream[s].groups;
   }
 
-  run = (__typeof__(run)){.started = 1,
-                          .fd_vpss = fd_vpss,
-                          .fd_sys = fd_sys,
-                          .fd_venc = fd_venc,
-                          .fd_rgn = fd_rgn,
-                          .fd_hevc = fd_hevc,
-                          .fd_vb = fd_vb,
-                          .fd_vi = fd_vi,
-                          .n_groups = chip->vi_scaler ? 0 : n,
-                          .n_streams = b->n_streams,
-                          .vi_scaler = chip->vi_scaler,
-                          .n_sensors = n,
-                          .sensor_standby = !(b->isp.drv && b->isp.drv->probe)};
-  memcpy(run.sensor, b->isp.sensor, sizeof(run.sensor));
+  run.started = 1;
   if (info) {
     memset(info, 0, sizeof(*info));
     info->n_streams = b->n_streams;
@@ -928,4 +939,16 @@ int xmv200_layout_start(const struct xmv200_layout *l,
     }
   }
   return 0;
+}
+
+int xmv200_layout_start(const struct xmv200_layout *l,
+                        struct xmv200_board_info *info) {
+  int r = layout_start(l, info);
+
+  if (r) {
+    /* what the start got to taken down, its devices closed */
+    run.started = 1;
+    xmv200_layout_stop();
+  }
+  return r;
 }

@@ -150,7 +150,7 @@ static int run(const char *board, int n, int osd) {
   int got[XMV200_MAX_STREAMS] = {0};
   int done = 0;
 
-  struct xmv200_layout l;
+  struct xmv200_layout l = {0};
   int r;
 
   /* a board's name, or a layout file */
@@ -166,7 +166,10 @@ static int run(const char *board, int n, int osd) {
   } else {
     r = xmv200_board_layout(board, &l);
   }
-  if (r || xmv200_layout_start(&l, &info)) {
+  if (!r)
+    r = xmv200_layout_start(&l, &info);
+  xmv200_layout_free(&l); /* the start keeps nothing of it */
+  if (r) {
     fprintf(stderr, "board %s: start failed\n", board);
     return 1;
   }
@@ -409,7 +412,10 @@ int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "replay")) {
     pthread_t t;
 
-    replay(argc > 2 && !strcmp(argv[2], "-v"));
+    if (replay(argc > 2 && !strcmp(argv[2], "-v"))) {
+      fprintf(stderr, "replay failed\n");
+      return 1;
+    }
     pthread_create(&t, NULL, isp_frames, NULL);
     grab(0, 0, 3, "/tmp/g0c0.yuv");
     grab(1, 0, 3, "/tmp/g1c0.yuv");
@@ -426,7 +432,10 @@ int main(int argc, char **argv) {
     int n = argc > 2 ? atoi(argv[2]) : 30, got[2] = {0, 0};
     pthread_t t;
 
-    replay(0);
+    if (replay(0)) {
+      fprintf(stderr, "replay failed\n");
+      return 1;
+    }
     pthread_create(&t, NULL, isp_frames, NULL);
     if (xmv200_venc_create(&e[0], 2304, 2592, 12, 35, 24) ||
         xmv200_venc_create(&e[1], 640, 720, 12, 35, 24)) {

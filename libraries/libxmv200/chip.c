@@ -111,3 +111,20 @@ const struct xmv200_chip *xmv200_chip_of(const struct xmv200_sns_tuning *t) {
       return &chips[i];
   return &chips[0];
 }
+
+static const struct xmv200_model models[] = {
+    {"xm530v200", "xm530v200", NULL, 0, 0},
+    {"xm533", "xm533", NULL, 0, 0},
+    {"xm535d1", "xm535", NULL, 0, 0},
+    /* its libsns has its own tables for some of the D1's modes, and its
+     * product (X9-WE2Q) runs its sensors frame-synced on two lanes */
+    {"xm535d2", "xm535", "xm535d2", 1, 2},
+    {"xm535w1", "xm535w1", NULL, 0, 0},
+};
+
+const struct xmv200_model *xmv200_model_of(const char *chip) {
+  for (unsigned i = 0; chip && i < sizeof(models) / sizeof(models[0]); i++)
+    if (!strcmp(chip, models[i].name))
+      return &models[i];
+  return &models[0];
+}

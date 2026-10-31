@@ -38,6 +38,9 @@ struct xmv200_buf {
 int xmv200_mmz_reset(void);
 int xmv200_mmz_alloc(struct xmv200_buf *b, const char *name, uint32_t size,
                      int cached);
+/* unmaps a block and gives it back (the V200 series' list allocator frees
+ * it; a block from before the last reset is only unmapped) */
+void xmv200_mmz_free(struct xmv200_buf *b);
 
 /* vb.ko: the pools VPSS takes its output frames from */
 #define XMV200_VB_MAX_POOLS 32
@@ -94,6 +97,7 @@ struct xmv200_layout {
   int n_streams; /* stream n is VENC channel n */
   struct xmv200_layout_stream stream[XMV200_MAX_STREAMS];
   uint32_t fps;
+  char *text; /* xmv200_layout_parse's copy of its text, or NULL */
 };
 
 struct xmv200_board_info {
@@ -129,6 +133,10 @@ void xmv200_layout_stop(void);
 int xmv200_board_layout(const char *board, struct xmv200_layout *l);
 /* a layout from text (layout.c has the format), and back */
 int xmv200_layout_parse(const char *text, struct xmv200_layout *l);
+/* a parsed layout's text (its chip and model names point into it): free it
+ * once the layout has been started, or is no longer needed; a layout
+ * started keeps nothing of it */
+void xmv200_layout_free(struct xmv200_layout *l);
 int xmv200_layout_format(const struct xmv200_layout *l, char *out, int cap);
 /* xmv200_board_layout, then xmv200_layout_start */
 int xmv200_board_start(const char *board, struct xmv200_board_info *info);

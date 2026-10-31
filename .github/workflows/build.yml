@@ -199,19 +199,13 @@ jobs:
                 xmvenc_pipe_create xmvenc_pipe_destroy xmvenc_pipe_start \
                 xmvenc_pipe_stop xmvenc_pipe_chn xmvenc_pipe_get \
                 xmvenc_pipe_release xmvenc_pipe_stats
-          check libraries/libxmv200/libxmv200.a \
-                xmv200_board_start xmv200_board_layout xmv200_layout_start \
-                xmv200_layout_parse xmv200_layout_format \
-                xmv200_frame_get xmv200_frame_release \
-                xmv200_venc_create xmv200_venc_encode xmv200_venc_destroy \
-                xmv200_venc_request_idr xmv200_ae_frame xmv200_i2c_read \
-                xmv200_i2c_write xmv200_mmz_alloc \
-                xmv200_image_set xmv200_image_get xmv200_image_defaults \
-                xmv200_mask_set xmv200_mask_clear \
-                xmv200_md_set xmv200_md_get \
-                xmv200_venc_create_h264 xmv200_venc_set_cabac \
-                xmv200_ae_state xmv200_awb_state \
-                xmv200_bd_set xmv200_bd_get
+          # every function libxmv200's public header declares, read from it
+          # (comments dropped by the preprocessor), so new API is covered
+          v200=$(${CROSS_COMPILE}gcc -E -P libraries/libxmv200/xmv200.h |
+                 grep -oE '\bxmv200_[a-z0-9_]+[[:space:]]*\(' | tr -d ' (' | sort -u)
+          [ "$(echo "$v200" | wc -w)" -ge 50 ] ||
+            { echo "xmv200.h: too few functions found" >&2; fail=1; }
+          check libraries/libxmv200/libxmv200.a $v200
           check libraries/libxmisp/libxmisp.a \
                 xmisp_open xmisp_start xmisp_script xmisp_fd xmisp_stop \
                 xmisp_close xmisp_error xmisp_scripts xmisp_h62_720p \

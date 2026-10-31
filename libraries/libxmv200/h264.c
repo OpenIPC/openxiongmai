@@ -222,6 +222,10 @@ void xmv200_h264_destroy(struct h264enc *e) {
     munmap((void *)e->hw, e->hw_size);
   if (e->fd >= 0)
     close(e->fd);
+  xmv200_mmz_free(&e->out);
+  xmv200_mmz_free(&e->rec[0]);
+  xmv200_mmz_free(&e->rec[1]);
+  xmv200_mmz_free(&e->cabac_tbl);
   free(e);
 }
 
@@ -234,6 +238,7 @@ struct h264enc *xmv200_h264_create(uint32_t w, uint32_t h, uint32_t fps) {
 
   if (!e)
     return NULL;
+  e->fd = -1; /* until it is opened: the failure path closes it */
   e->w = w;
   e->h = h;
   e->mbw = (w + 15) / 16;

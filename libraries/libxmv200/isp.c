@@ -504,7 +504,11 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   xmv200_awb_init(cfg);
   frames_ae = chip->frame_answer;
   isp_running = 1;
-  pthread_create(&isp_thread, NULL, isp_frames, NULL);
+  if (pthread_create(&isp_thread, NULL, isp_frames, NULL)) {
+    isp_running = 0; /* no thread to join */
+    fprintf(stderr, "libxmv200: isp frame thread failed\n");
+    return -1;
+  }
   return 0;
 }
 

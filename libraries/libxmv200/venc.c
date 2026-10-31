@@ -779,6 +779,9 @@ void xmv200_venc_destroy(struct xmv200_venc *v) {
     close(v->fd_hevc);
   if (v->fd_mem >= 0)
     close(v->fd_mem);
+  xmv200_mmz_free(&v->luma);
+  xmv200_mmz_free(&v->chroma);
+  xmv200_mmz_free(&v->stream);
   free(v);
 }
 
