@@ -147,7 +147,8 @@ jobs:
                 xmv200_frame_get xmv200_frame_release \
                 xmv200_venc_create xmv200_venc_encode xmv200_venc_destroy \
                 xmv200_venc_request_idr xmv200_ae_frame xmv200_i2c_read \
-                xmv200_i2c_write xmv200_mmz_alloc
+                xmv200_i2c_write xmv200_mmz_alloc \
+                xmv200_image_set xmv200_image_get xmv200_image_defaults
           exit $fail
 
       - name: Assert no vendor libs in NEEDED
