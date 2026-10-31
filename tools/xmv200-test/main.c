@@ -66,6 +66,9 @@ static void osd_card(int n) {
                 xmv200_osd_color(255, 255, 255, 255)},
   };
 
+  /* XMV200_OSD_ENC=1: the XM535 encoder's own 2-bit overlay */
+  if (getenv("XMV200_OSD_ENC"))
+    o.format = XMV200_OSD_ENC_2BIT;
   for (int y = 0; y < 32; y++)
     for (int x = 0; x < 96; x++)
       bmp[y * 24 + x / 4] |= band[x / 24] << (6 - 2 * (x % 4));

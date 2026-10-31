@@ -36,8 +36,15 @@
  *   0x4080500d the depth of a channel's queue
  *   0x4080500e a picture from that queue, 0x4080500f that picture back
  *   0x40805012 splice: mode, id; 0x420c5011 debug register writes
- * spec=N (the vendor's special memory modes) is not supported; rst=1
- * resets the engine before every picture, as vpss.ko.
+ * spec=N, vpss.ko's special memory modes (none of the vendor's loaders
+ * sets one): 1 takes a picture only with another queued behind it (a
+ * frame of latency); 4, a channel the size of the uncropped input taking
+ * the input buffer, is what this driver always does. 2 (a store-status
+ * check at a group's start), 3 (channel buffers three pictures deep, with
+ * the picture placed after two, and the queued picture's addresses to
+ * match) and 5 (splice buffers three pictures (mode 1) or one and a half
+ * (mode 2) deep) are not supported and run as 0. rst=1 resets the engine
+ * before every picture, as vpss.ko.
  */
 
 #include <linux/delay.h>
@@ -107,6 +114,7 @@
 #define VB_FREE 0
 #define VB_VPSS 1
 int vb_get_buf(u32 list, u32 size, void **buf, int ms);
+int vb_get_length(u32 list, int *n);
 int vb_put_buf(u32 list, void *buf);
 int vb_add_buf_reference(void *buf);
 void clk_get_pts(u64 *pts);
@@ -126,7 +134,7 @@ module_param(rst, int, 0444);
 MODULE_PARM_DESC(rst, "reset the engine: 0 never, 1 at init and each picture, 2 at init");
 static int spec;
 module_param(spec, int, 0444);
-MODULE_PARM_DESC(spec, "the vendor's special memory modes: 0 only");
+MODULE_PARM_DESC(spec, "the vendor's special memory modes: 0, 1 (a frame of latency), 4 (always)");
 
 struct chn {
 	u32 enabled;
@@ -1017,7 +1025,14 @@ static int vpss_thread(void *arg)
 		struct grp *g;
 		u32 grp;
 
-		if (!atomic_read(&opens) || vb_get_buf(VB_VPSS, 0, &in, 0)) {
+		/* spec=1: a picture is taken only with another queued behind
+		 * it (vpss.ko's one frame of latency) */
+		int queued = 2;
+
+		if (spec == 1)
+			vb_get_length(VB_VPSS, &queued);
+		if (!atomic_read(&opens) || queued < 2 ||
+		    vb_get_buf(VB_VPSS, 0, &in, 0)) {
 			mutex_lock(&vpss_mutex);
 			online();
 			mutex_unlock(&vpss_mutex);
@@ -1420,7 +1435,7 @@ static int __init xm530v200_vpss_init(void)
 {
 	int ret;
 
-	if (spec)
+	if (spec > 1 && spec != 4)
 		pr_warn("vpss: spec=%d not supported, as spec=0\n", spec);
 	regs = ioremap(VPSS_BASE, VPSS_SIZE);
 	if (!regs) {

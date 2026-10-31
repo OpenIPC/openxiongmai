@@ -38,7 +38,7 @@ static int rgn(unsigned long cmd, int handle, const uint32_t *w, int n) {
 
 /* words 2..14 of create and set */
 static int attr(const struct xmv200_osd *o, uint32_t w[13]) {
-  if (o->format > XMV200_OSD_2BIT || o->scale_x > 2 || o->scale_y > 2)
+  if (o->format > XMV200_OSD_ENC_2BIT || o->scale_x > 2 || o->scale_y > 2)
     return -1;
   w[0] = o->format;
   w[1] = o->x & ~1u; /* chroma pairs */

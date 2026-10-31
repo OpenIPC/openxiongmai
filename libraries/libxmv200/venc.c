@@ -39,6 +39,13 @@
 
 #define VENC_GET_FRAME 0xc0284902
 #define VENC_RELEASE_FRAME 0x40284903
+/* XM535: {chn, picture, w, h, ...}: rgn.ko's overlays (formats 4, 5) and
+ * covers on that VENC channel into the encoder's own OSD registers
+ * (0x21000000 +0x11c, +0x120.., +0x220..), as the vendor's encoder asks
+ * for before each picture */
+#define VENC_OSD 0x40284905
+
+static int venc_fd = -1; /* /dev/venc_info */
 #define HEVC_LOCK 0x4803
 #define HEVC_UNLOCK 0x4804
 #define HEVC_RESET 0x40044806
@@ -633,6 +640,12 @@ static void venc_regs(struct xmv200_venc *v) {
   memset(v->regs, 0, sizeof(v->regs));
   for (int i = 0; i < e->n_tmpl; i++)
     reg(v, e->tmpl_off[i], e->tmpl_val[i]);
+  /* v1: the encoder OSD's overlay and cover masks are rgn.ko's (VENC_OSD
+   * before each picture), not the template's 0 */
+  if (e->map == MAP_V1) {
+    v->regs[0x11c / 4][1] = 0;
+    v->regs[0x220 / 4][1] = 0;
+  }
   if (e->map == MAP_V3) {
     reg(v, 0x034, v->width - 1);
     reg(v, 0x038, v->height - 1);
@@ -954,6 +967,12 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
   job[e->list_word] = (uint32_t)(uintptr_t)v->regs;
   if (ioctl(v->fd_hevc, HEVC_LOCK, 0) < 0)
     return -1;
+  /* v1: the stream's encoder OSD, the engine ours */
+  if (e->map == MAP_V1 && venc_fd >= 0) {
+    uint32_t o[10] = {f->chn, f->y, f->width, f->height};
+
+    ioctl(venc_fd, VENC_OSD, o);
+  }
   if (ioctl(v->fd_hevc, e->job_cmd, job) < 0 ||
       ioctl(v->fd_hevc, e->wait_cmd, job) < 0) {
     ioctl(v->fd_hevc, HEVC_UNLOCK, 0);
@@ -970,8 +989,6 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
   rate_control(v, idr, n + len);
   return n + len;
 }
-
-static int venc_fd = -1;
 
 int xmv200_frame_get(struct xmv200_frame *f) {
   struct venc_rec r;

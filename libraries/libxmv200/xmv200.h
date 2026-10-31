@@ -77,6 +77,9 @@ struct xmv200_layout_sensor {
    * lists them): HDR and frame sync 1 on, -1 off, 0 the first tuning's;
    * lanes the MIPI lanes, 0 the first tuning's */
   int hdr, sync, lanes;
+  /* two-lane frame sync (the XM535D2's): this sensor the master (1), else a
+   * slave; efsync the slaves' EFSYNC timing, 1 on, -1 off, 0 the tuning's */
+  int sync_master, efsync;
 };
 
 struct xmv200_layout_stream {
@@ -249,6 +252,12 @@ enum xmv200_osd_format {
   XMV200_OSD_ARGB8888,
   XMV200_OSD_1BIT,
   XMV200_OSD_2BIT,
+  /* XM535D1/D2/W1: drawn by the encoder itself (up to 4 a stream, apart
+   * from the engine's): 1 or 2 bits a pixel as 1BIT/2BIT, x and y in
+   * 16-pixel steps, width a multiple of 8 (1 bit) or 4 (2 bits), height
+   * even */
+  XMV200_OSD_ENC_1BIT,
+  XMV200_OSD_ENC_2BIT,
 };
 
 struct xmv200_osd {

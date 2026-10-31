@@ -33,7 +33,7 @@ The engine scales in two stages. First the input, cropped by the group, goes to 
 | `0x40805012` | splice: mode, id |
 | `0x420c5011` | debug register writes after each picture's |
 
-It exports `vpss_set_chn_win` for rgn's covers, and `vpss_set_chn_osd`, whose regions it keeps but doesn't draw; no vendor module uses it. `vi_set_chn_win` is empty, as in `vpss.ko`. `rst=1` (the default) resets the engine before each picture, as `vpss.ko` does. The vendor's `spec=N` memory modes aren't supported.
+It exports `vpss_set_chn_win` for rgn's covers, and `vpss_set_chn_osd`, whose regions it keeps but doesn't draw; no vendor module uses it. `vi_set_chn_win` is empty, as in `vpss.ko`. `rst=1` (the default) resets the engine before each picture, as `vpss.ko` does. Of the vendor's `spec=N` memory modes (no vendor loader sets one), `spec=1` takes a picture only when another is queued behind it (a frame of latency), and `spec=4`'s channel that takes the uncropped input's buffer is what this driver always does. `spec=2` (a store-status check at a group's start), `spec=3` (channel buffers three pictures deep, the picture after the first two, and the queued picture's addresses to match) and `spec=5` (splice buffers three pictures deep for mode 1, one and a half for mode 2) aren't supported and run as `spec=0`.
 
 ```sh
 make -C drivers/xm530v200_vpss KDIR=... ARCH=arm CROSS_COMPILE=...
