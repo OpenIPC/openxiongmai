@@ -6,7 +6,9 @@ A stock firmware image (8 MiB, its custom partition a cramfs at 0x770000)
 with CustomConfig/Isp.json changed, to make the vendor's ISP run another
 sensor mode under qemu-bench for a reference capture (capture.sh): no
 "MipiAttr" for 2-lane MIPI, "Assign2336p" off for the real SC2337P,
-"FunExt": 1 on the XM535D1 for its sensors without frame sync. VALUE is
+"FunExt": 1 on the XM535D1 for its sensors without frame sync, "HDR": 2
+for a sensor's HDR mode where the vendor's daemon has one for it (SC4210
+always, SC223A; not the XM530V200's SC200AI). VALUE is
 JSON ("1LANE_10BIT" quoted, 1 a number); -KEY drops a key; camera:TEXT
 puts TEXT into Camera.custom's first Param. libxmv200 reads none of
 these files: the streamer chooses the mode (xmv200_layout_sensor).
