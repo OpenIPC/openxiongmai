@@ -53,15 +53,19 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
     │   ├── mpi/                 SYS / VI / VO / AIO interfaces
     │   └── xm/                  Camera.h (SENSOR_CHIP_* enum), per-SoC register maps
     ├── libmpi/                  libopenmpi.a: MPI reimplementation
+    ├── libxmisp/                libxmisp.a: open XM510 ISP (sensor start-up, 3A, tuning) (MIT)
     ├── libxmvenc/               libxmvenc.a: open H.264/JPEG (Hantro) and H.265 (Mali-V550) encoding (MIT)
     ├── libispapp_XM530/         libispapp_XM530.so: ISP application layer
     ├── libsns_X123_XM530/       libsns_X123_XM530.so: "X123" sensor family
     └── libsns_X50_XM530/        libsns_X50_XM530.so: "X50" sensor family
 
 tools/
+├── xm-isp-trace/                Traces the XM510 vendor isp daemon, generates sensor scripts (MIT)
+├── xm-isp-tune/                 Colour checker calibration and ISP register access (MIT)
 ├── xm-rgn-test/                 Draws OSD overlays and covers from the shell, XM530/XM550 and XM510 (MIT)
 ├── xm-vi-hang/                  Reproduces the VI driver hang without a camera application (MIT)
 ├── xmhevc-test/                 Raw /dev/mv500 H.265 session, the interface reference (MIT)
+├── xmispd/                      Open ISP daemon for the XM510, on libxmisp (MIT)
 └── xmvenc-test/                 Encodes H.264, H.265 or JPEG with libxmvenc (MIT)
 ```
 
@@ -147,6 +151,52 @@ To add a sensor:
 | `xm530_isp` | XM530/XM550 ISP device: register access, interrupt waits, a shared block, AWB statistics and the MIPI delay sweep for the vendor ISP library (`/dev/isp`) | Builds `open_isp.ko`. Same ABI as the vendor `xm530_isp.ko`, without its unchecked event index, AWB parameters and mapping length; ran majestic on an XM550 in place of it |
 | `xm510_vi` | XM510 video input: capture window, crop, scaler and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm510_vi.ko`, plus release on close and `poll`; ran majestic on an XM510 in place of it |
 | `xm_vi` | XM530/XM550 video input: capture window, scalers and frame buffers (`/dev/vi`) | Builds `open_vi.ko`. Same ABI as the vendor `xm530_vi.ko`, without its vmalloc leak; ran majestic on an XM550 in place of it |
+
+## Open ISP on XM510: try `xmispd`
+
+`xmispd` (`tools/xmispd`, on `libraries/libxmisp`, both MIT) is an open
+ISP daemon for the XM510, a drop-in for the vendor `/usr/bin/isp` that
+majestic starts. It starts the sensor as the vendor daemon does, and runs
+open auto-exposure, auto white balance, anti-flicker (`isp.antiFlicker`),
+noise reduction, sharpening, black level and colour, and day/night.
+`libraries/libxmisp/README.md` has the details and the measurements.
+
+OpenIPC firmware for the XM510 ships it, off by default. To try it:
+
+```sh
+fw_setenv xmispd 1
+reboot
+```
+
+`logread` then shows `xiongmai: Using xmispd as the ISP daemon` and
+`<sensor> up: open ISP, auto-exposure, auto white balance`. Back to the
+vendor daemon: `fw_setenv xmispd` and reboot. For a sensor xmispd doesn't
+have, the boot log says so and the vendor daemon stays.
+
+| Sensor | Status |
+|---|---|
+| JX-H62, AR0130 | Measured on lab cameras: exposure and gain, white balance range, colour matrix, noise and black level |
+| JX-H42, JX-H65, SC1135, SC1235, SC2145H, SC2235, OV9750, OV9732 | From the vendor daemon's behaviour, traced in an emulator; not yet run on the sensor |
+| MIS1002 | Starts, with a fixed exposure |
+
+Day/night follows majestic's settings: with
+
+```yaml
+nightMode:
+  lightMonitor: true
+```
+
+in `/etc/majestic.yaml`, the picture goes black and white once the
+exposure runs out for 15 s (`autoNightDelay`), and back to colour once the
+gain stays at or below 2× (`autoDayGain`) for 60 s (`autoDayDelay`). The
+IR-cut filter and IR lamp stay majestic's (`nightMode.irCutPin1` etc.).
+
+**Please report** how it does on your camera, good or bad, especially with
+one of the sensors not yet run, in an issue here:
+- `ipcinfo` (or `ipctool`) output, and the board;
+- `logread | grep -i 'isp\|xiongmai\|night'` after a start;
+- a snapshot (`/image.jpg`) by day and, if you can, by night, with xmispd
+  and with the vendor daemon, of the same view.
 
 ## Open encoder
 
