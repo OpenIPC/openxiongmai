@@ -262,4 +262,26 @@ uint32_t xmv200_osd_color(uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 }
 #endif
 
+/*
+ * Audio: the codec's input and output, 16-bit mono PCM at rate (on the
+ * XM535D1/D2 set here; elsewhere i2s.ko's rate=, 8000 by default). Reads
+ * wait for the samples asked for; writes for room. Volume and gain
+ * 0..100 (acodec.ko).
+ */
+int xmv200_audio_open(uint32_t rate, int in, int out);
+void xmv200_audio_close(void);
+int xmv200_audio_read(int16_t *pcm, int samples);
+int xmv200_audio_write(const int16_t *pcm, int samples);
+int xmv200_audio_queued(void); /* samples not played yet */
+int xmv200_audio_set_volume(int volume);
+int xmv200_audio_set_mute(int mute);
+int xmv200_audio_set_gain(int gain);
+/* G.711, A-law (ulaw 0) or mu-law */
+uint8_t xmv200_alaw(int16_t pcm);
+int16_t xmv200_alaw_pcm(uint8_t a);
+uint8_t xmv200_ulaw(int16_t pcm);
+int16_t xmv200_ulaw_pcm(uint8_t u);
+void xmv200_g711_encode(const int16_t *pcm, int n, uint8_t *out, int ulaw);
+void xmv200_g711_decode(const uint8_t *in, int n, int16_t *pcm, int ulaw);
+
 #endif

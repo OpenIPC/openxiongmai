@@ -2,6 +2,7 @@
 /* xmv200-test: bring-up steps of the V200 pipeline without vendor userspace */
 #include <fcntl.h>
 #include <pthread.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -261,6 +262,43 @@ static int run(const char *board, int n, int osd) {
   return 0;
 }
 
+/* a second of input: its level and frequency (zero crossings), through
+ * G.711 and back, then played */
+static int audio(uint32_t rate) {
+  static int16_t pcm[32000], back[32000];
+  static uint8_t g[32000];
+  int n, cross = 0;
+  double sum = 0, err = 0;
+
+  if (xmv200_audio_open(rate, 1, 1)) {
+    fprintf(stderr, "audio: open failed\n");
+    return 1;
+  }
+  xmv200_audio_set_gain(80);
+  xmv200_audio_set_volume(80);
+  n = xmv200_audio_read(pcm, rate);
+  if (n <= 0) {
+    fprintf(stderr, "audio: read failed\n");
+    return 1;
+  }
+  for (int i = 0; i < n; i++) {
+    sum += (double)pcm[i] * pcm[i];
+    if (i && (pcm[i - 1] < 0) != (pcm[i] < 0))
+      cross++;
+  }
+  xmv200_g711_encode(pcm, n, g, 0);
+  xmv200_g711_decode(g, n, back, 0);
+  for (int i = 0; i < n; i++)
+    err += (double)(back[i] - pcm[i]) * (back[i] - pcm[i]);
+  printf("audio: %d samples, rms %.0f, %d Hz, A-law snr %.1f dB\n", n,
+         sqrt(sum / n), cross * (int)rate / n / 2,
+         err ? 10 * log10(sum / err) : 99.0);
+  printf("audio: played %d, %d queued\n", xmv200_audio_write(pcm, n),
+         xmv200_audio_queued());
+  xmv200_audio_close();
+  return 0;
+}
+
 int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "probe"))
     return probe();
@@ -318,6 +356,8 @@ int main(int argc, char **argv) {
     running = 0;
     return 0;
   }
+  if (argc > 1 && !strcmp(argv[1], "audio"))
+    return audio(argc > 2 ? atoi(argv[2]) : 8000);
   if (argc > 2 && !strcmp(argv[1], "run")) {
     /* run BOARD [N [osd]] [then BOARD2 [N2]]: BOARD2 after stopping BOARD,
      * in the same process */

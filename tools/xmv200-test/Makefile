@@ -10,7 +10,7 @@ override CFLAGS += -DREPLAY_DATA='"$(REPLAY_DATA)"'
 endif
 
 xmv200-test: main.c replay.c $(LIB)/libxmv200.a
-	$(CC) $(CFLAGS) -static -o $@ main.c replay.c $(LIB)/libxmv200.a -lpthread
+	$(CC) $(CFLAGS) -static -o $@ main.c replay.c $(LIB)/libxmv200.a -lpthread -lm
 
 $(LIB)/libxmv200.a: FORCE
 	$(MAKE) -C $(LIB) CROSS_COMPILE=$(CROSS_COMPILE)
