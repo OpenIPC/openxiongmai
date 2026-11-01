@@ -15,6 +15,15 @@
 #define ISPTRACE_ISP_WRITE 0x101
 #define ISPTRACE_ISP_READ 0x103
 
+/* The XM530/XM550 ones, _IOW('I', n, 12) on {u32 addr; u32 val; u32 arg}:
+ * a write, two reads (the value written back), and a wait for an event
+ * (arg: 0 the Bayer frame, 1 the luma one), whose return is the frame
+ * start there: XM530 has no SIGIO. */
+#define ISPTRACE_ISP530_WRITE 0x400c4901
+#define ISPTRACE_ISP530_READ 0x400c4902
+#define ISPTRACE_ISP530_READ2 0x400c4903
+#define ISPTRACE_ISP530_WAIT 0x400c4904
+
 /* An ioctl record's snapshots of its argument. */
 #define ISPTRACE_BEFORE 1
 #define ISPTRACE_AFTER 2
@@ -43,7 +52,9 @@ struct isptrace_rec {
 };
 
 enum {
-  ISPTRACE_FRAME = 1, /* aux: frame count; t_us: when the SIGIO came */
+  ISPTRACE_FRAME = 1, /* aux: frame count; t_us: when the SIGIO came, or
+                         (XM530) when the wait for the Bayer frame event
+                         returned */
   ISPTRACE_ISPW,      /* aux: register; payload: u32 value */
   ISPTRACE_ISPR,      /* aux: register; payload: u32 value read */
   ISPTRACE_IOCTL,     /* aux: cmd; aux2: result or -errno; payload:

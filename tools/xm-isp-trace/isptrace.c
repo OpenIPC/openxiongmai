@@ -344,14 +344,30 @@ int ioctl(int fd, int req, ...) {
   const unsigned cmd = (unsigned)req;
 
   if (fd >= 0 && fd < MAX_FDS && isp_fd[fd] &&
-      (cmd == ISPTRACE_ISP_WRITE || cmd == ISPTRACE_ISP_READ)) {
+      (cmd == ISPTRACE_ISP_WRITE || cmd == ISPTRACE_ISP_READ ||
+       cmd == ISPTRACE_ISP530_WRITE || cmd == ISPTRACE_ISP530_READ ||
+       cmd == ISPTRACE_ISP530_READ2)) {
+    const int write =
+        cmd == ISPTRACE_ISP_WRITE || cmd == ISPTRACE_ISP530_WRITE;
     uint32_t rec[2] = {0, 0};
     safe_copy(rec, arg, sizeof(rec));
     const int r = real_ioctl(fd, req, arg);
-    if (cmd == ISPTRACE_ISP_READ)
+    if (!write)
       safe_copy(rec, arg, sizeof(rec));
-    emit(cmd == ISPTRACE_ISP_WRITE ? ISPTRACE_ISPW : ISPTRACE_ISPR, fd, rec[0],
-         (uint16_t)r, &rec[1], 4, NULL, 0);
+    emit(write ? ISPTRACE_ISPW : ISPTRACE_ISPR, fd, rec[0], (uint16_t)r,
+         &rec[1], 4, NULL, 0);
+    return r;
+  }
+
+  /* XM530: the Bayer frame event's wait returning is a frame start. */
+  if (fd >= 0 && fd < MAX_FDS && isp_fd[fd] && cmd == ISPTRACE_ISP530_WAIT) {
+    uint32_t rec[3] = {0, 0, 0};
+    safe_copy(rec, arg, sizeof(rec));
+    const int r = real_ioctl(fd, req, arg);
+    if (r == 0 && rec[2] == 0) {
+      frame_us = now_us();
+      frame++;
+    }
     return r;
   }
 
