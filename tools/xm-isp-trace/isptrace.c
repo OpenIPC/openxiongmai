@@ -189,6 +189,23 @@ static void emit(uint8_t type, int fd, uint32_t aux, uint16_t aux2,
   errno = err;
 }
 
+/* XM530: a frame start logged as it happens, in thread context, so a run
+ * of waits with nothing else traced between them keeps every frame (the
+ * XM510's SIGIO, taken in a handler, can't take the lock: emit() logs its
+ * frames). */
+static void frame_record(void) {
+  const int err = errno;
+  sigset_t old;
+  lock_nosig(&lock, &old);
+  const uint32_t f = frame;
+  if (f != frame_logged) {
+    put_locked(ISPTRACE_FRAME, 0, f, 0, frame_us, NULL, 0, NULL, 0);
+    frame_logged = f;
+  }
+  unlock_nosig(&lock, &old);
+  errno = err;
+}
+
 /* Copies n bytes from p if the whole range is readable; a pipe write fails
  * with EFAULT on a bad address instead of faulting, and the kernel here
  * (3.0) predates process_vm_readv(). */
@@ -344,14 +361,35 @@ int ioctl(int fd, int req, ...) {
   const unsigned cmd = (unsigned)req;
 
   if (fd >= 0 && fd < MAX_FDS && isp_fd[fd] &&
-      (cmd == ISPTRACE_ISP_WRITE || cmd == ISPTRACE_ISP_READ)) {
+      (cmd == ISPTRACE_ISP_WRITE || cmd == ISPTRACE_ISP_READ ||
+       cmd == ISPTRACE_ISP530_WRITE || cmd == ISPTRACE_ISP530_READ ||
+       cmd == ISPTRACE_ISP530_READ2)) {
+    const int write =
+        cmd == ISPTRACE_ISP_WRITE || cmd == ISPTRACE_ISP530_WRITE;
     uint32_t rec[2] = {0, 0};
     safe_copy(rec, arg, sizeof(rec));
     const int r = real_ioctl(fd, req, arg);
-    if (cmd == ISPTRACE_ISP_READ)
+    const int err = errno;
+    if (!write)
       safe_copy(rec, arg, sizeof(rec));
-    emit(cmd == ISPTRACE_ISP_WRITE ? ISPTRACE_ISPW : ISPTRACE_ISPR, fd, rec[0],
-         (uint16_t)r, &rec[1], 4, NULL, 0);
+    emit(write ? ISPTRACE_ISPW : ISPTRACE_ISPR, fd, rec[0],
+         (uint16_t)(r < 0 ? -err : r), &rec[1], 4, NULL, 0);
+    errno = err;
+    return r;
+  }
+
+  /* XM530: the Bayer frame event's wait returning is a frame start. */
+  if (fd >= 0 && fd < MAX_FDS && isp_fd[fd] && cmd == ISPTRACE_ISP530_WAIT) {
+    uint32_t rec[3] = {0, 0, 0};
+    safe_copy(rec, arg, sizeof(rec));
+    const int r = real_ioctl(fd, req, arg);
+    const int err = errno;
+    if (r == 0 && rec[2] == 0) {
+      frame_us = now_us();
+      frame++;
+      frame_record();
+    }
+    errno = err;
     return r;
   }
 
