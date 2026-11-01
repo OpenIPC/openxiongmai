@@ -16,12 +16,12 @@ make CROSS_COMPILE=arm-openipc-linux-musleabi-
 ```
 
 The default `CROSS_COMPILE` differs per Makefile, so pass it explicitly:
-- `libraries/libsns_X50_XM530`: `arm-openipc-linux-musleabi-`
+- `libraries/libsns_X50_XM530`, `libraries/libisp_XM530`: `arm-openipc-linux-musleabi-`
 - `libraries/libsns_X123_XM530`, `libraries/libispapp_XM530`: `arm-xm-linux-`
 - `libraries/libmpi`: `arm-linux-`, and the Makefile hard-sets `PATH` to `/opt/vtcs_toolchain/...`
 
 Build outputs:
-- The `libsns_*` and `libispapp_*` libraries build stripped `.so` files with `-fPIC`.
+- The `libsns_*`, `libispapp_*` and `libisp_*` libraries build stripped `.so` files with `-fPIC`.
 - `libmpi` builds the static `libopenmpi.a`.
 - The kernel modules in `drivers/` (`hx280enc`, `xm_i2c`) are out-of-tree kbuild modules. `KDIR` defaults to `$(HOME)/projects/cameras/sdk/XM510/os/kernel/linux-xm510`, so override it: `make KDIR=/path/to/kernel`.
 
@@ -31,7 +31,7 @@ Most Makefiles build with `-Werror -Wall -std=c99`. `libsns_X50_XM530` dropped `
 
 ## CI
 
-`.github/workflows/build.yml` runs two jobs. The first builds all four libraries with the OpenIPC `toolchain.xiongmai-xm530` (gcc 13, musl) and asserts the exported symbols and `NEEDED` entries. The kernel job is a matrix over xm510 (3.0.101) and xm530 (3.10.103). Each entry builds `xm_i2c` and `hx280enc` against the pinned `openipc/linux@xiongmai-<soc>` commit, using the firmware's `<soc>.generic.config` and its `general/package/all-patches/linux` patches. Without those patches, gcc 13 can't build the 3.0 kernel. All jobs are required status checks on `main`. Kernel, firmware and toolchain inputs are pinned in `build.yml`. OpenIPC rebuilds the toolchain tarballs in place, so a sha256 mismatch means the checksum needs updating. To reproduce CI locally, download the same pinned inputs. Add any new library or exported entry point to the workflow's checks.
+`.github/workflows/build.yml` runs two jobs. The first builds the libraries with the OpenIPC `toolchain.xiongmai-xm530` (gcc 13, musl) and asserts the exported symbols and `NEEDED` entries. The kernel job is a matrix over xm510 (3.0.101) and xm530 (3.10.103). Each entry builds `xm_i2c` and `hx280enc` against the pinned `openipc/linux@xiongmai-<soc>` commit, using the firmware's `<soc>.generic.config` and its `general/package/all-patches/linux` patches. Without those patches, gcc 13 can't build the 3.0 kernel. All jobs are required status checks on `main`. Kernel, firmware and toolchain inputs are pinned in `build.yml`. OpenIPC rebuilds the toolchain tarballs in place, so a sha256 mismatch means the checksum needs updating. To reproduce CI locally, download the same pinned inputs. Add any new library or exported entry point to the workflow's checks.
 
 ## Architecture
 
@@ -133,6 +133,17 @@ The protocol numbers match Arm's GPL-2.0-only `mve_protocol_def_v2.h`. Don't cop
 - **Colour (M4):** the sensor driver's `ccm` (rows sum 256) goes into both CSM banks (`0x40061040`/`80`, switch `0x40061000`), with Cb/Cr gain (`0x40076004`/`08`) at `0x100`. `0x100` is unity: tested by a blue-gain change through an identity matrix, which moved only B. The vendor moves its matrix and its Cb/Cr gain (`0x20e`–`0x250`, a 2–2.3× saturation boost) with the light. Calibrate with `tools/xm-isp-tune/colorchecker.py` against a colour checker. It decodes the stream full-range (the XM510 RGB→YCbCr has no offset; the stream doesn't say so), undoes `GAMMA60`, and fits for CIELAB error as an sRGB display shows it. H62 daylight: dE 10.4–10.8, against 16.9 for the vendor's traced matrix and gain in the same light. The script checks the camera's host key, reads the password from `SSHPASS`, verifies each write by reading it back, and uses local ffmpeg or a digest-pinned image. Matrix registers read back as 13-bit two's complement.
 - **Day/night:** `daynight.c` (SoC-free, host test) decides night when AE has run out (gain within 3% of the ceiling, mean below 80% of target) or reaches `autoNightGain`, day when gain stays ≤ `autoDayGain`, each after a delay; `xm510.c` makes night black and white (Cb/Cr gain 0, also through the colour matrix path) and holds AWB. xmispd reads majestic's `nightMode.lightMonitor`/`autoNightGain`/`autoDayGain`/`autoNightDelay`/`autoDayDelay` (defaults empty/2/15/60) at start and on SIGHUP, off when `lightSensorPin` or both thresholds are set. On XM510 majestic logs that the ISP reports no exposure state and leaves automatic day/night to the daemon; the IR-cut and lamp pins stay majestic's. Tested on the lab JX-H62 (no IR lamp) through a full cycle.
 - **Daemon:** it prints the vendor daemon's last start-up line, `ispMsgReceive start!`, in the vendor's format (`\033[0;32;32mDEBUG: ...\n\033[m`); majestic starts video after it. It takes signals with `sigwaitinfo()` (SIGIO from `/dev/isp` with `O_ASYNC`) and on SIGTERM turns 3D-NR off. It runs `xmisp_frame()` on every SIGIO.
+
+### `libraries/libisp_XM530` (open XM530/XM550 ISP, #76)
+
+An open `libisp_XM530.so`, the vendor ISP library majestic loads (63 KB, libc only), in openhisilicon's layout: `src/main` common, `arch/xm530` the chip's tables. It builds against the SDK headers like `libispapp`, so vendor-derived headers are fine here (not MIT). AE and AWB stay majestic's (its built-in vendor 3A); an open 3A is M2, tuning M3.
+- **Traced, not decompiled:** `tools/xm-isp-trace` (`isptrace.so` call tracing, `3aprobe.so`) on the lab XM550 (IMX335). Majestic's source is private: don't publish its file names or how its code works, only what a camera shows.
+- **3A interface:** `MemInit` gets AE/AWB from `XM_MPI_ISP_AELibRegCallBack`/`AWBLibRegCallBack` (majestic's exports) and calls `ae_ctrl(dev, handle, 1, …)`/`awb_ctrl(handle, 1, …)`. Their inits refuse to run before it. The handles are state buffers the ISP library owns (the vendor's live in the `/dev/isp` shared page). Per frame: `awb_run(0, info, result, iso)` reads the AWB SRAM itself through our `Read_IspReg` (ADDR_RC `0x30011140` = 1, then per zone R/G/B `0x30011148`-`50` and RD_EN `0x30011144`), then `ae_run(0, 0, info, result, n & 1 ? 0 : 1)`. `ISP_AE_INFO_S`: 16 histogram bins of 0x80; a 16 × 32 grid, each AWB zone's BT.601 luma with the current AWB gains, 16 × mean per colour site; a 7 × 7 grid of 4 × 2 means of it, with the last column/row taking the rest. AE result low 16 bits: the ISP gain, written to `DIGITAL_GAIN` as `× 0x109 >> 8` on IMX335. AWB result: gains to `0x30010000`, CCM (u16 × 12) straight to the CSM `0x30060040`. `awb_init` returns the statistics window in `stWin`, which the library spreads over 32 × 16 zones (last row one line short).
+- **Start-up:** the vendor's writes for one sensor/mode, generated by `tools/xm-isp-trace/extract530.py` (Init's writes before and after the 3A inits, Run's first pass, the attributes Init set). Regenerate rather than edit, then clang-format. The 3D-NR MMZ block "Isp" is 1.6 + 0.4 bytes a pixel, plus a byte-per-pixel error plane at half size (width rounded up to 8). Only IMX335 2600×1954 so far.
+- **Immediate setters:** `SetPubAttr` calls majestic's `XM_MPI_AE_SetFrameRate(dev, fps)` between `SetVsyncIntEn` 0 and 2. `SetGammaAttr` writes `u16Table[97]` to `0x30061000`. `SetCSCAttr` with manual saturation 0 sets Cb/Cr gain `0x30076004`/`08` to 0. Chroma and anti-false-colour are stored only, so far.
+- **MIPI start:** on this library, the ISP application's MIPI run after `Init` writes `0x300f0010` = 0, not 1, and no frame comes; `Run` restarts the receiver (`0x300c002c` 0, 4) and sets it. Cause unknown.
+- **Comparing with the vendor:** majestic restarted on the vendor library starts AE from the last run's statistics (left in the `/dev/isp` page). From a cold boot both libraries start from none and, in dim light, AE drops to a slow frame rate (VMAX 16000, 0x300c0030 lines 8000). So compare against a cold boot.
+- **Missing:** the vendor's Run loop retunes CbCr, DRC (`0x3000b020`), `YGAMMA`, 2D/3D NR, sharpening and DDPC by gain and scene every ~7 frames, so the picture is darker; VDA reports nothing. Test by bind-mounting over `/usr/lib/libisp_XM530.so`; `LIBISP_DEBUG=1` logs the grids and 3A results every 50 frames.
 
 ### `tools/xm-vi-hang`
 

@@ -56,6 +56,9 @@ jobs:
             CFLAGS="-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Os -g0 -D_FORTIFY_SOURCE=1" \
             all
           echo "::endgroup::"
+          echo "::group::libisp_XM530"
+          make -C libraries/libisp_XM530 CROSS_COMPILE="$CROSS_COMPILE"
+          echo "::endgroup::"
           # libmpi's Makefile hard-codes PATH; override it from the command line.
           echo "::group::libmpi"
           make -C libraries/libmpi CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
@@ -128,6 +131,7 @@ jobs:
               libraries/libsns_X50_XM530/libsns_X50_XM530.so \
               libraries/libsns_X123_XM530/libsns_X123_XM530.so \
               libraries/libispapp_XM530/libispapp_XM530.so \
+              libraries/libisp_XM530/libisp_XM530.so \
               libraries/libmpi/libopenmpi.a \
               libraries/libxmvenc/libxmvenc.a \
               libraries/libxmisp/libxmisp.a; do
@@ -162,6 +166,33 @@ jobs:
                 cmos_init_ae_exp_function_sc2239 cmos_init_awb_exp_function_sc2239
           check libraries/libispapp_XM530/libispapp_XM530.so \
                 XM_I2C_Ioctl SysGetProductInfo
+          # what majestic, libispapp and the sensor libraries import
+          check libraries/libisp_XM530/libisp_XM530.so \
+                XM_MPI_ISP_MemInit XM_MPI_ISP_Init XM_MPI_ISP_Run \
+                XM_MPI_ISP_SensorRegCallBack XM_MPI_ISP_SensorUnRegCallBack \
+                XM_MPI_ISP_SetPubAttr XM_MPI_ISP_GetPubAttr \
+                XM_MPI_ISP_SetVsyncIntEn XM_MPI_ISP_SetRegister \
+                XM_MPI_ISP_GetRegister XM_MPI_ISP_Memncpy XM_MPI_ISP_Memset \
+                XM_MPI_ISP_SetChnAttr XM_MPI_ISP_GetChnAttr XM_MPI_ISP_GetNrInfo \
+                XM_MPI_ISP_SetGammaAttr XM_MPI_ISP_GetGammaAttr \
+                XM_MPI_ISP_SetBlackLevelAttr XM_MPI_ISP_GetBlackLevelAttr \
+                XM_MPI_ISP_SetSaturationAttr XM_MPI_ISP_GetSaturationAttr \
+                XM_MPI_ISP_SetDyDefectPixelAttr XM_MPI_ISP_GetDyDefectPixelAttr \
+                XM_MPI_ISP_SetSharpenAttr XM_MPI_ISP_GetSharpenAttr \
+                XM_MPI_ISP_SetSharpenV2Attr XM_MPI_ISP_GetSharpenV2Attr \
+                XM_MPI_ISP_SetNRAttr XM_MPI_ISP_GetNRAttr \
+                XM_MPI_ISP_Set3DNrAttr XM_MPI_ISP_Get3DNrAttr \
+                XM_MPI_ISP_Set3DNrV2Attr XM_MPI_ISP_Get3DNrV2Attr \
+                XM_MPI_ISP_SetCSCAttr XM_MPI_ISP_GetCSCAttr \
+                XM_MPI_ISP_SetAntiFalseColorAttr XM_MPI_ISP_GetAntiFalseColorAttr \
+                XM_MPI_ISP_SetChromaAttr XM_MPI_ISP_GetChromaAttr \
+                XM_MPI_ISP_SetDRCAttr XM_MPI_ISP_GetDRCAttr \
+                XM_MPI_ISP_SetDeFogAttr XM_MPI_ISP_GetDeFogAttr \
+                XM_MPI_ISP_SetDCIAttr XM_MPI_ISP_GetDCIAttr \
+                XM_MPI_VDA_CreatChn XM_MPI_VDA_SetMovAttr XM_MPI_VDA_GetMovAttr \
+                XM_MPI_VDA_GetMovData XM_MPI_VDA_SetShAttr XM_MPI_VDA_GetShAttr \
+                XM_MPI_VDA_GetShdMark Read_IspReg Write_IspReg ispMemnCpy \
+                SysDelay_ms IspSetSlowFrameRate Mipi_check_init Mipi_check_run
           check libraries/libmpi/libopenmpi.a \
                 XM_MPI_SYS_Init XM_MPI_SYS_MmzAlloc XM_MPI_VI_INIT \
                 XM_MPI_VENC_CreateChn XM_MPI_RGN_INIT
