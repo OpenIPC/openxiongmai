@@ -55,6 +55,9 @@ struct isp_tune_attrs {
 };
 void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a);
 
+/* mpi_vda.c: motion detection on each new AE grid */
+void vda_frame(const ISP_AE_STAT_2_S *grid);
+
 /* isp_3a.c */
 int isp_3a_register(ISP_DEV dev);
 int isp_3a_init(ISP_DEV dev, const ISP_PUB_ATTR_S *pub);
