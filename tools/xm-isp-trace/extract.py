@@ -74,19 +74,20 @@ def records(path):
     data = open(path, "rb").read()
     magic, version, t0, _ = decode.HDR.unpack_from(data)
     if magic != decode.MAGIC or version not in decode.VERSIONS:
-        sys.exit(f"{path}: not an isptrace log (version 1 or 2)")
+        sys.exit(f"{path}: not an isptrace log (version 1 to 3)")
+    rs = decode.rec_struct(version)
     fds, frame, off = {}, 0, decode.HDR.size
-    while off + decode.REC.size <= len(data):
-        t, aux, _f, typ, fd, n, aux2 = decode.REC.unpack_from(data, off)
-        p = data[off + decode.REC.size : off + decode.REC.size + n]
-        off += decode.REC.size + ((n + 3) & ~3)
+    while off + rs.size <= len(data):
+        t, aux, _f, typ, fd, n, aux2, *tid = rs.unpack_from(data, off)
+        p = data[off + rs.size : off + rs.size + n]
+        off += rs.size + ((n + 3) & ~3)
         if typ == FRAME:
             frame = aux
         if typ in (decode.OPEN, decode.CREAT) and decode.s16(aux2) >= 0:
             fds[decode.s16(aux2)] = decode.cstrs(p)[0]
         yield dict(ms=((t - t0) & 0xFFFFFFFF) / 1000, aux=aux, aux2=aux2,
                    type=typ, dev=fds.get(fd, ""), p=p, frame=frame,
-                   version=version)
+                   version=version, tid=tid[0] if tid else 0)
 
 
 def words(b):
