@@ -125,9 +125,11 @@ static uint32_t my_tid(void) {
   return tid;
 }
 
+/* tid: the thread the record is of; 0 for a frame start the SIGIO handler
+ * counted, logged later by whichever thread logs next. */
 static void put_locked(uint8_t type, uint8_t fd, uint32_t aux, uint16_t aux2,
-                       uint32_t t_us, const void *p1, size_t n1, const void *p2,
-                       size_t n2) {
+                       uint32_t t_us, uint32_t tid, const void *p1, size_t n1,
+                       const void *p2, size_t n2) {
   if (n1 > PAYLOAD_MAX)
     n1 = PAYLOAD_MAX, n2 = 0;
   else if (n1 + n2 > PAYLOAD_MAX)
@@ -152,7 +154,7 @@ static void put_locked(uint8_t type, uint8_t fd, uint32_t aux, uint16_t aux2,
       .fd = fd,
       .len = (uint16_t)len,
       .aux2 = aux2,
-      .tid = type == ISPTRACE_FRAME ? 0 : my_tid(),
+      .tid = tid,
   };
   memcpy(buf + used, &r, sizeof(r));
   if (n1)
@@ -188,10 +190,10 @@ static void emit(uint8_t type, int fd, uint32_t aux, uint16_t aux2,
   lock_nosig(&lock, &old);
   const uint32_t f = frame;
   if (f != frame_logged) {
-    put_locked(ISPTRACE_FRAME, 0, f, 0, frame_us, NULL, 0, NULL, 0);
+    put_locked(ISPTRACE_FRAME, 0, f, 0, frame_us, 0, NULL, 0, NULL, 0);
     frame_logged = f;
   }
-  put_locked(type, (uint8_t)fd, aux, aux2, t, p1, n1, p2, n2);
+  put_locked(type, (uint8_t)fd, aux, aux2, t, my_tid(), p1, n1, p2, n2);
   /* At most 100 ms of records lost if the daemon is killed. */
   if (sync_out || t - flushed_us > 100000) {
     flush_locked();
@@ -211,7 +213,7 @@ static void frame_record(void) {
   lock_nosig(&lock, &old);
   const uint32_t f = frame;
   if (f != frame_logged) {
-    put_locked(ISPTRACE_FRAME, 0, f, 0, frame_us, NULL, 0, NULL, 0);
+    put_locked(ISPTRACE_FRAME, 0, f, 0, frame_us, my_tid(), NULL, 0, NULL, 0);
     frame_logged = f;
   }
   unlock_nosig(&lock, &old);

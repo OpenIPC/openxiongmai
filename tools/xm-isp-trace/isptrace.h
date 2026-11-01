@@ -49,8 +49,8 @@ struct isptrace_rec {
   uint8_t fd;
   uint16_t len;  /* payload bytes */
   uint16_t aux2; /* by type: usually the low 16 bits of the result */
-  uint32_t tid;  /* version 3: the thread that made it (0 in a signal
-                    handler's frame record) */
+  uint32_t tid;  /* version 3: the thread that made it; 0 for an XM510
+                    frame start, counted in the SIGIO handler */
 };
 
 enum {
