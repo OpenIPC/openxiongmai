@@ -658,3 +658,118 @@ void (*signal(int sig, void (*h)(int)))(int) {
     return prev;
   return old.sa_handler;
 }
+
+/* XM530/XM550: calls into the vendor ISP library, libisp_XM530.so, from
+ * majestic, libispapp and the sensor library, each logged on the way in and
+ * out between the register traffic it causes. The wrappers take the place
+ * of the library's own symbols (LD_PRELOAD comes before it) and pass r0-r3
+ * on: every call site seen takes at most three integer or pointer
+ * arguments. An argument that points at readable memory is snapped, up to
+ * ISPTRACE_CALL_SNAP bytes, before and after the call, and the caller's
+ * module is named. The register helpers (Read_IspReg, Write_IspReg,
+ * ispMemnCpy) run thousands of times a second, mostly for the AWB
+ * statistics, and their traffic is in the register records already: they
+ * are logged only with ISPTRACE_CALLS=all. */
+#define ISPTRACE_API(X)                                                        \
+  X(ispMemnCpy) X(IspSetSlowFrameRate) X(Mipi_check_init) X(Mipi_check_run)    \
+  X(Read_IspReg) X(SysDelay_ms) X(Write_IspReg) X(XM_MPI_ISP_Get3DNrAttr)      \
+  X(XM_MPI_ISP_Get3DNrV2Attr) X(XM_MPI_ISP_GetAntiFalseColorAttr)              \
+  X(XM_MPI_ISP_GetBlackLevelAttr) X(XM_MPI_ISP_GetChnAttr)                     \
+  X(XM_MPI_ISP_GetChromaAttr) X(XM_MPI_ISP_GetCSCAttr) X(XM_MPI_ISP_GetDCIAttr) \
+  X(XM_MPI_ISP_GetDeFogAttr) X(XM_MPI_ISP_GetDRCAttr)                          \
+  X(XM_MPI_ISP_GetDyDefectPixelAttr) X(XM_MPI_ISP_GetGammaAttr)                \
+  X(XM_MPI_ISP_GetNRAttr) X(XM_MPI_ISP_GetNrInfo) X(XM_MPI_ISP_GetPubAttr)     \
+  X(XM_MPI_ISP_GetRegister) X(XM_MPI_ISP_GetSaturationAttr)                    \
+  X(XM_MPI_ISP_GetSharpenAttr) X(XM_MPI_ISP_GetSharpenV2Attr)                  \
+  X(XM_MPI_ISP_Init) X(XM_MPI_ISP_MemInit) X(XM_MPI_ISP_Memncpy)               \
+  X(XM_MPI_ISP_Memset) X(XM_MPI_ISP_Run) X(XM_MPI_ISP_SensorRegCallBack)       \
+  X(XM_MPI_ISP_SensorUnRegCallBack) X(XM_MPI_ISP_Set3DNrAttr)                  \
+  X(XM_MPI_ISP_Set3DNrV2Attr) X(XM_MPI_ISP_SetAntiFalseColorAttr)              \
+  X(XM_MPI_ISP_SetBlackLevelAttr) X(XM_MPI_ISP_SetChnAttr)                     \
+  X(XM_MPI_ISP_SetChromaAttr) X(XM_MPI_ISP_SetCSCAttr) X(XM_MPI_ISP_SetDCIAttr) \
+  X(XM_MPI_ISP_SetDeFogAttr) X(XM_MPI_ISP_SetDRCAttr)                          \
+  X(XM_MPI_ISP_SetDyDefectPixelAttr) X(XM_MPI_ISP_SetGammaAttr)                \
+  X(XM_MPI_ISP_SetNRAttr) X(XM_MPI_ISP_SetPubAttr) X(XM_MPI_ISP_SetRegister)   \
+  X(XM_MPI_ISP_SetSaturationAttr) X(XM_MPI_ISP_SetSharpenAttr)                 \
+  X(XM_MPI_ISP_SetSharpenV2Attr) X(XM_MPI_ISP_SetVsyncIntEn)                   \
+  X(XM_MPI_VDA_CreatChn) X(XM_MPI_VDA_GetMovAttr) X(XM_MPI_VDA_GetMovData)     \
+  X(XM_MPI_VDA_GetShAttr) X(XM_MPI_VDA_GetShdMark) X(XM_MPI_VDA_SetMovAttr)    \
+  X(XM_MPI_VDA_SetShAttr)
+
+typedef uint32_t (*api_fn)(uint32_t, uint32_t, uint32_t, uint32_t);
+
+/* Off the stack, as the ioctl snapshots are. */
+static __thread struct {
+  struct isptrace_call c;
+  unsigned char snap[4][ISPTRACE_CALL_SNAP];
+} call_buf;
+
+/* The snapped arguments after c, packed. */
+static size_t call_pack(unsigned char *out, const struct isptrace_call *c) {
+  size_t n = 0;
+  for (int i = 0; i < 4; i++)
+    if (c->mask & (1u << i) &&
+        safe_copy(out + n, (const void *)(uintptr_t)c->arg[i],
+                  ISPTRACE_CALL_SNAP))
+      n += ISPTRACE_CALL_SNAP;
+  return n;
+}
+
+static int calls_all = -1;
+
+static int call_quiet(const char *name) {
+  if (calls_all < 0) {
+    const char *e = getenv("ISPTRACE_CALLS");
+    calls_all = e && !strcmp(e, "all");
+  }
+  return !calls_all &&
+         (!strcmp(name, "Read_IspReg") || !strcmp(name, "Write_IspReg") ||
+          !strcmp(name, "ispMemnCpy"));
+}
+
+static uint32_t call_api(const char *name, api_fn *real, void *caller,
+                         uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+  pthread_once(&once, init);
+  if (!*real)
+    *real = (api_fn)dlsym(RTLD_NEXT, name);
+  if (!*real)
+    return (uint32_t)-1;
+  if (call_quiet(name))
+    return (*real)(a0, a1, a2, a3);
+  static __thread unsigned char packed[4 * ISPTRACE_CALL_SNAP];
+  struct isptrace_call *c = &call_buf.c;
+  memset(c->name, 0, sizeof(c->name));
+  strncpy(c->name, name, sizeof(c->name) - 1);
+  memset(c->from, 0, sizeof(c->from));
+  Dl_info di;
+  if (dladdr(caller, &di) && di.dli_fname) {
+    const char *b = strrchr(di.dli_fname, '/');
+    strncpy(c->from, b ? b + 1 : di.dli_fname, sizeof(c->from) - 1);
+  }
+  const uint32_t a[4] = {a0, a1, a2, a3};
+  c->mask = 0;
+  for (int i = 0; i < 4; i++) {
+    c->arg[i] = a[i];
+    /* user memory, readable: worth a snapshot */
+    if (a[i] >= 0x10000 && a[i] < 0xc0000000u &&
+        safe_copy(call_buf.snap[0], (const void *)(uintptr_t)a[i],
+                  ISPTRACE_CALL_SNAP))
+      c->mask |= 1u << i;
+  }
+  const struct isptrace_call in = *c;
+  emit(ISPTRACE_CALL, 0, 0, 0, &in, sizeof(in), packed, call_pack(packed, &in));
+  const uint32_t r = (*real)(a0, a1, a2, a3);
+  const int err = errno;
+  emit(ISPTRACE_CALL, 0, 1, (uint16_t)r, &in, sizeof(in), packed,
+       call_pack(packed, &in));
+  errno = err;
+  return r;
+}
+
+#define ISPTRACE_WRAP(name)                                                    \
+  uint32_t name(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {          \
+    static api_fn real;                                                        \
+    return call_api(#name, &real, __builtin_return_address(0), a0, a1, a2,     \
+                    a3);                                                       \
+  }
+ISPTRACE_API(ISPTRACE_WRAP)

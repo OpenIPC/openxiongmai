@@ -22,7 +22,9 @@ HDR = struct.Struct("<4I")
 REC = struct.Struct("<IIHBBHH")
 
 (FRAME, ISPW, ISPR, IOCTL, OPEN, CREAT, FOPEN, ACCESS, CLOSE, READ, MSGSND,
- MSGRCV, XMAP, SIGNAL, MEMW, MEMRW) = range(1, 17)
+ MSGRCV, XMAP, SIGNAL, MEMW, MEMRW, CALL) = range(1, 18)
+CALL_HDR = struct.Struct("<32s32s5I")  # struct isptrace_call
+CALL_SNAP = 512
 
 
 def s16(v):
@@ -111,6 +113,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("trace")
     ap.add_argument("-r", action="store_true", help="registers and frames only")
+    ap.add_argument("-c", action="store_true",
+                    help="ISP library calls and frames only (XM530), without snapshots")
     ap.add_argument("-f", help="frame range FIRST-LAST")
     ap.add_argument("-m", help="register map header")
     a = ap.parse_args()
@@ -139,7 +143,9 @@ def main():
             fds[s16(aux2)] = cstrs(p)[0]
         if not lo <= frame <= hi:
             continue
-        if a.r and typ not in (FRAME, ISPW, ISPR, MEMW, MEMRW):
+        if a.r and typ not in (FRAME, ISPW, ISPR, MEMW, MEMRW, CALL):
+            continue
+        if a.c and typ not in (FRAME, CALL):
             continue
         dev = fds.get(fd, f"fd{fd}")
         head = f"{ms:10.3f} f{frame:<6}"
@@ -162,12 +168,12 @@ def main():
                 line += f"\n{'':18}out {words(after)}"
         elif typ in (OPEN, CREAT):
             name = "open" if typ == OPEN else "creat"
-            line = f"{name} {cstrs(p)[0]} {aux:#o} -> {s16(aux2)}"
+            line = f"{name} {(cstrs(p) or [''])[0]} {aux:#o} -> {s16(aux2)}"
         elif typ == FOPEN:
             path, mode = (cstrs(p) + ["", ""])[:2]
             line = f"fopen {path} {mode} -> {'ok' if aux2 else 'fail'}"
         elif typ == ACCESS:
-            line = f"access {cstrs(p)[0]} {aux} -> {s16(aux2)}"
+            line = f"access {(cstrs(p) or [''])[0]} {aux} -> {s16(aux2)}"
         elif typ == CLOSE:
             line = f"close {dev}"
             fds.pop(fd, None)
@@ -190,6 +196,18 @@ def main():
             (insn,) = struct.unpack("<I", p[:4])
             what = "partly unmapped" if insn == 0xFFFFFFFF else f"store {insn:08x}"
             line = f"untraced from here: page {aux:08x}, {what}"
+        elif typ == CALL:
+            name, frm, a0, a1, a2, a3, mask = CALL_HDR.unpack_from(p)
+            name = name.split(b"\0")[0].decode()
+            frm = frm.split(b"\0")[0].decode()
+            args = ", ".join(f"{v:#x}" for v in (a0, a1, a2, a3))
+            line = (f"call {name}({args}) from {frm}" if aux == 0
+                    else f"ret  {name} -> {s16(aux2)}")
+            at = CALL_HDR.size  # the snapshots, in the payload
+            for i in range(4 if not a.c else 0):
+                if mask & (1 << i) and at + CALL_SNAP <= len(p):
+                    line += f"\n{'':18}arg{i} {words(p[at:at + 64])}"
+                    at += CALL_SNAP
         elif typ == SIGNAL:
             line = f"signal {aux}" + {0: "", 1: " (wrapped)", 2: " delivered"}.get(aux2, "")
         else:

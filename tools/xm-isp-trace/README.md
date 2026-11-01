@@ -91,6 +91,15 @@ LD_PRELOAD=/tmp/isptrace.so ISPTRACE=/tmp/trace.bin ISPTRACE_MAX=40000000 \
 killall majestic; /etc/init.d/S95majestic start
 ```
 
+The tracer also stands in for the 59 functions of `libisp_XM530.so` that
+majestic, `libispapp` and the sensor library call, and logs each call on the
+way in and out with r0-r3, the module that called it, and 512 bytes at each
+argument that points at readable memory, so a register write can be put
+down to the call that made it. The register helpers (`Read_IspReg`,
+`Write_IspReg`, `ispMemnCpy`), thousands of calls a second for the AWB
+statistics, are logged only with `ISPTRACE_CALLS=all`. `decode.py -c` lists
+the calls and frames alone, without the snapshots.
+
 Majestic's own traffic (`/dev/h264`, `/dev/mv500`, `/dev/vi`, `/dev/mmz`)
 comes along; `decode.py -m ../../libraries/isp/include/xm/xm530_isp.h`
 names the ISP registers. 45 s of an XM550 with an IMX335 (602 frames)
