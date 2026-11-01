@@ -73,16 +73,21 @@ void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a) {
     curve = 1;
   }
 
-  if (a->nr.bEnable)
+  /* a disabled block gets strength 0 */
+  if (!a->nr.bEnable)
+    nr2d(0);
+  else
     nr2d(a->nr.enOpType == OP_TYPE_MANUAL
              ? a->nr.stManual.u8Thresh
              : strength(floor(interp(a->nr.stAuto.au8Thresh, NULL, iso) + 0.5),
                         a->nr.stAuto.u8GlobalSth));
 
-  if (a->sharpen.bEnable) {
+  {
     const ISP_SHARPEN_AUTO_ATTR_S *s = &a->sharpen.stAuto;
     XM_U32 ud, d, kd;
-    if (a->sharpen.enOpType == OP_TYPE_MANUAL) {
+    if (!a->sharpen.bEnable) {
+      ud = d = kd = 0;
+    } else if (a->sharpen.enOpType == OP_TYPE_MANUAL) {
       ud = a->sharpen.stManual.u8SharpenUd;
       d = a->sharpen.stManual.u8SharpenD;
       kd = a->sharpen.stManual.u8SharpenKd;
@@ -103,13 +108,16 @@ void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a) {
   for (int i = 0; i < 3; i++)
     isp_write(REG_BLACK + 4 * i, blc);
 
-  /* black and white (no CSC saturation) is the CSC setter's */
-  if (!(a->csc.bEnable && !a->csc.stManual.u8SatuVal)) {
+  /* No CSC saturation is black and white. The CSC setter writes 0 at once;
+   * writing it here as well puts right a pass that raced with it. */
+  {
     const XM_U32 s =
         a->saturation.enOpType == OP_TYPE_MANUAL
             ? a->saturation.stManual.u8Saturation
             : (XM_U32)ceil(interp(a->saturation.stAuto.au8Sat, NULL, iso));
-    const XM_U32 cbcr = s > 0x80 ? 0x100 + 6 * (s - 0x80) : 0x100;
+    XM_U32 cbcr = s > 0x80 ? 0x100 + 6 * (s - 0x80) : 0x100;
+    if (a->csc.bEnable && !a->csc.stManual.u8SatuVal)
+      cbcr = 0;
     isp_write(REG_CBCR, cbcr);
     isp_write(REG_CBCR + 4, cbcr);
   }
@@ -123,7 +131,9 @@ void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a) {
     isp_write(REG_DDPC + 4, 255 - dpc);
   }
 
-  if (a->defog.bEnable) {
+  if (!a->defog.bEnable) {
+    isp_write(REG_DRC, 0);
+  } else {
     isp_write(REG_DRC,
               a->defog.enOpType == OP_TYPE_MANUAL
                   ? a->defog.stManual.u8Strength

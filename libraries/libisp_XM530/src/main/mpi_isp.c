@@ -288,24 +288,12 @@ static void gamma_apply(const ISP_GAMMA_ATTR_S *g) {
   }
 }
 
-/* No saturation is black and white at once: Cb and Cr gain 0. The colour
- * gains otherwise follow the saturation and the gain in the vendor library's
- * loop; until that is here, colour comes back at the start-up gains. */
+/* No saturation is black and white at once: Cb and Cr gain 0. Otherwise
+ * the tuning pass sets them from the saturation and the gain. */
 static void csc_apply(const ISP_CSC_ATTR_S *c) {
-  static XM_U32 cb, cr;
-  if (!init_done)
-    return;
-  if (c->bEnable && !c->stManual.u8SatuVal) {
-    if (!cb && !cr) {
-      cb = isp_read(REG_CBCR);
-      cr = isp_read(REG_CBCR + 4);
-    }
+  if (init_done && c->bEnable && !c->stManual.u8SatuVal) {
     isp_write(REG_CBCR, 0);
     isp_write(REG_CBCR + 4, 0);
-  } else if (cb || cr) {
-    isp_write(REG_CBCR, cb);
-    isp_write(REG_CBCR + 4, cr);
-    cb = cr = 0;
   }
 }
 
