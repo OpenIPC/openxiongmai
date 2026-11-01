@@ -116,9 +116,14 @@ then calls `ae_run` and `awb_run` every frame.
 
 `3aprobe.so` (MIT, no SDK headers) stands in for `XM_MPI_ISP_MemInit`.
 Once the real one has filled the tables, it puts a logging wrapper in each
-slot. Each wrapped call is logged with its four arguments and the words at
-each pointer argument, before and after the call, then passed on. Use it in
-place of the tracer: both stand in for `MemInit`.
+slot. Each wrapped call is logged with its five arguments (`ae_run` takes
+five) and the words at each pointer argument, one level of pointers deeper
+(AWB's result points at its gains and matrix), before and after the call,
+then passed on. Memory is read through a pipe, so a value that isn't a
+pointer is skipped rather than faulting majestic. The log (`PROBE_LOG`,
+default `/tmp/3aprobe.txt`) is opened without following symlinks and used
+only if it is a regular file of the camera process's user. Use it in place
+of the tracer: both stand in for `MemInit`.
 
 ```sh
 LD_PRELOAD=/tmp/3aprobe.so PROBE_WORDS=48 PROBE_EVERY=100 majestic
