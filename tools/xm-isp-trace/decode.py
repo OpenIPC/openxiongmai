@@ -23,7 +23,7 @@ REC = struct.Struct("<IIHBBHH")
 
 (FRAME, ISPW, ISPR, IOCTL, OPEN, CREAT, FOPEN, ACCESS, CLOSE, READ, MSGSND,
  MSGRCV, XMAP, SIGNAL, MEMW, MEMRW, CALL) = range(1, 18)
-CALL_HDR = struct.Struct("<32s32s5I")  # struct isptrace_call
+CALL_HDR = struct.Struct("<32s32s5IiI")  # struct isptrace_call
 CALL_SNAP = 512
 
 
@@ -143,7 +143,7 @@ def main():
             fds[s16(aux2)] = cstrs(p)[0]
         if not lo <= frame <= hi:
             continue
-        if a.r and typ not in (FRAME, ISPW, ISPR, MEMW, MEMRW, CALL):
+        if a.r and typ not in (FRAME, ISPW, ISPR, MEMW, MEMRW):
             continue
         if a.c and typ not in (FRAME, CALL):
             continue
@@ -197,16 +197,21 @@ def main():
             what = "partly unmapped" if insn == 0xFFFFFFFF else f"store {insn:08x}"
             line = f"untraced from here: page {aux:08x}, {what}"
         elif typ == CALL:
-            name, frm, a0, a1, a2, a3, mask = CALL_HDR.unpack_from(p)
+            name, frm, a0, a1, a2, a3, mask, result, has = CALL_HDR.unpack_from(p)
             name = name.split(b"\0")[0].decode()
             frm = frm.split(b"\0")[0].decode()
             args = ", ".join(f"{v:#x}" for v in (a0, a1, a2, a3))
-            line = (f"call {name}({args}) from {frm}" if aux == 0
-                    else f"ret  {name} -> {s16(aux2)}")
+            if aux == 0:
+                line = f"call {name}({args}) from {frm}"
+            else:
+                line = f"ret  {name}" + (f" -> {result} ({result & 0xFFFFFFFF:#x})" if has else "")
             at = CALL_HDR.size  # the snapshots, in the payload
             for i in range(4 if not a.c else 0):
                 if mask & (1 << i) and at + CALL_SNAP <= len(p):
-                    line += f"\n{'':18}arg{i} {words(p[at:at + 64])}"
+                    snap = p[at:at + CALL_SNAP]
+                    for row in range(0, CALL_SNAP, 64):
+                        tag = f"arg{i}" if row == 0 else f"+{row:#x}"
+                        line += f"\n{'':18}{tag:5} {words(snap[row:row + 64])}"
                     at += CALL_SNAP
         elif typ == SIGNAL:
             line = f"signal {aux}" + {0: "", 1: " (wrapped)", 2: " delivered"}.get(aux2, "")

@@ -72,6 +72,8 @@ static void (*app_handler[NSIG])(int);
 /* Set once one of them runs: every record is written out at once, since the
  * process may be gone before the next flush. */
 static volatile int sync_out;
+/* ISPTRACE_CALLS=all: log the register helpers' calls too (XM530). */
+static int calls_all;
 
 static uint32_t now_us(void) {
   struct timespec ts;
@@ -254,6 +256,8 @@ static void init(void) {
   real_access = dlsym(RTLD_NEXT, "access");
   real_msgsnd = dlsym(RTLD_NEXT, "msgsnd");
   real_msgrcv = dlsym(RTLD_NEXT, "msgrcv");
+  const char *calls = getenv("ISPTRACE_CALLS");
+  calls_all = calls && !strcmp(calls, "all");
 
   const char *path = getenv("ISPTRACE");
   const char *max = getenv("ISPTRACE_MAX");
@@ -670,9 +674,9 @@ void (*signal(int sig, void (*h)(int)))(int) {
  * ispMemnCpy) run thousands of times a second, mostly for the AWB
  * statistics, and their traffic is in the register records already: they
  * are logged only with ISPTRACE_CALLS=all. */
-#define ISPTRACE_API(X)                                                        \
+#define ISPTRACE_API(X, V)                                                     \
   X(ispMemnCpy) X(IspSetSlowFrameRate) X(Mipi_check_init) X(Mipi_check_run)    \
-  X(Read_IspReg) X(SysDelay_ms) X(Write_IspReg) X(XM_MPI_ISP_Get3DNrAttr)      \
+  X(Read_IspReg) V(SysDelay_ms) X(Write_IspReg) X(XM_MPI_ISP_Get3DNrAttr)      \
   X(XM_MPI_ISP_Get3DNrV2Attr) X(XM_MPI_ISP_GetAntiFalseColorAttr)              \
   X(XM_MPI_ISP_GetBlackLevelAttr) X(XM_MPI_ISP_GetChnAttr)                     \
   X(XM_MPI_ISP_GetChromaAttr) X(XM_MPI_ISP_GetCSCAttr) X(XM_MPI_ISP_GetDCIAttr) \
@@ -682,7 +686,7 @@ void (*signal(int sig, void (*h)(int)))(int) {
   X(XM_MPI_ISP_GetRegister) X(XM_MPI_ISP_GetSaturationAttr)                    \
   X(XM_MPI_ISP_GetSharpenAttr) X(XM_MPI_ISP_GetSharpenV2Attr)                  \
   X(XM_MPI_ISP_Init) X(XM_MPI_ISP_MemInit) X(XM_MPI_ISP_Memncpy)               \
-  X(XM_MPI_ISP_Memset) X(XM_MPI_ISP_Run) X(XM_MPI_ISP_SensorRegCallBack)       \
+  V(XM_MPI_ISP_Memset) X(XM_MPI_ISP_Run) X(XM_MPI_ISP_SensorRegCallBack)       \
   X(XM_MPI_ISP_SensorUnRegCallBack) X(XM_MPI_ISP_Set3DNrAttr)                  \
   X(XM_MPI_ISP_Set3DNrV2Attr) X(XM_MPI_ISP_SetAntiFalseColorAttr)              \
   X(XM_MPI_ISP_SetBlackLevelAttr) X(XM_MPI_ISP_SetChnAttr)                     \
@@ -692,76 +696,78 @@ void (*signal(int sig, void (*h)(int)))(int) {
   X(XM_MPI_ISP_SetNRAttr) X(XM_MPI_ISP_SetPubAttr) X(XM_MPI_ISP_SetRegister)   \
   X(XM_MPI_ISP_SetSaturationAttr) X(XM_MPI_ISP_SetSharpenAttr)                 \
   X(XM_MPI_ISP_SetSharpenV2Attr) X(XM_MPI_ISP_SetVsyncIntEn)                   \
-  X(XM_MPI_VDA_CreatChn) X(XM_MPI_VDA_GetMovAttr) X(XM_MPI_VDA_GetMovData)     \
-  X(XM_MPI_VDA_GetShAttr) X(XM_MPI_VDA_GetShdMark) X(XM_MPI_VDA_SetMovAttr)    \
+  V(XM_MPI_VDA_CreatChn) V(XM_MPI_VDA_GetMovAttr) X(XM_MPI_VDA_GetMovData)     \
+  X(XM_MPI_VDA_GetShAttr) V(XM_MPI_VDA_GetShdMark) X(XM_MPI_VDA_SetMovAttr)    \
   X(XM_MPI_VDA_SetShAttr)
 
 typedef uint32_t (*api_fn)(uint32_t, uint32_t, uint32_t, uint32_t);
 
-/* Off the stack, as the ioctl snapshots are. */
+/* Off the stack, as the ioctl snapshots are: the header, and a slot per
+ * argument, filled on the way in and again on the way out. */
 static __thread struct {
   struct isptrace_call c;
   unsigned char snap[4][ISPTRACE_CALL_SNAP];
-} call_buf;
+} call_in, call_out;
 
-/* The snapped arguments after c, packed. */
-static size_t call_pack(unsigned char *out, const struct isptrace_call *c) {
+/* Snaps the arguments that point at readable user memory into b, sets its
+ * mask from the copies that succeeded, and logs it: the payload is exactly
+ * the snapped slots, in argument order. */
+static void call_log(uint32_t way, int32_t result, int has_result,
+                     const char *name, const char *from, const uint32_t a[4],
+                     void *bv) {
+  struct isptrace_call *c = bv;
+  unsigned char(*snap)[ISPTRACE_CALL_SNAP] =
+      (unsigned char(*)[ISPTRACE_CALL_SNAP])((char *)bv + sizeof(*c));
+  memset(c, 0, sizeof(*c));
+  strncpy(c->name, name, sizeof(c->name) - 1);
+  strncpy(c->from, from, sizeof(c->from) - 1);
+  c->result = result;
+  c->has_result = (uint32_t)has_result;
   size_t n = 0;
-  for (int i = 0; i < 4; i++)
-    if (c->mask & (1u << i) &&
-        safe_copy(out + n, (const void *)(uintptr_t)c->arg[i],
-                  ISPTRACE_CALL_SNAP))
+  for (int i = 0; i < 4; i++) {
+    c->arg[i] = a[i];
+    if (a[i] >= 0x10000 && a[i] < 0xc0000000u &&
+        safe_copy(snap[n / ISPTRACE_CALL_SNAP], (const void *)(uintptr_t)a[i],
+                  ISPTRACE_CALL_SNAP)) {
+      c->mask |= 1u << i;
       n += ISPTRACE_CALL_SNAP;
-  return n;
+    }
+  }
+  emit(ISPTRACE_CALL, 0, way, 0, c, sizeof(*c), snap, n);
 }
 
-static int calls_all = -1;
-
 static int call_quiet(const char *name) {
-  if (calls_all < 0) {
-    const char *e = getenv("ISPTRACE_CALLS");
-    calls_all = e && !strcmp(e, "all");
-  }
   return !calls_all &&
          (!strcmp(name, "Read_IspReg") || !strcmp(name, "Write_IspReg") ||
           !strcmp(name, "ispMemnCpy"));
 }
 
-static uint32_t call_api(const char *name, api_fn *real, void *caller,
-                         uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {
+static uint32_t call_api(const char *name, api_fn *real, int has_result,
+                         void *caller, uint32_t a0, uint32_t a1, uint32_t a2,
+                         uint32_t a3) {
   pthread_once(&once, init);
-  if (!*real)
-    *real = (api_fn)dlsym(RTLD_NEXT, name);
-  if (!*real)
-    return (uint32_t)-1;
+  /* dlsym is thread-safe; two first calls may both resolve it, to the same
+   * address, and the pointer is published atomically. */
+  api_fn fn = __atomic_load_n(real, __ATOMIC_ACQUIRE);
+  if (!fn) {
+    fn = (api_fn)dlsym(RTLD_NEXT, name);
+    if (!fn)
+      return (uint32_t)-1;
+    __atomic_store_n(real, fn, __ATOMIC_RELEASE);
+  }
   if (call_quiet(name))
-    return (*real)(a0, a1, a2, a3);
-  static __thread unsigned char packed[4 * ISPTRACE_CALL_SNAP];
-  struct isptrace_call *c = &call_buf.c;
-  memset(c->name, 0, sizeof(c->name));
-  strncpy(c->name, name, sizeof(c->name) - 1);
-  memset(c->from, 0, sizeof(c->from));
+    return fn(a0, a1, a2, a3);
+  char from[ISPTRACE_CALL_NAME] = "";
   Dl_info di;
   if (dladdr(caller, &di) && di.dli_fname) {
     const char *b = strrchr(di.dli_fname, '/');
-    strncpy(c->from, b ? b + 1 : di.dli_fname, sizeof(c->from) - 1);
+    strncpy(from, b ? b + 1 : di.dli_fname, sizeof(from) - 1);
   }
   const uint32_t a[4] = {a0, a1, a2, a3};
-  c->mask = 0;
-  for (int i = 0; i < 4; i++) {
-    c->arg[i] = a[i];
-    /* user memory, readable: worth a snapshot */
-    if (a[i] >= 0x10000 && a[i] < 0xc0000000u &&
-        safe_copy(call_buf.snap[0], (const void *)(uintptr_t)a[i],
-                  ISPTRACE_CALL_SNAP))
-      c->mask |= 1u << i;
-  }
-  const struct isptrace_call in = *c;
-  emit(ISPTRACE_CALL, 0, 0, 0, &in, sizeof(in), packed, call_pack(packed, &in));
-  const uint32_t r = (*real)(a0, a1, a2, a3);
+  call_log(0, 0, 0, name, from, a, &call_in);
+  const uint32_t r = fn(a0, a1, a2, a3);
   const int err = errno;
-  emit(ISPTRACE_CALL, 0, 1, (uint16_t)r, &in, sizeof(in), packed,
-       call_pack(packed, &in));
+  call_log(1, (int32_t)r, has_result, name, from, a, &call_out);
   errno = err;
   return r;
 }
@@ -769,7 +775,12 @@ static uint32_t call_api(const char *name, api_fn *real, void *caller,
 #define ISPTRACE_WRAP(name)                                                    \
   uint32_t name(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {          \
     static api_fn real;                                                        \
-    return call_api(#name, &real, __builtin_return_address(0), a0, a1, a2,     \
+    return call_api(#name, &real, 1, __builtin_return_address(0), a0, a1, a2,  \
                     a3);                                                       \
   }
-ISPTRACE_API(ISPTRACE_WRAP)
+#define ISPTRACE_WRAP_VOID(name)                                               \
+  void name(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {              \
+    static api_fn real;                                                        \
+    call_api(#name, &real, 0, __builtin_return_address(0), a0, a1, a2, a3);    \
+  }
+ISPTRACE_API(ISPTRACE_WRAP, ISPTRACE_WRAP_VOID)
