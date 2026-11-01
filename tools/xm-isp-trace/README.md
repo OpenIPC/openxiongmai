@@ -131,13 +131,42 @@ LD_PRELOAD=/tmp/3aprobe.so PROBE_WORDS=48 PROBE_EVERY=100 majestic
 ```
 
 On the lab XM550 (IMX335, 2600×1954):
-- `ae_init(0, 0, param, …)` and `awb_init(handle, param, 2600, 1954)` run
-  once each.
-- Every frame comes `ae_run(0, 0, info, result)`. `info` holds the frame
-  count, the frame rate (25), a 16-bin histogram, then the metering zones.
-- Every frame also comes `awb_run(0, info, result, 100)`. `result` holds
-  the R/G/B gains (`0x186`/`0x100`/`0x1b3`) and a colour matrix (`0x149`,
-  `0x6`, …), which the library writes to the AWB gains and the CSM.
+- In `MemInit`, before the probe's wrappers are in, the library calls
+  `ae_ctrl(0, handle, 1, …)` and `awb_ctrl(handle, 1, …)` (a GOT patch of the
+  two `LibRegCallBack` imports shows it). The handles are buffers the
+  library gives the 3A side for its state; their inits refuse to run first.
+- `ae_init(0, handle, param, …)` and `awb_init(handle, param, 2600, 1954)` run
+  once each. `awb_init` returns the AWB statistics window in its parameter
+  (`stWin`, H 4-2564, V 0-1952), which the library spreads over 32 × 16
+  zones.
+- Every frame comes `awb_run(0, info, result, iso)`, `iso` from the last AE
+  result. It reads the AWB statistics itself, through the library's
+  `Read_IspReg`. `result` holds the R/G/B gains (`0x186`/`0x100`/`0x1b3`) and
+  a colour matrix (`0x149`, `0x6`, …), which the library writes to the AWB
+  gains and the CSM.
+- Then comes `ae_run(0, 0, info, result, n & 1 ? 0 : 1)`. `info` holds the
+  frame count, the frame rate (25), 16 histogram bins of 0x80, a 7 × 7 grid
+  and a 16 × 32 one. The 16 × 32 grid is each AWB zone's BT.601 luma with the
+  AWB gains applied (16 times the mean per pixel of a colour); the 7 × 7 one
+  takes means of 4 × 2 of those, the last column and row the rest. The
+  result's low 16 bits are the ISP gain (8 fractional bits).
+
+
+### Start-up tables for the open XM530 library: `extract530.py`
+
+`extract530.py` turns a `decode.py -t` text of a trace into the tables
+`libraries/libisp_XM530` starts a sensor and mode with: the ISP writes the
+vendor library made itself in `XM_MPI_ISP_Init` (before the 3A inits, and
+after them less the AWB window it computes), the first pass of its
+`XM_MPI_ISP_Run` loop, and each attribute `Init` set itself, from the
+setter's argument snapshot. Writes of an address in the library's "Isp" MMZ
+block become offsets into it.
+
+```sh
+./decode.py -t trace.bin > trace.txt
+./extract530.py trace.txt xm530_imx335 "IMX335, 2600x1954 at 25 fps, lab XM550" \
+    > ../../libraries/libisp_XM530/arch/xm530/xm530_imx335.c
+```
 
 ## Behaviour to know
 
