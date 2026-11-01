@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #define ISPTRACE_MAGIC 0x54495358 /* "XSIT" */
-#define ISPTRACE_VERSION 2
+#define ISPTRACE_VERSION 3
 
 /* The XM510 /dev/isp commands, unencoded, on {u32 addr; u32 val}. */
 #define ISPTRACE_ISP_WRITE 0x101
@@ -49,6 +49,8 @@ struct isptrace_rec {
   uint8_t fd;
   uint16_t len;  /* payload bytes */
   uint16_t aux2; /* by type: usually the low 16 bits of the result */
+  uint32_t tid;  /* version 3: the thread that made it (0 in a signal
+                    handler's frame record) */
 };
 
 enum {

@@ -31,6 +31,7 @@
 #include <sys/msg.h>
 #include <time.h>
 #include <ucontext.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include "isptrace.h"
@@ -116,6 +117,14 @@ static void flush_locked(void) {
   used = 0;
 }
 
+/* The calling thread's id, looked up once per thread. */
+static uint32_t my_tid(void) {
+  static __thread uint32_t tid;
+  if (!tid)
+    tid = (uint32_t)syscall(SYS_gettid);
+  return tid;
+}
+
 static void put_locked(uint8_t type, uint8_t fd, uint32_t aux, uint16_t aux2,
                        uint32_t t_us, const void *p1, size_t n1, const void *p2,
                        size_t n2) {
@@ -143,6 +152,7 @@ static void put_locked(uint8_t type, uint8_t fd, uint32_t aux, uint16_t aux2,
       .fd = fd,
       .len = (uint16_t)len,
       .aux2 = aux2,
+      .tid = type == ISPTRACE_FRAME ? 0 : my_tid(),
   };
   memcpy(buf + used, &r, sizeof(r));
   if (n1)
