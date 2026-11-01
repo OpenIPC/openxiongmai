@@ -79,6 +79,23 @@ enum {
   ISPTRACE_MEMRW,  /* a store it can't decode: aux: the page's physical
                       address; payload: the instruction (0 for Thumb).
                       The page is writable, and untraced, from then on */
+  ISPTRACE_CALL,   /* a call into the ISP library (XM530 libisp_XM530.so):
+                      aux: 0 on the way in, 1 on the way out; payload:
+                      struct isptrace_call, then ISPTRACE_CALL_SNAP bytes
+                      at each argument whose bit is set in mask, as copied
+                      then (in or out) */
+};
+
+#define ISPTRACE_CALL_NAME 32
+#define ISPTRACE_CALL_SNAP 512
+
+struct isptrace_call {
+  char name[ISPTRACE_CALL_NAME]; /* NUL-padded */
+  char from[ISPTRACE_CALL_NAME]; /* the caller's module, its file name */
+  uint32_t arg[4];               /* r0-r3 */
+  uint32_t mask; /* bit i: arg[i] pointed at readable memory, snapped */
+  int32_t result;      /* on the way out, if has_result */
+  uint32_t has_result; /* 0 on the way in, and for a void function */
 };
 
 #endif
