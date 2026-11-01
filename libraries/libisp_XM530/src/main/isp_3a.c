@@ -29,10 +29,20 @@ static ISP_AWB_REGISTER_S awb_reg;
 static ALG_LIB_S ae_lib, awb_lib;
 static int registered;
 
-/* the 3A libraries' state */
-static XM_U32 ae_state[0x1000 / 4], awb_state[0x4000 / 4];
-
-static ISP_AE_INFO_S ae_info;
+/* The 3A libraries' state, and AE's last statistics. They live in the
+ * block /dev/isp shares, which outlives the process as the vendor library's
+ * do: the AE and AWB state at the vendor library's places in its first 8 KiB,
+ * the statistics in the second 8 KiB, which the vendor library doesn't map.
+ * So a restarted majestic starts AE from where it was, as with the vendor
+ * library. Without the block, buffers of our own. */
+#define SHM_AE 0x430
+#define SHM_AWB 0xa64
+#define SHM_AE_INFO 0x2000
+static XM_U32 ae_own[0x1000 / 4], awb_own[0x2000 / 4];
+static ISP_AE_INFO_S ae_info_own;
+static void *ae_state = ae_own, *awb_state = awb_own;
+static ISP_AE_INFO_S *ae_info_p = &ae_info_own;
+#define ae_info (*ae_info_p)
 static ISP_AE_RESULT_S ae_res = {
     .u32IspDgain = 0x100, .u32IspDgainShift = 8, .u32Iso = 100};
 static ISP_AWB_STAT_1_S awb_stat1;
@@ -44,6 +54,7 @@ static ISP_AWB_RESULT_BK_S awb_bk;
  * of the AWB handle's buffer) */
 static XM_U16 awb_rgb[4096];
 
+static volatile XM_U32 iso_now;
 static XM_U32 zone_sites, dgain_1x = 0x100;
 static pthread_t thread;
 static int started;
@@ -60,6 +71,12 @@ int isp_3a_register(ISP_DEV dev) {
       !awb_reg.stAwbExpFunc.pfn_awb_run) {
     DBG("XM_MPI_ISP_AWBLibRegCallBack failed");
     return XM_FAILURE;
+  }
+  char *shm = isp_shm();
+  if (shm) {
+    ae_state = shm + SHM_AE;
+    awb_state = shm + SHM_AWB;
+    ae_info_p = (ISP_AE_INFO_S *)(shm + SHM_AE_INFO);
   }
   /* Command 1 gives each library its handle; their inits refuse to run
    * before it. */
@@ -178,6 +195,7 @@ static void *run_3a(void *arg) {
             awb_gain.au32WhiteBalanceGain[2], ae_res.u32IspDgain,
             ae_res.u32IspDgainShift, ae_res.u32Iso, ae_res.u32Rsv,
             ae_res.u32UpdateCfg);
+      iso_now = ae_res.u32Iso;
       const XM_U32 g = (ae_res.u32IspDgain & 0xffff) * dgain_1x >> 8;
       if (g != dgain) {
         isp_write(REG_DGAIN, g);
@@ -196,3 +214,5 @@ int isp_3a_start(void) {
   started = 1;
   return XM_SUCCESS;
 }
+
+XM_U32 isp_3a_iso(void) { return iso_now; }

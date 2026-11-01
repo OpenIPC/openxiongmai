@@ -62,6 +62,19 @@ XM_U32 isp_read(XM_U32 addr) {
 
 void isp_write(XM_U32 addr, XM_U32 val) { isp_set(addr, val); }
 
+/* The block /dev/isp shares (16 KiB, kept while the module is loaded). */
+#define SHM_SIZE 0x4000
+void *isp_shm(void) {
+  static void *shm;
+  if (!shm && isp_open() >= 0) {
+    void *p =
+        mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, isp_fd, 0);
+    if (p != MAP_FAILED)
+      shm = p;
+  }
+  return shm;
+}
+
 int isp_wait_frame(void) {
   struct isp_rec r = {0, 0, 0};
   if (isp_open() < 0)

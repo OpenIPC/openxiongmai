@@ -7,6 +7,7 @@
  * that the vendor library makes from them is still to come, so the start-up
  * values stay.
  */
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -21,6 +22,8 @@ XM_S32 XM_MPI_AE_SetFrameRate(ISP_DEV IspDev, XM_U8 u8Fps);
 #define DBG(fmt, ...) fprintf(stderr, "libisp: " fmt "\n", ##__VA_ARGS__)
 
 const struct xm530_mode *isp_mode;
+/* the attributes, set and read from several threads */
+static pthread_mutex_t attr_lock = PTHREAD_MUTEX_INITIALIZER;
 static ISP_PUB_ATTR_S pub;
 static ISP_SENSOR_REGISTER_S sensor;
 static SENSOR_ID sensor_id = -1;
@@ -30,6 +33,7 @@ static XM_VOID *mmz_virt;
 static XM_U32 vsync_saved;
 
 static void attr_defaults(const struct xm530_attr *a);
+static void attr_snapshot(struct isp_tune_attrs *a);
 
 const ISP_PUB_ATTR_S *isp_pub(void) { return &pub; }
 
@@ -168,9 +172,17 @@ XM_S32 XM_MPI_ISP_Run(ISP_DEV IspDev) {
   isp_write_table(isp_mode->run, (mmz_phys - 0x80000000) / 8);
   if (isp_3a_start() != XM_SUCCESS)
     return XM_FAILURE;
-  /* the vendor's Run never returns */
-  for (;;)
-    pause();
+  /* The tuning by gain, every 7 frames or so as the vendor's loop; Run never
+   * returns. */
+  for (;;) {
+    usleep(280000);
+    const XM_U32 iso = isp_3a_iso();
+    if (!iso)
+      continue;
+    struct isp_tune_attrs a;
+    attr_snapshot(&a);
+    isp_tune(iso, &a);
+  }
   return XM_SUCCESS;
 }
 
@@ -230,14 +242,18 @@ static void attr_defaults(const struct xm530_attr *a) {
   XM_S32 XM_MPI_ISP_Set##name(cq type *p) {                                    \
     if (!p)                                                                    \
       return XM_FAILURE;                                                       \
+    pthread_mutex_lock(&attr_lock);                                            \
     attr_##name = *p;                                                          \
+    pthread_mutex_unlock(&attr_lock);                                          \
     apply;                                                                     \
     return XM_SUCCESS;                                                         \
   }                                                                            \
   XM_S32 XM_MPI_ISP_Get##name(type *p) {                                       \
     if (!p)                                                                    \
       return XM_FAILURE;                                                       \
+    pthread_mutex_lock(&attr_lock);                                            \
     *p = attr_##name;                                                          \
+    pthread_mutex_unlock(&attr_lock);                                          \
     return XM_SUCCESS;                                                         \
   }
 #define ATTR_DEV(name, type, cq)                                               \
@@ -246,14 +262,18 @@ static void attr_defaults(const struct xm530_attr *a) {
     (void)IspDev;                                                              \
     if (!p)                                                                    \
       return XM_FAILURE;                                                       \
+    pthread_mutex_lock(&attr_lock);                                            \
     attr_##name = *p;                                                          \
+    pthread_mutex_unlock(&attr_lock);                                          \
     return XM_SUCCESS;                                                         \
   }                                                                            \
   XM_S32 XM_MPI_ISP_Get##name(ISP_DEV IspDev, type *p) {                       \
     (void)IspDev;                                                              \
     if (!p)                                                                    \
       return XM_FAILURE;                                                       \
+    pthread_mutex_lock(&attr_lock);                                            \
     *p = attr_##name;                                                          \
+    pthread_mutex_unlock(&attr_lock);                                          \
     return XM_SUCCESS;                                                         \
   }
 
@@ -326,4 +346,16 @@ static const struct attr_store *attr_stores(void) {
       {NULL, NULL, 0},
   };
   return stores;
+}
+
+static void attr_snapshot(struct isp_tune_attrs *a) {
+  pthread_mutex_lock(&attr_lock);
+  a->nr = attr_NRAttr;
+  a->sharpen = attr_SharpenAttr;
+  a->black = attr_BlackLevelAttr;
+  a->saturation = attr_SaturationAttr;
+  a->csc = attr_CSCAttr;
+  a->dpc = attr_DyDefectPixelAttr;
+  a->defog = attr_DeFogAttr;
+  pthread_mutex_unlock(&attr_lock);
 }

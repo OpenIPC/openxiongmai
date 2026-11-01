@@ -36,18 +36,24 @@ make CROSS_COMPILE=arm-openipc-linux-musleabi-
 - **Attributes** are kept and returned. The gamma curve takes effect at once,
   and a saturation of 0 makes the picture black and white (Cb/Cr gain 0), as
   with the vendor library.
+- **Tuning by gain** (`src/main/isp_tune.c`): every 7 frames or so, as the
+  vendor library's loop, from the attributes' auto tables (one entry an ISO
+  octave from 100, interpolated linearly in ISO): 2D noise reduction,
+  sharpening, black level, Cb/Cr gain, dynamic defect pixels and DRC (its
+  strength from the defog table, its level the largest local tone mapping
+  statistic), and the luma curve once. Each was fitted against the vendor
+  library at eleven light levels (ISO 100 to 12800).
+- **Restarts:** majestic's AE and AWB keep their state, and AE its last
+  statistics, in the block `/dev/isp` shares, at the vendor library's places,
+  so a restarted majestic starts AE where it was, as with the vendor library.
 
 ## Not yet
 
 - Only the IMX335 at 2600×1954 has start-up tables; `Init` fails for any
   other size.
-- The vendor library's loop retunes the picture by gain and scene every few
-  frames: the colour gains, DRC (`0x3000b020`), the luma curve (`YGAMMA`),
-  2D and 3D noise reduction, sharpening, defect pixels. Here they keep their
-  start-up values, so in the lab's dim light the picture is darker than the
-  vendor library's (mean 98 against 149 of 255, at the same exposure and
-  gain) and has purple edges. The chroma and anti-false-colour settings are
-  kept but not applied.
+- 3D noise reduction keeps its start-up values (the vendor library moves it
+  with gain and motion). The chroma and anti-false-colour settings are kept
+  but not applied.
 - Motion and cover detection (`XM_MPI_VDA_*`) keep their settings and report
   nothing.
 - After `Init`, the ISP application's MIPI start leaves `0x300f0010` at 0
@@ -63,8 +69,9 @@ mount --bind /tmp/libisp_XM530.so /usr/lib/libisp_XM530.so
 LIBISP_DEBUG=1 majestic    # every 50 frames: grids, AWB gains, AE result
 ```
 
-Compare against the vendor library from a cold boot: it keeps its state in a
-page `/dev/isp` keeps between runs, so a restarted majestic starts its AE
-from the last run's statistics, and from a cold boot it starts from none (on
-the lab IMX335 that is what decides whether AE drops to a slower frame rate
-in dim light).
+On the lab XM550 (IMX335, 4000 K bulbs), restarted after the vendor library,
+it settles on the same sensor gain and frame rate, and the picture's mean
+R/G/B is within 2 of the vendor library's at 100%, 30% and 2% light. Both
+libraries start AE from the last run's state: compare one restart against
+another, or two cold boots, since from a cold boot AE starts from nothing
+and in dim light may drop to a slower frame rate.
