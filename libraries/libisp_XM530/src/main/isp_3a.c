@@ -180,6 +180,7 @@ static void *run_3a(void *arg) {
       ae_info.stAeStat1.au32MeteringHist[i] = 0x80;
     stats_grid(awb_gain.au32WhiteBalanceGain, zone_sites, &ae_info.stAeStat2,
                &ae_info.stAeStat3);
+    vda_frame(&ae_info.stAeStat2);
     if (ae_reg.stAeExpFunc.pfn_ae_run(0, 0, &ae_info, &ae_res, !(n & 1)) ==
         XM_SUCCESS) {
       if (debug && n % 50 == 0)

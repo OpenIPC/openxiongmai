@@ -43,6 +43,14 @@ make CROSS_COMPILE=arm-openipc-linux-musleabi-
   strength from the defog table, its level the largest local tone mapping
   statistic), and the luma curve once. Each was fitted against the vendor
   library at eleven light levels (ISO 100 to 12800).
+- **Motion detection** (`XM_MPI_VDA_*`, `src/main/mpi_vda.c`) on the AE
+  library's 7 × 7 grid, as the vendor library behaves: every `MoDframe + 1`
+  grids the grid is compared with the last analysed one, a zone moved when it
+  differs by more than its 1/`MoRatio`; `MoVdaBmark` marks every moved zone,
+  the share of moved zones among `MoWinset`'s is returned (and sets
+  `MoReflag` from `u8RatioThresh`), and results gather until read. On the lab
+  XM550 it answers bulb changes and a blinking LED's zone as the vendor
+  library does. Cover detection reports nothing yet.
 - **Restarts:** majestic's AE and AWB keep their state, and AE its last
   statistics, in the block `/dev/isp` shares, at the vendor library's places,
   so a restarted majestic starts AE where it was, as with the vendor library.
@@ -54,8 +62,6 @@ make CROSS_COMPILE=arm-openipc-linux-musleabi-
 - 3D noise reduction keeps its start-up values (the vendor library moves it
   with gain and motion). The chroma and anti-false-colour settings are kept
   but not applied.
-- Motion and cover detection (`XM_MPI_VDA_*`) keep their settings and report
-  nothing.
 - After `Init`, the ISP application's MIPI start leaves `0x300f0010` at 0
   with this library (1 with the vendor's), and no frame comes; `Run` restarts
   the receiver and sets it. Why is not known yet.
