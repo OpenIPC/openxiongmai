@@ -8,6 +8,9 @@
 
 #include "xm_type.h"
 
+/* the library's own, not exported */
+#pragma GCC visibility push(hidden)
+
 /* val is an offset into the "Isp" MMZ block, in 8-byte units */
 #define XM530_MMZ 1
 /* the end of a table */
@@ -41,5 +44,7 @@ extern const struct xm530_reg xm530_imx335_init[], xm530_imx335_post[],
     xm530_imx335_run[];
 extern const struct xm530_attr xm530_imx335_attr[];
 extern const XM_U32 xm530_imx335_mmz_size;
+
+#pragma GCC visibility pop
 
 #endif

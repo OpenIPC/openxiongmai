@@ -5,6 +5,9 @@
 #include "mpi_isp.h"
 #include "xm530_start.h"
 
+/* What follows is the library's own, not exported. */
+#pragma GCC visibility push(hidden)
+
 /* registers (xm530_isp.h names in comments) */
 #define REG_MIPI 0x300c0000      /* MIPI receiver set-up */
 #define REG_MIPI_CTRL 0x300c002c /* MIPI receiver: 0 stops, 4 runs */
@@ -68,5 +71,7 @@ XM_U32 isp_3a_iso(void); /* the last AE result's ISO, 0 before the first */
 const ISP_PUB_ATTR_S *isp_pub(void);
 const struct xm530_mode *xm530_mode_find(XM_U32 width, XM_U32 height);
 extern const struct xm530_mode *isp_mode;
+
+#pragma GCC visibility pop
 
 #endif

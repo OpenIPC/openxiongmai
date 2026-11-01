@@ -88,6 +88,8 @@ int XM_MPI_VDA_SetMovAttr(XM_U8 channel, VDA_MOTION_MOVE_INIT *pstApInfo) {
     return XM_FAILURE;
   pthread_mutex_lock(&vda_lock);
   mov[channel] = *pstApInfo;
+  /* new settings start from a new reference, with nothing reported */
+  memset(&ms[channel], 0, sizeof(ms[channel]));
   pthread_mutex_unlock(&vda_lock);
   return XM_SUCCESS;
 }
