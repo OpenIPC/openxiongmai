@@ -105,6 +105,40 @@ comes along; `decode.py -m ../../libraries/isp/include/xm/xm530_isp.h`
 names the ISP registers. 45 s of an XM550 with an IMX335 (602 frames)
 came to 26 MB.
 
+### The 3A interface on XM530/XM550: `3aprobe.so`
+
+`libisp_XM530.so` takes its AE and AWB from the 3A side (inside majestic)
+during `XM_MPI_ISP_MemInit`, through `XM_MPI_ISP_AELibRegCallBack` and
+`XM_MPI_ISP_AWBLibRegCallBack`. It keeps them in two tables it exports,
+`gAlgAeFun` and `gAlgAwbFun`, each of four functions (init, run, ctrl,
+exit). Both are zero before `MemInit` and filled after it. Its frame loop
+then calls `ae_run` and `awb_run` every frame.
+
+`3aprobe.so` (MIT, no SDK headers) stands in for `XM_MPI_ISP_MemInit`.
+Once the real one has filled the tables, it puts a logging wrapper in each
+slot. Each wrapped call is logged with its five arguments (`ae_run` takes
+five) and the words at each pointer argument, one level of pointers deeper
+(AWB's result points at its gains and matrix), before and after the call,
+then passed on. Memory is read through a pipe, so a value that isn't a
+pointer is skipped rather than faulting majestic. The log (`PROBE_LOG`,
+default `/tmp/3aprobe.txt`) is opened without following symlinks and used
+only if it is a regular file of the camera process's user. Use it in place
+of the tracer: both stand in for `MemInit`.
+
+```sh
+LD_PRELOAD=/tmp/3aprobe.so PROBE_WORDS=48 PROBE_EVERY=100 majestic
+# /tmp/3aprobe.txt (PROBE_LOG): the first three calls of each, then one in 100
+```
+
+On the lab XM550 (IMX335, 2600×1954):
+- `ae_init(0, 0, param, …)` and `awb_init(handle, param, 2600, 1954)` run
+  once each.
+- Every frame comes `ae_run(0, 0, info, result)`. `info` holds the frame
+  count, the frame rate (25), a 16-bin histogram, then the metering zones.
+- Every frame also comes `awb_run(0, info, result, 100)`. `result` holds
+  the R/G/B gains (`0x186`/`0x100`/`0x1b3`) and a colour matrix (`0x149`,
+  `0x6`, …), which the library writes to the AWB gains and the CSM.
+
 ## Behaviour to know
 
 - The tracer initialises on its first call, not in a constructor. musl runs

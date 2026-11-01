@@ -86,10 +86,13 @@ jobs:
           make -C tools/xm-isp-trace CROSS_COMPILE="$CROSS_COMPILE"
           ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/isptrace.so | grep -q 'Type:.*DYN'
           ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/isptrace.so | grep -q 'Machine:.*ARM'
-          for s in open ioctl xmap munmap signal msgrcv; do
+          for s in open ioctl xmap munmap signal msgrcv XM_MPI_ISP_MemInit Write_IspReg; do
             ${CROSS_COMPILE}nm -D --defined-only tools/xm-isp-trace/isptrace.so | grep -qw "$s" ||
               { echo "isptrace.so does not export $s" >&2; exit 1; }
           done
+          ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/3aprobe.so | grep -q 'Type:.*DYN'
+          ${CROSS_COMPILE}nm -D --defined-only tools/xm-isp-trace/3aprobe.so | grep -qw XM_MPI_ISP_MemInit ||
+            { echo "3aprobe.so does not export XM_MPI_ISP_MemInit" >&2; exit 1; }
           python3 -m py_compile tools/xm-isp-trace/decode.py
           echo "::endgroup::"
           # tools/xmispd builds libraries/libxmisp first
