@@ -33,6 +33,7 @@ int isp_open(void);
 XM_U32 isp_read(XM_U32 addr);
 void isp_write(XM_U32 addr, XM_U32 val);
 int isp_wait_frame(void);
+void *isp_shm(void); /* NULL without the shared block */
 void isp_write_table(const struct xm530_reg *t, XM_U32 mmz8);
 
 /* isp_stats.c: the AWB statistics, as the AWB library reads them through
@@ -42,10 +43,23 @@ void stats_port_read(XM_U32 addr, XM_U32 val);
 void stats_grid(const XM_U32 gains[3], XM_U32 sites, ISP_AE_STAT_2_S *grid7,
                 ISP_AE_STAT_3_S *grid16);
 
+/* isp_tune.c: the attributes the tuning by gain follows */
+struct isp_tune_attrs {
+  ISP_2DNR_ATTR_S nr;
+  ISP_SHARPEN_ATTR_S sharpen;
+  ISP_BLACKLVL_ATTR_S black;
+  ISP_SATURATION_ATTR_S saturation;
+  ISP_CSC_ATTR_S csc;
+  ISP_DYDPC_ATTR_S dpc;
+  ISP_DEFOG_ATTR_S defog;
+};
+void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a);
+
 /* isp_3a.c */
 int isp_3a_register(ISP_DEV dev);
 int isp_3a_init(ISP_DEV dev, const ISP_PUB_ATTR_S *pub);
 int isp_3a_start(void);
+XM_U32 isp_3a_iso(void); /* the last AE result's ISO, 0 before the first */
 
 /* mpi_isp.c */
 const ISP_PUB_ATTR_S *isp_pub(void);
