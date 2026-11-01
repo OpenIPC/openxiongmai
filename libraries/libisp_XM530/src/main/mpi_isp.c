@@ -257,12 +257,15 @@ static void attr_defaults(const struct xm530_attr *a) {
     return XM_SUCCESS;                                                         \
   }
 
-/* The gamma curve, node by node. */
+/* The gamma curve, node by node (10 bits); disabled, a straight line. */
 static void gamma_apply(const ISP_GAMMA_ATTR_S *g) {
-  if (!g->bEnable || !init_done)
+  if (!init_done)
     return;
-  for (int i = 0; i < GAMMA_NODE_NUMBER; i++)
-    isp_write(REG_GAMMA + 4 * i, g->u16Table[i]);
+  for (int i = 0; i < GAMMA_NODE_NUMBER; i++) {
+    const XM_U32 line = i * 1024 / (GAMMA_NODE_NUMBER - 1);
+    isp_write(REG_GAMMA + 4 * i,
+              g->bEnable ? g->u16Table[i] : (line > 0x3ff ? 0x3ff : line));
+  }
 }
 
 /* No saturation is black and white at once: Cb and Cr gain 0. The colour

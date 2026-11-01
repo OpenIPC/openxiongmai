@@ -39,18 +39,28 @@ static int isp_reachable(XM_U32 addr) {
          (addr >= 0x10020000 && addr < 0x10120000);
 }
 
-XM_U32 isp_read(XM_U32 addr) {
+static int isp_get(XM_U32 addr, XM_U32 *val) {
   struct isp_rec r = {addr, 0, 0};
   if (isp_open() < 0 || ioctl(isp_fd, ISP_IOC_READ, &r) < 0)
-    return 0;
-  return r.val;
+    return XM_FAILURE;
+  *val = r.val;
+  return XM_SUCCESS;
 }
 
-void isp_write(XM_U32 addr, XM_U32 val) {
+static int isp_set(XM_U32 addr, XM_U32 val) {
   struct isp_rec r = {addr, val, 0};
-  if (isp_open() >= 0)
-    ioctl(isp_fd, ISP_IOC_WRITE, &r);
+  if (isp_open() < 0 || ioctl(isp_fd, ISP_IOC_WRITE, &r) < 0)
+    return XM_FAILURE;
+  return XM_SUCCESS;
 }
+
+XM_U32 isp_read(XM_U32 addr) {
+  XM_U32 v = 0;
+  isp_get(addr, &v);
+  return v;
+}
+
+void isp_write(XM_U32 addr, XM_U32 val) { isp_set(addr, val); }
 
 int isp_wait_frame(void) {
   struct isp_rec r = {0, 0, 0};
@@ -64,11 +74,16 @@ void isp_write_table(const struct xm530_reg *t, XM_U32 mmz8) {
     isp_write(t->addr, t->flags & XM530_MMZ ? mmz8 + t->val : t->val);
 }
 
-/* Anything else (the system controller at 0x20000000) through /dev/mem, a
- * page at a time. */
+/* The system controller's registers (PLLs, resets: the first 4 KiB at
+ * 0x20000000) through /dev/mem; nothing else is reached that way. */
+#define SYSCTL_BASE 0x20000000
+#define SYSCTL_SIZE 0x1000
+
 static int mem_access(XM_U32 addr, XM_U32 *val, int write) {
   const long page = sysconf(_SC_PAGESIZE);
   const XM_U32 base = addr & ~(XM_U32)(page - 1);
+  if (addr < SYSCTL_BASE || addr >= SYSCTL_BASE + SYSCTL_SIZE)
+    return XM_FAILURE;
   int fd = open("/dev/mem", O_RDWR | O_SYNC | O_CLOEXEC);
   if (fd < 0)
     return XM_FAILURE;
@@ -88,20 +103,16 @@ static int mem_access(XM_U32 addr, XM_U32 *val, int write) {
 XM_S32 XM_MPI_ISP_SetRegister(XM_U32 u32Addr, XM_U32 u32Value) {
   if (u32Addr & 3)
     return XM_FAILURE;
-  if (isp_reachable(u32Addr)) {
-    isp_write(u32Addr, u32Value);
-    return XM_SUCCESS;
-  }
+  if (isp_reachable(u32Addr))
+    return isp_set(u32Addr, u32Value);
   return mem_access(u32Addr, &u32Value, 1);
 }
 
 XM_S32 XM_MPI_ISP_GetRegister(XM_U32 u32Addr, XM_U32 *pu32Value) {
   if (!pu32Value || (u32Addr & 3))
     return XM_FAILURE;
-  if (isp_reachable(u32Addr)) {
-    *pu32Value = isp_read(u32Addr);
-    return XM_SUCCESS;
-  }
+  if (isp_reachable(u32Addr))
+    return isp_get(u32Addr, pu32Value);
   return mem_access(u32Addr, pu32Value, 0);
 }
 
@@ -145,8 +156,8 @@ void SysDelay_ms(XM_S32 ms) {
 XM_S32 Mipi_check_init(void) { return XM_FAILURE; }
 XM_S32 Mipi_check_run(void) { return XM_FAILURE; }
 
-/* The vendor library calls this every frame; with the AE library's frame
- * rate kept, there is nothing to do. */
+/* Majestic's AE calls this (mode 1) before it slows the frame rate itself;
+ * the vendor library's returns 0 and changes nothing a camera shows. */
 XM_S32 IspSetSlowFrameRate(XM_U8 u8Mode) {
   (void)u8Mode;
   return XM_SUCCESS;

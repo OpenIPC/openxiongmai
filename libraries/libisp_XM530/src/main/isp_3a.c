@@ -45,7 +45,6 @@ static ISP_AWB_RESULT_BK_S awb_bk;
 static XM_U16 awb_rgb[4096];
 
 static XM_U32 zone_sites, dgain_1x = 0x100;
-static XM_U8 frame_rate;
 static pthread_t thread;
 static int started;
 
@@ -98,7 +97,6 @@ static void awb_window(const ISP_AWB_WDW_ATTR_S *w) {
 int isp_3a_init(ISP_DEV dev, const ISP_PUB_ATTR_S *pub) {
   if (!registered)
     return XM_FAILURE;
-  frame_rate = pub->u8FrameRate;
   if (isp_mode)
     dgain_1x = isp_mode->dgain_1x;
   ISP_AE_PARAM_S ae_param = {.SensorId = 0,
@@ -106,16 +104,18 @@ int isp_3a_init(ISP_DEV dev, const ISP_PUB_ATTR_S *pub) {
                              .u32MinIspDgain = 0x100,
                              .u32IspDgainShift = 8,
                              .u8FrameRate = pub->u8FrameRate};
-  if (ae_reg.stAeExpFunc.pfn_ae_init &&
-      ae_reg.stAeExpFunc.pfn_ae_init(dev, (XM_S32)(intptr_t)ae_state,
-                                     &ae_param) != XM_SUCCESS)
+  if (ae_reg.stAeExpFunc.pfn_ae_init(dev, (XM_S32)(intptr_t)ae_state,
+                                     &ae_param) != XM_SUCCESS) {
     DBG("pfn_ae_init failed");
+    return XM_FAILURE;
+  }
   memset(&awb_bk, 0, sizeof(awb_bk));
-  if (awb_reg.stAwbExpFunc.pfn_awb_init &&
-      awb_reg.stAwbExpFunc.pfn_awb_init((XM_S32)(intptr_t)awb_state, &awb_bk,
-                                        pub->stWndRect.u32Width,
-                                        pub->stWndRect.u32Height) != XM_SUCCESS)
+  if (awb_reg.stAwbExpFunc.pfn_awb_init(
+          (XM_S32)(intptr_t)awb_state, &awb_bk, pub->stWndRect.u32Width,
+          pub->stWndRect.u32Height) != XM_SUCCESS) {
     DBG("pfn_awb_init failed");
+    return XM_FAILURE;
+  }
   awb_window(&awb_bk.stWin);
   return XM_SUCCESS;
 }
@@ -150,13 +150,14 @@ static void *run_3a(void *arg) {
       continue;
     }
     n++;
+    /* the frame count stays 0, as the vendor library leaves it */
     awb_info.u32Rsv = ae_res.u32Rsv;
     if (awb_reg.stAwbExpFunc.pfn_awb_run(0, &awb_info, &awb_res,
                                          (XM_S32)ae_res.u32Iso) == XM_SUCCESS)
       awb_apply();
 
     ae_info.u32FrameCnt = n;
-    ae_info.u8FrameRate = frame_rate;
+    ae_info.u8FrameRate = isp_pub()->u8FrameRate;
     /* every bin 0x80, as the vendor library gives it */
     for (int i = 0; i < 16; i++)
       ae_info.stAeStat1.au32MeteringHist[i] = 0x80;
