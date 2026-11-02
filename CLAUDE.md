@@ -81,6 +81,7 @@ The XM530/XM550 H.265 encoder is an Arm Mali-V550 (`hw_version 0x56550002`, regi
 - **Settings:** `SET_PARAMETER`/`SET_CONFIG` carry raw firmware messages: 1010 is the set-option message and 3003 the buffer-param message.
 - **Buffers:** a buffer's handle is its user VA sign-extended to 64 bits. Output data starts at the descriptor's `offset`, about 2 KiB in, not at offset 0.
 - **Session readiness:** configs fail with status 8 until the session is first switched in (event 1), so take events and retry.
+- **No event yet:** `GET_EVENT` answers status 9 with no data when nothing came within its timeout. That is the normal wait, not an error. Read as a failure, a frame slower than the timeout (a camera short of memory) replaced the session while memory was short; the vendor driver then failed to allocate the new session's firmware memory, didn't check it, and oopsed at that session's close (cache maintenance on physical 0, the engine dead until a reboot, the encoder thread gone, so majestic hung at shutdown), #27.
 - **Per frame:** the input is mapped by physical address through `/dev/mem`, and the driver resolves the VA. Input and output (a slice of the stream ring) are registered, queued and unregistered. NV12 is one plane, so the chroma must follow the luma.
 - **Headers and GOP:** VPS/SPS/PPS come once, as an output with flag `0x80`; the library caches them and puts them before every IDR. An IDR request is a `GOP_RESET` buffer param. The P-frame count is read as 16 bits and `0xffff` is refused, so it is capped at 32767.
 
