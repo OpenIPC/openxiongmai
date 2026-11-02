@@ -56,9 +56,6 @@ jobs:
             CFLAGS="-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Os -g0 -D_FORTIFY_SOURCE=1" \
             all
           echo "::endgroup::"
-          echo "::group::libisp_XM530"
-          make -C libraries/libisp_XM530 CROSS_COMPILE="$CROSS_COMPILE"
-          echo "::endgroup::"
           # libmpi's Makefile hard-codes PATH; override it from the command line.
           echo "::group::libmpi"
           make -C libraries/libmpi CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
