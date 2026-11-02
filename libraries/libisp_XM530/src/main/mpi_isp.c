@@ -160,15 +160,6 @@ XM_S32 XM_MPI_ISP_Run(ISP_DEV IspDev) {
   if (!init_done || run_started)
     return XM_FAILURE;
   run_started = 1;
-  /* With the vendor library, the ISP application's MIPI start (after Init)
-   * restarts the receiver and writes 1 to REG_INPUT; with this one it writes
-   * 0, and no frame comes. Why is not known yet; the state it should leave
-   * is made here. */
-  if (isp_read(REG_MIPI) && !isp_read(REG_INPUT)) {
-    isp_write(REG_MIPI_CTRL, 0);
-    isp_write(REG_MIPI_CTRL, 4);
-    isp_write(REG_INPUT, 1);
-  }
   isp_write_table(isp_mode->run, (mmz_phys - 0x80000000) / 8);
   if (isp_3a_start() != XM_SUCCESS)
     return XM_FAILURE;

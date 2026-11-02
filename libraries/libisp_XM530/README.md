@@ -17,6 +17,9 @@ make CROSS_COMPILE=arm-openipc-linux-musleabi-
   libraries import from the vendor library: the `XM_MPI_ISP_*` calls, the
   `XM_MPI_VDA_*` calls they use, `Read_IspReg`/`Write_IspReg`,
   `ispMemnCpy`, `SysDelay_ms`, `IspSetSlowFrameRate`, `Mipi_check_*`.
+  `ispMemnCpy` takes the source first, as the vendor's does: majestic keeps
+  its MIPI attributes with it, and the other way round its MIPI start after
+  `Init` took the IMX335 for a DVP sensor and left the receiver stopped.
 - **Registers** go through `/dev/isp` (`_IOW('I', 1/2, 12)`), the system
   controller through `/dev/mem`.
 - **3A:** AE and AWB are majestic's. `MemInit` takes their functions from
@@ -76,9 +79,6 @@ make CROSS_COMPILE=arm-openipc-linux-musleabi-
 - 3D NR follows majestic's attribute tables only through the schedule
   measured with them. With two or more chroma colours away from neutral, 3%
   of the hue LUT's entries differ from the vendor library's.
-- After `Init`, the ISP application's MIPI start leaves `0x300f0010` at 0
-  with this library (1 with the vendor's), and no frame comes; `Run` restarts
-  the receiver and sets it. Why is not known yet.
 
 ## Testing on a camera
 
