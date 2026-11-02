@@ -11,11 +11,13 @@ override CFLAGS += -I../isp/include/isp \
 
 OBJECTS = \
 	src/main/isp_3a.o \
+	src/main/isp_color.o \
 	src/main/isp_reg.o \
 	src/main/isp_stats.o \
 	src/main/isp_tune.o \
 	src/main/mpi_isp.o \
 	src/main/mpi_vda.o \
+	arch/xm530/xm530_chroma.o \
 	arch/xm530/xm530_imx335.o \
 	arch/xm530/xm530_imx335_nr3d.o \
 	arch/xm530/xm530_modes.o

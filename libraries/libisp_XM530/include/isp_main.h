@@ -58,6 +58,10 @@ struct isp_tune_attrs {
 };
 void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a);
 
+/* isp_color.c: the chroma and anti-false-colour setters' registers */
+void isp_chroma(const ISP_CHROMA_ATTR_S *a);
+void isp_antifalsecolor(const ISP_ANTI_FALSECOLOR_S *a);
+
 /* mpi_vda.c: motion detection on each new AE grid */
 void vda_frame(const ISP_AE_STAT_2_S *grid);
 
