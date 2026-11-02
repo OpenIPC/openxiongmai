@@ -8,7 +8,7 @@ settled, though, an ISO gets the same settings every time. So the schedule
 is the settled states of the traces, each a decode.py -t text of isptrace.so
 with 3aprobe.so's log beside it (PROBE_WORDS=8 PROBE_EVERY=1, for the AE
 result's ISO every frame): the state at each of the loop's passes after 14
-frames of a steady gain (within 3%), the latest for each ISO. Traces that
+frames of a steady gain (within 3%, every frame's ISO known), the latest for each ISO. Traces that
 disagree about an ISO stop it.
 
 Usage: nr3d530.py NAME DESC TRACE:PROBE...
@@ -54,9 +54,11 @@ def settled(trace, probe):
         if int(m.group(3), 16) != 0x30076004 or len(state) < len(REGS):
             continue
         f = int(m.group(1))
-        window = [iso[k] for k in range(f - 14, f + 1) if k in iso]
-        if len(window) >= 12 and max(window) <= 1.03 * min(window):
-            out[window[-1]] = [state[r] for r in REGS]
+        if not all(k in iso for k in range(f - 14, f + 1)):
+            continue
+        window = [iso[k] for k in range(f - 14, f + 1)]
+        if max(window) <= 1.03 * min(window):
+            out[iso[f]] = [state[r] for r in REGS]
     return out
 
 

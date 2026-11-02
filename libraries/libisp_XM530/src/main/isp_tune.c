@@ -75,18 +75,16 @@ static void luma_curve(void) {
 static const XM_U32 nr3d_regs[XM530_NR3D_REGS] = {
     0x14, 0x50, 0x54, 0x60, 0x64, 0x68, 0x6c, 0x14c, 0x150, 0x154, 0x158};
 
+/* Written every pass, so a failed write is put right on the next. */
 static void nr3d(XM_U32 iso) {
-  static const struct xm530_nr3d *last;
-  static XM_U32 last_k = ~0u;
-  if (!last) {
-    /* what the vendor library writes once, whatever the gain */
-    static const XM_U32 once[][2] = {{0x40, 0x30282020}, {0x44, 0x30303030},
-                                     {0x48, 0x30303030}, {0x4c, 0x38383830},
-                                     {0x58, 0x40403c30}, {0x5c, 0x40404040},
-                                     {0x130, 0x100}};
-    for (unsigned i = 0; i < sizeof(once) / sizeof(once[0]); i++)
-      isp_write(REG_NR3D + once[i][0], once[i][1]);
-  }
+  /* what the vendor library writes the same at every gain */
+  static const XM_U32 fixed[][2] = {{0x40, 0x30282020}, {0x44, 0x30303030},
+                                    {0x48, 0x30303030}, {0x4c, 0x38383830},
+                                    {0x58, 0x40403c30}, {0x5c, 0x40404040},
+                                    {0x130, 0x100}};
+  for (unsigned i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++)
+    isp_write(REG_NR3D + fixed[i][0], fixed[i][1]);
+
   const struct xm530_nr3d *best = NULL;
   double gap = 0;
   for (const struct xm530_nr3d *n = isp_mode ? isp_mode->nr3d : NULL;
@@ -95,21 +93,16 @@ static void nr3d(XM_U32 iso) {
     if (!best || g < gap)
       best = n, gap = g;
   }
-  if (best && best != last) {
+  if (best)
     for (int i = 0; i < XM530_NR3D_REGS; i++)
-      if (!last || last->r[i] != best->r[i])
-        isp_write(REG_NR3D + nr3d_regs[i], best->r[i]);
-    last = best;
-  }
+      isp_write(REG_NR3D + nr3d_regs[i], best->r[i]);
+
   XM_U32 k = 0;
   while (k < 15 && iso >= 200u << k)
     k++;
-  if (k != last_k) {
-    const XM_U32 s = 0x10 + (3u << (k > 4 ? 4 : k)); /* 0x40 from k 4 */
-    isp_write(REG_NR3D + 0x134, s);
-    isp_write(REG_NR3D + 0x138, 0x40 - (s + 1) / 2);
-    last_k = k;
-  }
+  const XM_U32 s = 0x10 + (3u << (k > 4 ? 4 : k)); /* 0x40 from k 4 */
+  isp_write(REG_NR3D + 0x134, s);
+  isp_write(REG_NR3D + 0x138, 0x40 - (s + 1) / 2);
 }
 
 void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a) {
