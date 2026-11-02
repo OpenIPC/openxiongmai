@@ -59,6 +59,9 @@ struct mvb_reply {
 /* status[0] of a parameter or config command before the session has
  * first been switched in (MVB_EVENT_SWITCHED_IN) */
 #define MVB_STATUS_NOT_SCHEDULED 8
+/* status[0] of MVB_GET_EVENT when no event came within its timeout: the
+ * normal answer while the firmware is still at work, not an error */
+#define MVB_STATUS_TIMEOUT 9
 
 /* Ports of MVB_REGISTER_BUFFER */
 #define MVB_PORT_INPUT 0

@@ -83,7 +83,8 @@ static int cmd(struct xmvenc_hevc *h, uint32_t nr, const void *payload,
     return -1;
   }
   if (rep->status[0] || rep->status[1]) {
-    h->last_status = rep->status[0] ? rep->status[0] : ~0u;
+    /* a second status word is an error whatever the first says */
+    h->last_status = rep->status[1] || !rep->status[0] ? ~0u : rep->status[0];
     if (h->last_status != quiet)
       xmvenc__log(h->enc, "H.265 channel %d: command %u: status %#x %#x", h->id,
                   nr, rep->status[0], rep->status[1]);
@@ -102,14 +103,18 @@ static const uint8_t *reply(const struct xmvenc_hevc *h) {
 }
 
 /* Takes an event: its code, or 0 for none within EVENT_MS, or -1. The
- * buffer of an INPUT/OUTPUT_DONE event goes to b. */
+ * buffer of an INPUT/OUTPUT_DONE event goes to b. None in time is status
+ * 9, which a frame slower than EVENT_MS meets (a camera short of memory or
+ * CPU): taken for a failure, it replaced the session under the same
+ * shortage, and the vendor driver oopsed on the one whose firmware memory
+ * it had failed to allocate (OpenIPC/openxiongmai#27). */
 static int event(struct xmvenc_hevc *h, struct mvb_buf *b) {
   uint32_t timeout = EVENT_MS;
   struct mvb_event ev;
-  int n = cmd(h, MVB_GET_EVENT, &timeout, sizeof(timeout), 0);
+  int n = cmd(h, MVB_GET_EVENT, &timeout, sizeof(timeout), MVB_STATUS_TIMEOUT);
 
   if (n < 0)
-    return -1;
+    return h->last_status == MVB_STATUS_TIMEOUT ? 0 : -1;
   if (n < (int)sizeof(ev))
     return 0;
   memcpy(&ev, reply(h), sizeof(ev));
