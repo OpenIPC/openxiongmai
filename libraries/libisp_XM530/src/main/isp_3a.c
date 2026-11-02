@@ -55,7 +55,7 @@ static ISP_AWB_RESULT_BK_S awb_bk;
 static XM_U16 awb_rgb[4096];
 
 static volatile XM_U32 iso_now;
-static XM_U32 zone_sites, dgain_1x = 0x100;
+static XM_U32 zone_sites;
 static pthread_t thread;
 static int started;
 
@@ -114,8 +114,6 @@ static void awb_window(const ISP_AWB_WDW_ATTR_S *w) {
 int isp_3a_init(ISP_DEV dev, const ISP_PUB_ATTR_S *pub) {
   if (!registered)
     return XM_FAILURE;
-  if (isp_mode)
-    dgain_1x = isp_mode->dgain_1x;
   ISP_AE_PARAM_S ae_param = {.SensorId = 0,
                              .u32MaxIspDgain = 0x400,
                              .u32MinIspDgain = 0x100,
@@ -197,7 +195,7 @@ static void *run_3a(void *arg) {
             ae_res.u32IspDgainShift, ae_res.u32Iso, ae_res.u32Rsv,
             ae_res.u32UpdateCfg);
       iso_now = ae_res.u32Iso;
-      const XM_U32 g = (ae_res.u32IspDgain & 0xffff) * dgain_1x >> 8;
+      const XM_U32 g = (ae_res.u32IspDgain & 0xffff) * XM530_DGAIN_1X >> 8;
       if (g != dgain) {
         isp_write(REG_DGAIN, g);
         dgain = g;

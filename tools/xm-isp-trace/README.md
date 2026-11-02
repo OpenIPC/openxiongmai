@@ -152,7 +152,35 @@ On the lab XM550 (IMX335, 2600×1954):
   result's low 16 bits are the ISP gain (8 fractional bits).
 
 
-### Start-up tables for the open XM530 library: `extract530.py`
+### Start-up for any sensor: `start530.py` and `compare530.py`
+
+`start530.py` writes `libraries/libisp_XM530/arch/xm530/xm530_start.c`, the
+open library's start-up for every sensor, from `decode.py -t` texts of
+traces of the vendor library: the first (the lab IMX335's) is the template,
+the rest each another sensor. It checks that every trace is the template
+with the picture's geometry, the sensor library's defaults, and the
+overrides it writes for that sensor, and fails naming what isn't.
+
+Most sensors aren't in the lab, so trace them in qemu-bench: boot a dump of
+an XM530/XM550 camera's flash (`-M xm550,flash-file=dump.bin -smp 2 -m
+128M`, user networking with an SSH port forward), show the vendor library
+the sensor with `sensor=xm-sensor,sensor-addr=…` and
+`-global xm-sensor.regs=…` (the chip ID registers the X50/X123 probes in
+`libraries/libsns_*` read), point `/usr/lib/libsns.so` at the sensor's
+library, and trace majestic. A trace of the emulated IMX335 gives the lab
+trace's tables exactly.
+
+```sh
+./start530.py imx335_lab.txt imx307.txt sc2335.txt ... \
+    > ../../libraries/libisp_XM530/arch/xm530/xm530_start.c
+```
+
+`compare530.py VENDOR OPEN` compares two libraries' start-up: each
+register's value after `Init` and the first `Run` pass, "Isp" addresses as
+offsets, the gain-tuned registers left out. Bind-mount the open library over
+the vendor's and trace majestic on each in turn.
+
+### Start-up tables of one trace: `extract530.py`
 
 `extract530.py` turns a `decode.py -t` text of a trace into the tables
 `libraries/libisp_XM530` starts a sensor and mode with: the ISP writes the
