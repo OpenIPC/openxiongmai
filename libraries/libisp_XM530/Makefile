@@ -17,6 +17,7 @@ OBJECTS = \
 	src/main/mpi_isp.o \
 	src/main/mpi_vda.o \
 	arch/xm530/xm530_imx335.o \
+	arch/xm530/xm530_imx335_nr3d.o \
 	arch/xm530/xm530_modes.o
 
 all: libisp_XM530.so

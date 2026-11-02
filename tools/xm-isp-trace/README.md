@@ -168,6 +168,18 @@ block become offsets into it.
     > ../../libraries/libisp_XM530/arch/xm530/xm530_imx335.c
 ```
 
+`nr3d530.py` writes the 3D noise reduction schedule from several such
+traces, each with its `3aprobe.so` log (`PROBE_WORDS=8 PROBE_EVERY=1`, for
+the AE result's ISO every frame): the vendor library's 3D NR state at each
+pass after 14 frames of a steady gain, per ISO, stopping if two traces
+disagree.
+
+```sh
+./nr3d530.py xm530_imx335 "IMX335, 2600x1954, lab XM550" \
+    t100.txt:p100.txt t30.txt:p30.txt ... \
+    > ../../libraries/libisp_XM530/arch/xm530/xm530_imx335_nr3d.c
+```
+
 ## Behaviour to know
 
 - The tracer initialises on its first call, not in a constructor. musl runs
