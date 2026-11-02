@@ -83,7 +83,8 @@ static int cmd(struct xmvenc_hevc *h, uint32_t nr, const void *payload,
     return -1;
   }
   if (rep->status[0] || rep->status[1]) {
-    h->last_status = rep->status[0] ? rep->status[0] : ~0u;
+    /* a second status word is an error whatever the first says */
+    h->last_status = rep->status[1] || !rep->status[0] ? ~0u : rep->status[0];
     if (h->last_status != quiet)
       xmvenc__log(h->enc, "H.265 channel %d: command %u: status %#x %#x", h->id,
                   nr, rep->status[0], rep->status[1]);

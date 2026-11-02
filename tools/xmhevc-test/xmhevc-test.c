@@ -60,7 +60,8 @@ static int mvb(uint32_t cmd, const void *payload, uint32_t size,
     return -1;
   }
   if (rep->status[0] || rep->status[1]) {
-    last_status = rep->status[0] ? rep->status[0] : ~0u;
+    /* a second status word is an error whatever the first says */
+    last_status = rep->status[1] || !rep->status[0] ? ~0u : rep->status[0];
     if (rep->status[0] != quiet_status || rep->status[1])
       fprintf(stderr, "mv500 command %u: status %#x %#x\n", cmd, rep->status[0],
               rep->status[1]);
