@@ -160,15 +160,6 @@ XM_S32 XM_MPI_ISP_Run(ISP_DEV IspDev) {
   if (!init_done || run_started)
     return XM_FAILURE;
   run_started = 1;
-  /* With the vendor library, the ISP application's MIPI start (after Init)
-   * restarts the receiver and writes 1 to REG_INPUT; with this one it writes
-   * 0, and no frame comes. Why is not known yet; the state it should leave
-   * is made here. */
-  if (isp_read(REG_MIPI) && !isp_read(REG_INPUT)) {
-    isp_write(REG_MIPI_CTRL, 0);
-    isp_write(REG_MIPI_CTRL, 4);
-    isp_write(REG_INPUT, 1);
-  }
   isp_write_table(isp_mode->run, (mmz_phys - 0x80000000) / 8);
   if (isp_3a_start() != XM_SUCCESS)
     return XM_FAILURE;
@@ -236,7 +227,7 @@ static void attr_defaults(const struct xm530_attr *a) {
 }
 
 /* cq: const, where the SDK headers have it; apply: what takes effect at
- * once */
+ * once, under the lock, so the registers end as the stored attribute */
 #define ATTR(name, type, cq, apply)                                            \
   static type attr_##name;                                                     \
   XM_S32 XM_MPI_ISP_Set##name(cq type *p) {                                    \
@@ -244,8 +235,8 @@ static void attr_defaults(const struct xm530_attr *a) {
       return XM_FAILURE;                                                       \
     pthread_mutex_lock(&attr_lock);                                            \
     attr_##name = *p;                                                          \
-    pthread_mutex_unlock(&attr_lock);                                          \
     apply;                                                                     \
+    pthread_mutex_unlock(&attr_lock);                                          \
     return XM_SUCCESS;                                                         \
   }                                                                            \
   XM_S32 XM_MPI_ISP_Get##name(type *p) {                                       \
@@ -307,8 +298,9 @@ ATTR(NRAttr, ISP_2DNR_ATTR_S, const, )
 ATTR(3DNrAttr, ISP_3DNR_ATTR_S, const, )
 ATTR(3DNrV2Attr, ISP_3DNRV2_ATTR_S, const, )
 ATTR(CSCAttr, ISP_CSC_ATTR_S, const, csc_apply(p))
-ATTR(AntiFalseColorAttr, ISP_ANTI_FALSECOLOR_S, const, )
-ATTR(ChromaAttr, ISP_CHROMA_ATTR_S, , )
+ATTR(AntiFalseColorAttr, ISP_ANTI_FALSECOLOR_S, const,
+     if (init_done) isp_antifalsecolor(p))
+ATTR(ChromaAttr, ISP_CHROMA_ATTR_S, , if (init_done) isp_chroma(p))
 ATTR_DEV(DRCAttr, ISP_DRC_ATTR_S, const)
 ATTR_DEV(DeFogAttr, ISP_DEFOG_ATTR_S, const)
 ATTR_DEV(DCIAttr, ISP_DCI_ATTR_S, )

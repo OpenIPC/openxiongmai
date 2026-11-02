@@ -37,6 +37,14 @@ struct xm530_nr3d {
   XM_U32 r[XM530_NR3D_REGS];
 };
 
+/* The hue LUT's response to a colour strength s at an entry: with
+ * a = |s - 0x80|, a - k1 below cut, a - k2 from it, not below 0, with the
+ * sign of s - 0x80. Ends with colour 0xff. */
+struct xm530_chroma {
+  XM_U8 colour, entry, k1, cut, k2;
+};
+extern const struct xm530_chroma xm530_chroma[];
+
 struct xm530_mode {
   const char *name;
   XM_U32 width, height;

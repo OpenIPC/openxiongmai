@@ -151,7 +151,11 @@ XM_S32 XM_MPI_ISP_Memncpy(XM_U8 *pDst, XM_U8 *pSrc, XM_U32 u32Num) {
   return XM_SUCCESS;
 }
 
-XM_S32 ispMemnCpy(XM_U8 *pDst, XM_U8 *pSrc, XM_U32 u32Num) {
+/* The source first, unlike XM_MPI_ISP_Memncpy (ispPrivate.h has it so, and
+ * the vendor library copies so): majestic keeps its MIPI attributes with it,
+ * and copied the other way they were lost, so its MIPI start took the
+ * sensor for DVP and left the receiver stopped. */
+XM_S32 ispMemnCpy(XM_U8 *pSrc, XM_U8 *pDst, XM_U32 u32Num) {
   return XM_MPI_ISP_Memncpy(pDst, pSrc, u32Num);
 }
 

@@ -9,9 +9,6 @@
 #pragma GCC visibility push(hidden)
 
 /* registers (xm530_isp.h names in comments) */
-#define REG_MIPI 0x300c0000      /* MIPI receiver set-up */
-#define REG_MIPI_CTRL 0x300c002c /* MIPI receiver: 0 stops, 4 runs */
-#define REG_INPUT 0x300f0010     /* 1 with a MIPI sensor (no name) */
 #define REG_VSYNC_INT 0x300f0040 /* frame interrupt enable */
 #define REG_DGAIN 0x30005000     /* DIGITAL_GAIN */
 #define REG_AWB_GAIN 0x30010000  /* AWB_BASE: R, G, B gains */
@@ -57,6 +54,10 @@ struct isp_tune_attrs {
   ISP_DEFOG_ATTR_S defog;
 };
 void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a);
+
+/* isp_color.c: the chroma and anti-false-colour setters' registers */
+void isp_chroma(const ISP_CHROMA_ATTR_S *a);
+void isp_antifalsecolor(const ISP_ANTI_FALSECOLOR_S *a);
 
 /* mpi_vda.c: motion detection on each new AE grid */
 void vda_frame(const ISP_AE_STAT_2_S *grid);

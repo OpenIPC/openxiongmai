@@ -180,6 +180,16 @@ disagree.
     > ../../libraries/libisp_XM530/arch/xm530/xm530_imx335_nr3d.c
 ```
 
+`chromasweep.so` sets each colour strength of `XM_MPI_ISP_SetChromaAttr` to
+every value in turn (the others neutral) and logs the hue LUT the library
+writes, read back (`SWEEP_LOG`, default `/tmp/chromasweep.txt`); `chroma530.py`
+turns the log into `libraries/libisp_XM530/arch/xm530/xm530_chroma.c`.
+
+```sh
+LD_PRELOAD=/tmp/chromasweep.so majestic     # about 30 s after start
+./chroma530.py chromasweep.txt > ../../libraries/libisp_XM530/arch/xm530/xm530_chroma.c
+```
+
 ## Behaviour to know
 
 - The tracer initialises on its first call, not in a constructor. musl runs
