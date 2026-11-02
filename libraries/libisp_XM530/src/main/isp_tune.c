@@ -13,11 +13,12 @@
  *    the threshold rounded down;
  *  - DRC (0x3000b020): the defog strength, rounded down; 0x3000b024 the
  *    largest of the 64 local tone mapping statistics at 0x3000b300;
- *  - 3D noise reduction: the vendor library's setting where the gain had
- *    settled at the nearest ISO measured (its rule also depends on how the
- *    gain got there, so it is a measured schedule, arch/xm530); 0x30040134
- *    min(0x40, 0x10 + 3 << k), k the ISO's octave above 100, and 0x138
- *    0x40 less half that, rounded up; the rest constant, once;
+ *  - 3D noise reduction: every register the vendor's loop sets, as it
+ *    leaves them where the gain has settled, at the nearest ISO measured,
+ *    from the sensor's schedule (arch/xm530: the IMX335's measured on the
+ *    lab camera, every other sensor's in qemu-bench with the gain held).
+ *    Its rule also follows the picture (a 64-bin luma histogram) and how
+ *    the gain got there, so it is a measured schedule;
  *  - the luma curve (YGAMMA, 65 nodes, once): (x - 12) 2140 / 2048, about
  *    255 (x - 12) / 244, which takes the black level's remains (0xc9 in 12
  *    bits is 12) out; all 65 nodes as the vendor library's.
@@ -73,21 +74,18 @@ static void luma_curve(void) {
 }
 
 static const XM_U32 nr3d_regs[XM530_NR3D_REGS] = {
-    0x14, 0x50, 0x54, 0x60, 0x64, 0x68, 0x6c, 0x14c, 0x150, 0x154, 0x158};
+    0x14, 0x40, 0x44, 0x48,  0x4c,  0x50,  0x54,  0x58,  0x5c,  0x60,
+    0x64, 0x68, 0x6c, 0x130, 0x134, 0x138, 0x14c, 0x150, 0x154, 0x158};
 
-/* Written every pass, so a failed write is put right on the next. */
+/* The sensor's schedule (the IMX335's for one not traced), the nearest ISO
+ * in log; written every pass, so a failed write is put right on the next */
 static void nr3d(XM_U32 iso) {
-  /* what the vendor library writes the same at every gain */
-  static const XM_U32 fixed[][2] = {{0x40, 0x30282020}, {0x44, 0x30303030},
-                                    {0x48, 0x30303030}, {0x4c, 0x38383830},
-                                    {0x58, 0x40403c30}, {0x5c, 0x40404040},
-                                    {0x130, 0x100}};
-  for (unsigned i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++)
-    isp_write(REG_NR3D + fixed[i][0], fixed[i][1]);
-
-  const struct xm530_nr3d *best = NULL;
+  const struct xm530_nr3d *t = xm530_imx335_nr3d, *best = NULL;
   double gap = 0;
-  for (const struct xm530_nr3d *n = xm530_imx335_nr3d; n->iso; n++) {
+  for (const struct xm530_nr3d_sensor *s = xm530_nr3d_sensors; s->id; s++)
+    if ((SENSOR_ID)s->id == isp_sensor_id())
+      t = s->t;
+  for (const struct xm530_nr3d *n = t; n->iso; n++) {
     const double g = fabs(log((double)iso / n->iso));
     if (!best || g < gap)
       best = n, gap = g;
@@ -95,13 +93,6 @@ static void nr3d(XM_U32 iso) {
   if (best)
     for (int i = 0; i < XM530_NR3D_REGS; i++)
       isp_write(REG_NR3D + nr3d_regs[i], best->r[i]);
-
-  XM_U32 k = 0;
-  while (k < 15 && iso >= 200u << k)
-    k++;
-  const XM_U32 s = 0x10 + (3u << (k > 4 ? 4 : k)); /* 0x40 from k 4 */
-  isp_write(REG_NR3D + 0x134, s);
-  isp_write(REG_NR3D + 0x138, 0x40 - (s + 1) / 2);
 }
 
 void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a) {

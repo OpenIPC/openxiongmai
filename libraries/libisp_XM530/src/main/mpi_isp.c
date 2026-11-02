@@ -40,6 +40,7 @@ static void attr_gamma(void);
 static void attr_snapshot(struct isp_tune_attrs *a);
 
 const ISP_PUB_ATTR_S *isp_pub(void) { return &pub; }
+SENSOR_ID isp_sensor_id(void) { return sensor_id; }
 
 XM_S32 XM_MPI_ISP_MemInit(ISP_DEV IspDev) {
   /* majestic calls it again later, from another thread */

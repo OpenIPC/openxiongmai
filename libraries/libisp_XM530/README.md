@@ -98,9 +98,11 @@ make CROSS_COMPILE=arm-openipc-linux-musleabi-
 
 ## Not yet
 
-- 3D NR is the schedule measured on the IMX335, whatever the sensor: the
-  vendor library's rule follows the sensor's 3D NR strengths and the gain's
-  path, and only the IMX335's has been measured on hardware.
+- 3D NR is a measured schedule for each sensor (`arch/xm530/xm530_nr3d.c`;
+  the IMX335's from the lab camera, the rest in qemu-bench with the gain
+  held by `tools/xm-isp-trace/statfake.so`), the vendor library's setting
+  where the gain has settled. Its own rule also follows the picture's luma
+  histogram and how the gain got there, which a schedule doesn't.
 - Sensors other than the lab's IMX335 are checked in emulation only. With two or more chroma colours away from neutral, 3%
   of the hue LUT's entries differ from the vendor library's.
 

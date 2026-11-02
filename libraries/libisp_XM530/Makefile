@@ -20,6 +20,7 @@ OBJECTS = \
 	arch/xm530/xm530_chroma.o \
 	arch/xm530/xm530_geometry.o \
 	arch/xm530/xm530_imx335_nr3d.o \
+	arch/xm530/xm530_nr3d.o \
 	arch/xm530/xm530_start.o
 
 all: libisp_XM530.so

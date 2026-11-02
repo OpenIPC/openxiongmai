@@ -208,6 +208,28 @@ disagree.
     > ../../libraries/libisp_XM530/arch/xm530/xm530_imx335_nr3d.c
 ```
 
+### Holding the gain in emulation: `statfake.so`
+
+In qemu-bench the statistics read 0, so AE ramps the gain to its ceiling,
+two frames a step: the Run loop's tuning by gain is never settled.
+`statfake.so` (MIT) makes the picture brighten with the gain and nothing
+else, so AE settles where one chooses: each AWB zone sum the library reads
+through `/dev/isp` becomes `STATFAKE_L x ISO / 100` (the ISO of the AE
+library's last result, by wrapping its run function in `gAlgAeFun`), and
+the 64-bin luma histogram (`0x30073000`) one bin (`STATFAKE_BIN`, 24).
+Zone sums are millions: on the IMX335 AE settles at about ISO 1.8e8 / L.
+It stacks with `isptrace.so` and `3aprobe.so`:
+
+```sh
+STATFAKE_L=155000 LD_PRELOAD='/tmp/isptrace.so /tmp/statfake.so /tmp/3aprobe.so' \
+    ISPTRACE=/tmp/m.bin ISPTRACE_CALLS=none PROBE_WORDS=8 PROBE_EVERY=1 majestic
+```
+
+Held on the emulated IMX335 at ISO 285 and 1164, every 3D NR register is
+what the lab camera settled at, at those ISOs. `nr3d530.py --sensors`
+turns such traces of each group of sensors into
+`libraries/libisp_XM530/arch/xm530/xm530_nr3d.c`.
+
 `chromasweep.so` sets each colour strength of `XM_MPI_ISP_SetChromaAttr` to
 every value in turn (the others neutral) and logs the hue LUT the library
 writes, read back (`SWEEP_LOG`, default `/tmp/chromasweep.txt`); `chroma530.py`

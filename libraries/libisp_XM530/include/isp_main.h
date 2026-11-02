@@ -72,6 +72,7 @@ XM_U32 isp_3a_iso(void); /* the last AE result's ISO, 0 before the first */
 
 /* mpi_isp.c */
 const ISP_PUB_ATTR_S *isp_pub(void);
+SENSOR_ID isp_sensor_id(void); /* the registered sensor's, -1 for none */
 
 #pragma GCC visibility pop
 
