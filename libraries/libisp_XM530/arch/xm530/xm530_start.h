@@ -55,10 +55,12 @@ enum xm530_geo {
 /* The "Isp" block's planes for a w x h picture, in bytes */
 struct xm530_planes {
   XM_U32 frame, motion, err, err_w, err_h;
+  XM_U32 err_off; /* the error plane's start in the block */
 };
 void xm530_planes(XM_U32 w, XM_U32 h, struct xm530_planes *p);
-/* the XM530_GEO values, the "Isp" block at mmz8 */
-void xm530_geometry(XM_U32 w, XM_U32 h, XM_U32 mmz8, XM_U32 geo[XM530_GEO_NUM]);
+/* the XM530_GEO values, the "Isp" block at mmz8; -1 for a picture the
+ * tone mapping grid can't take */
+int xm530_geometry(XM_U32 w, XM_U32 h, XM_U32 mmz8, XM_U32 geo[XM530_GEO_NUM]);
 
 /* an attribute as the vendor library's XM_MPI_ISP_Init set it, by the
  * setter's name (XM_MPI_ISP_Set<name>Attr) */

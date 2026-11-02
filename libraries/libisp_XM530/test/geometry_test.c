@@ -56,7 +56,11 @@ int main(void) {
   int bad = 0;
   for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
     XM_U32 g[XM530_GEO_NUM];
-    xm530_geometry(cases[i].w, cases[i].h, 0, g);
+    if (xm530_geometry(cases[i].w, cases[i].h, 0, g)) {
+      printf("%ux%u refused\n", cases[i].w, cases[i].h);
+      bad++;
+      continue;
+    }
     for (int k = 0; k < 11; k++)
       if (g[XM530_GEO_NR3D_FRAME_LINE + k] != cases[i].geo[k]) {
         printf("%ux%u: value %d is %u, the vendor's %u\n", cases[i].w,

@@ -79,7 +79,7 @@ def geometry(w, h, mmz8):
     kx, ky = w - 31 * (nx + 1), h - 31 * (ny + 1)
     m = 1 << 20
     return {'XM530_GEO_NR3D_MOTION': mmz8 + frame // 8,
-            'XM530_GEO_NR3D_ERR': mmz8 + (frame + motion) // 8,
+            'XM530_GEO_NR3D_ERR': mmz8 + cdiv(frame + motion, 8),
             'XM530_GEO_NR3D_FRAME_LINE': cdiv(w, 5),
             'XM530_GEO_NR3D_MOTION_LINE': cdiv(w, 10),
             'XM530_GEO_NR3D_ERR_LINE': cdiv(w, 16),

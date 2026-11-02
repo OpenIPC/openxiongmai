@@ -121,9 +121,9 @@ XM_S32 XM_MPI_ISP_GetPubAttr(ISP_DEV IspDev, ISP_PUB_ATTR_S *pstPubAttr) {
 static XM_S32 nr3d_buffers(void) {
   struct xm530_planes p;
   xm530_planes(pub.stWndRect.u32Width, pub.stWndRect.u32Height, &p);
-  const XM_U32 frame = p.frame, motion = p.motion;
+  const XM_U32 frame = p.frame;
   const XM_U32 err_w = p.err_w, err_h = p.err_h;
-  const XM_U32 size = frame + motion + p.err + 4096;
+  const XM_U32 size = p.err_off + p.err + 4096;
   if (XM_MPI_SYS_MmzAlloc(&mmz_phys, &mmz_virt, "Isp", NULL, size) !=
           XM_SUCCESS ||
       !mmz_phys) {
@@ -132,7 +132,7 @@ static XM_S32 nr3d_buffers(void) {
   }
   pub.u32PhyAddr = mmz_phys;
   pub.u32Size = frame;
-  pub.u32ErrPhyAddr = mmz_phys + frame + motion;
+  pub.u32ErrPhyAddr = mmz_phys + p.err_off;
   pub.u32ErrSize = err_h << 16 | err_w;
   pub.u8BufFNum = 1;
   return XM_SUCCESS;
@@ -145,9 +145,9 @@ XM_S32 XM_MPI_ISP_Init(ISP_DEV IspDev) {
   if (!mem_init || init_done)
     return init_done ? XM_SUCCESS : XM_FAILURE;
   const XM_U32 w = pub.stWndRect.u32Width, h = pub.stWndRect.u32Height;
-  /* the tone mapping grid needs a cell each way; the window registers take
-   * 12 bits */
-  if (w < 64 || h < 64 || w > 4095 || h > 4095) {
+  /* the window registers take 12 bits, and the tone mapping grid not
+   * every size */
+  if (w > 4095 || h > 4095 || xm530_geometry(w, h, 0, geo)) {
     DBG("no start-up for %ux%u", w, h);
     return XM_FAILURE;
   }
@@ -289,14 +289,17 @@ static const struct attr_store *attr_find(const char *name) {
   }
 
 /* The gamma curve, node by node (10 bits); disabled, a straight line. */
-static void gamma_apply(const ISP_GAMMA_ATTR_S *g) {
-  if (!init_done)
-    return;
+static void gamma_write(const ISP_GAMMA_ATTR_S *g) {
   for (int i = 0; i < GAMMA_NODE_NUMBER; i++) {
     const XM_U32 line = i * 1024 / (GAMMA_NODE_NUMBER - 1);
     isp_write(REG_GAMMA + 4 * i,
               g->bEnable ? g->u16Table[i] : (line > 0x3ff ? 0x3ff : line));
   }
+}
+
+static void gamma_apply(const ISP_GAMMA_ATTR_S *g) {
+  if (init_done)
+    gamma_write(g);
 }
 
 /* No saturation is black and white at once: Cb and Cr gain 0. Otherwise
@@ -406,7 +409,7 @@ static void attr_start(const struct xm530_sensor *s) {
 /* the gamma Init leaves: the sensor's */
 static void attr_gamma(void) {
   pthread_mutex_lock(&attr_lock);
-  gamma_apply(&attr_GammaAttr);
+  gamma_write(&attr_GammaAttr);
   pthread_mutex_unlock(&attr_lock);
 }
 
