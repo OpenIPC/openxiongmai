@@ -82,9 +82,16 @@ int isp_wait_frame(void) {
   return ioctl(isp_fd, ISP_IOC_WAIT, &r);
 }
 
-void isp_write_table(const struct xm530_reg *t, XM_U32 mmz8) {
-  for (; !(t->flags & XM530_END); t++)
-    isp_write(t->addr, t->flags & XM530_MMZ ? mmz8 + t->val : t->val);
+void isp_write_table(const struct xm530_reg *t, XM_U32 mmz8,
+                     const XM_U32 *geo) {
+  for (; t && !(t->flags & XM530_END); t++) {
+    XM_U32 v = t->val;
+    if (t->flags & XM530_MMZ)
+      v += mmz8;
+    else if (t->flags & XM530_GEO)
+      v = t->val < XM530_GEO_NUM ? geo[t->val] : 0;
+    isp_write(t->addr, v);
+  }
 }
 
 /* The system controller's registers (PLLs, resets: the first 4 KiB at

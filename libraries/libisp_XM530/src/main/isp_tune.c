@@ -87,8 +87,7 @@ static void nr3d(XM_U32 iso) {
 
   const struct xm530_nr3d *best = NULL;
   double gap = 0;
-  for (const struct xm530_nr3d *n = isp_mode ? isp_mode->nr3d : NULL;
-       n && n->iso; n++) {
+  for (const struct xm530_nr3d *n = xm530_imx335_nr3d; n->iso; n++) {
     const double g = fabs(log((double)iso / n->iso));
     if (!best || g < gap)
       best = n, gap = g;

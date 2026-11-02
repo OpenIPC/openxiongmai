@@ -34,7 +34,9 @@ XM_U32 isp_read(XM_U32 addr);
 void isp_write(XM_U32 addr, XM_U32 val);
 int isp_wait_frame(void);
 void *isp_shm(void); /* NULL without the shared block */
-void isp_write_table(const struct xm530_reg *t, XM_U32 mmz8);
+/* a start-up table: XM530_MMZ values relative to the "Isp" block at mmz8
+ * (8-byte units from DDR), XM530_GEO ones from geo */
+void isp_write_table(const struct xm530_reg *t, XM_U32 mmz8, const XM_U32 *geo);
 
 /* isp_stats.c: the AWB statistics, as the AWB library reads them through
  * Read_IspReg, and the AE library's luma grids from them */
@@ -70,8 +72,6 @@ XM_U32 isp_3a_iso(void); /* the last AE result's ISO, 0 before the first */
 
 /* mpi_isp.c */
 const ISP_PUB_ATTR_S *isp_pub(void);
-const struct xm530_mode *xm530_mode_find(XM_U32 width, XM_U32 height);
-extern const struct xm530_mode *isp_mode;
 
 #pragma GCC visibility pop
 

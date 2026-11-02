@@ -21,3 +21,4 @@ libraries/libxmisp/test/script_test
 libraries/libxmisp/test/sensor_test
 libraries/libxmisp/test/daynight_test
 tools/xm-isp-trace/3aprobe.so
+libraries/libisp_XM530/test/geometry_test

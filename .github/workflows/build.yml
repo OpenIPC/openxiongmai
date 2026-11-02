@@ -107,6 +107,11 @@ jobs:
           # the SoC-independent 3A layers, on the host
           make -C libraries/libxmisp test HOSTCC=gcc
           echo "::endgroup::"
+          echo "::group::libisp_XM530 geometry, on the host"
+          make -C libraries/libisp_XM530 test HOSTCC=gcc
+          python3 -m py_compile tools/xm-isp-trace/extract530.py \
+            tools/xm-isp-trace/start530.py tools/xm-isp-trace/compare530.py
+          echo "::endgroup::"
           echo "::group::tools/xm-isp-tune"
           make -C tools/xm-isp-tune CROSS_COMPILE="$CROSS_COMPILE"
           ${CROSS_COMPILE}readelf -h tools/xm-isp-tune/ispreg | grep -q 'Machine:.*ARM'

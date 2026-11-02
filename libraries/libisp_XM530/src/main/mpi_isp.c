@@ -21,7 +21,10 @@ XM_S32 XM_MPI_AE_SetFrameRate(ISP_DEV IspDev, XM_U8 u8Fps);
 
 #define DBG(fmt, ...) fprintf(stderr, "libisp: " fmt "\n", ##__VA_ARGS__)
 
-const struct xm530_mode *isp_mode;
+/* the "Isp" block and the start-up's geometry, from Init */
+static XM_U32 geo[XM530_GEO_NUM];
+/* what the vendor library has built in for this sensor, if anything */
+static const struct xm530_sensor *sns_start;
 /* the attributes, set and read from several threads */
 static pthread_mutex_t attr_lock = PTHREAD_MUTEX_INITIALIZER;
 static ISP_PUB_ATTR_S pub;
@@ -32,7 +35,8 @@ static XM_U32 mmz_phys;
 static XM_VOID *mmz_virt;
 static XM_U32 vsync_saved;
 
-static void attr_defaults(const struct xm530_attr *a);
+static void attr_start(const struct xm530_sensor *s);
+static void attr_gamma(void);
 static void attr_snapshot(struct isp_tune_attrs *a);
 
 const ISP_PUB_ATTR_S *isp_pub(void) { return &pub; }
@@ -111,14 +115,15 @@ XM_S32 XM_MPI_ISP_GetPubAttr(ISP_DEV IspDev, ISP_PUB_ATTR_S *pstPubAttr) {
   return XM_SUCCESS;
 }
 
-/* The 3D noise reduction's MMZ block: 1.6 bytes a pixel of frame, 0.4 of
- * motion, and an error plane of a byte per pixel at half size, its width a
- * multiple of 8. */
+/* The 3D noise reduction's MMZ block: its frame, motion and error planes
+ * (xm530_planes()). The vendor's block is up to 1 KiB larger than the
+ * three; a page more covers it. */
 static XM_S32 nr3d_buffers(void) {
-  const XM_U32 w = pub.stWndRect.u32Width, h = pub.stWndRect.u32Height;
-  const XM_U32 frame = w * h * 8 / 5, motion = w * h * 2 / 5;
-  const XM_U32 err_w = (w / 2 + 7) & ~7u, err_h = h / 2;
-  const XM_U32 size = frame + motion + err_w * err_h;
+  struct xm530_planes p;
+  xm530_planes(pub.stWndRect.u32Width, pub.stWndRect.u32Height, &p);
+  const XM_U32 frame = p.frame;
+  const XM_U32 err_w = p.err_w, err_h = p.err_h;
+  const XM_U32 size = p.err_off + p.err + 4096;
   if (XM_MPI_SYS_MmzAlloc(&mmz_phys, &mmz_virt, "Isp", NULL, size) !=
           XM_SUCCESS ||
       !mmz_phys) {
@@ -127,30 +132,45 @@ static XM_S32 nr3d_buffers(void) {
   }
   pub.u32PhyAddr = mmz_phys;
   pub.u32Size = frame;
-  pub.u32ErrPhyAddr = mmz_phys + frame + motion;
+  pub.u32ErrPhyAddr = mmz_phys + p.err_off;
   pub.u32ErrSize = err_h << 16 | err_w;
   pub.u8BufFNum = 1;
   return XM_SUCCESS;
 }
 
+/* The vendor library's start-up for any sensor (xm530_start.h): the
+ * template, the geometry of the picture, the attributes from the sensor's
+ * defaults, and what it has built in for some sensors. */
 XM_S32 XM_MPI_ISP_Init(ISP_DEV IspDev) {
   if (!mem_init || init_done)
     return init_done ? XM_SUCCESS : XM_FAILURE;
-  isp_mode = xm530_mode_find(pub.stWndRect.u32Width, pub.stWndRect.u32Height);
-  if (!isp_mode) {
-    DBG("no start-up for %ux%u", pub.stWndRect.u32Width,
-        pub.stWndRect.u32Height);
+  const XM_U32 w = pub.stWndRect.u32Width, h = pub.stWndRect.u32Height;
+  /* the window registers take 12 bits, and the tone mapping grid not
+   * every size */
+  if (w > 4095 || h > 4095 || xm530_geometry(w, h, 0, geo)) {
+    DBG("no start-up for %ux%u", w, h);
     return XM_FAILURE;
   }
   if (nr3d_buffers() != XM_SUCCESS)
     return XM_FAILURE;
-  DBG("%s", isp_mode->name);
-  attr_defaults(isp_mode->attr);
+  sns_start = NULL;
+  for (const struct xm530_sensor *s = xm530_sensors; s->id; s++)
+    if ((SENSOR_ID)s->id == sensor_id)
+      sns_start = s;
+  DBG("sensor %d, %ux%u%s", (int)sensor_id, w, h,
+      sns_start ? "" : ", no built-in tuning");
+  attr_start(sns_start);
   const XM_U32 mmz8 = (mmz_phys - 0x80000000) / 8;
-  isp_write_table(isp_mode->init, mmz8);
+  xm530_geometry(w, h, mmz8, geo);
+  isp_write_table(xm530_init, mmz8, geo);
+  if (sns_start)
+    isp_write_table(sns_start->init, mmz8, geo);
+  attr_gamma();
   if (isp_3a_init(IspDev, &pub) != XM_SUCCESS)
     return XM_FAILURE;
-  isp_write_table(isp_mode->post, mmz8);
+  isp_write_table(xm530_post, mmz8, geo);
+  if (sns_start)
+    isp_write_table(sns_start->post, mmz8, geo);
   init_done = 1;
   return XM_SUCCESS;
 }
@@ -160,7 +180,9 @@ XM_S32 XM_MPI_ISP_Run(ISP_DEV IspDev) {
   if (!init_done || run_started)
     return XM_FAILURE;
   run_started = 1;
-  isp_write_table(isp_mode->run, (mmz_phys - 0x80000000) / 8);
+  isp_write_table(xm530_run, (mmz_phys - 0x80000000) / 8, geo);
+  if (sns_start)
+    isp_write_table(sns_start->run, (mmz_phys - 0x80000000) / 8, geo);
   if (isp_3a_start() != XM_SUCCESS)
     return XM_FAILURE;
   /* The tuning by gain, every 7 frames or so as the vendor's loop; Run never
@@ -217,13 +239,11 @@ struct attr_store {
 };
 static const struct attr_store *attr_stores(void);
 
-static void attr_defaults(const struct xm530_attr *a) {
-  for (; a && a->name; a++)
-    for (const struct attr_store *s = attr_stores(); s->name; s++)
-      if (!strcmp(s->name, a->name)) {
-        memcpy(s->p, a->w, s->size < sizeof(a->w) ? s->size : sizeof(a->w));
-        break;
-      }
+static const struct attr_store *attr_find(const char *name) {
+  for (const struct attr_store *s = attr_stores(); s->name; s++)
+    if (!strcmp(s->name, name))
+      return s;
+  return NULL;
 }
 
 /* cq: const, where the SDK headers have it; apply: what takes effect at
@@ -269,14 +289,17 @@ static void attr_defaults(const struct xm530_attr *a) {
   }
 
 /* The gamma curve, node by node (10 bits); disabled, a straight line. */
-static void gamma_apply(const ISP_GAMMA_ATTR_S *g) {
-  if (!init_done)
-    return;
+static void gamma_write(const ISP_GAMMA_ATTR_S *g) {
   for (int i = 0; i < GAMMA_NODE_NUMBER; i++) {
     const XM_U32 line = i * 1024 / (GAMMA_NODE_NUMBER - 1);
     isp_write(REG_GAMMA + 4 * i,
               g->bEnable ? g->u16Table[i] : (line > 0x3ff ? 0x3ff : line));
   }
+}
+
+static void gamma_apply(const ISP_GAMMA_ATTR_S *g) {
+  if (init_done)
+    gamma_write(g);
 }
 
 /* No saturation is black and white at once: Cb and Cr gain 0. Otherwise
@@ -326,6 +349,68 @@ static const struct attr_store *attr_stores(void) {
       {NULL, NULL, 0},
   };
   return stores;
+}
+
+/* Where the vendor library takes these attributes from the sensor's
+ * defaults: its AGC table and its gamma (tools/xm-isp-trace/start530.py,
+ * MAPPED, checks this on every trace) */
+static void sensor_defaults(void) {
+  ISP_CMOS_DEFAULT_S d;
+  if (!sensor.stSnsExp.pfn_cmos_get_isp_default)
+    return;
+  memset(&d, 0, sizeof(d));
+  if (sensor.stSnsExp.pfn_cmos_get_isp_default(&d))
+    return;
+  if (d.stGamma.bValid)
+    memcpy(attr_GammaAttr.u16Table, d.stGamma.au16Gamma,
+           sizeof(attr_GammaAttr.u16Table));
+  if (!d.stAgcTbl.bValid)
+    return;
+  const ISP_CMOS_AGC_TABLE_S *t = &d.stAgcTbl;
+  memcpy(attr_BlackLevelAttr.stAuto.au16Blc, t->au16Blc, sizeof(t->au16Blc));
+  memcpy(attr_SaturationAttr.stAuto.au8Sat, t->au8Saturation,
+         sizeof(t->au8Saturation));
+  memcpy(attr_SharpenAttr.stAuto.au8SharpenD, t->au8SharpenAltD,
+         sizeof(t->au8SharpenAltD));
+  memcpy(attr_SharpenAttr.stAuto.au8SharpenUd, t->au8SharpenAltUd,
+         sizeof(t->au8SharpenAltUd));
+  memcpy(attr_SharpenAttr.stAuto.au8SharpenKd, t->au8SharpenKd,
+         sizeof(t->au8SharpenKd));
+  memcpy(attr_NRAttr.stAuto.au8Thresh, t->au8SnrThresh,
+         sizeof(t->au8SnrThresh));
+  memcpy(attr_3DNrAttr.stAuto.au8TfStrength, t->au83DTfStrength,
+         sizeof(t->au83DTfStrength));
+  memcpy(attr_3DNrAttr.stAuto.au8SfStrength, t->au83DSfStrength,
+         sizeof(t->au83DSfStrength));
+  memcpy(attr_DyDefectPixelAttr.stAuto.au8Sth, t->au8DyDpc,
+         sizeof(t->au8DyDpc));
+  for (int i = 0; i < ISP_AUTO_STENGTH_NUM; i++)
+    attr_CSCAttr.stAuto.au8ContrVal[i] = (XM_U8)t->au16Ytrangamma[i];
+}
+
+/* the attributes Init starts with: the template's, the sensor's defaults,
+ * and what the vendor library has built in for the sensor */
+static void attr_start(const struct xm530_sensor *s) {
+  pthread_mutex_lock(&attr_lock);
+  for (const struct xm530_attr *a = xm530_attr; a->name; a++) {
+    const struct attr_store *st = attr_find(a->name);
+    if (st)
+      memcpy(st->p, a->w, st->size < sizeof(a->w) ? st->size : sizeof(a->w));
+  }
+  sensor_defaults();
+  for (const struct xm530_patch *p = s ? s->attr : NULL; p && p->name; p++) {
+    const struct attr_store *st = attr_find(p->name);
+    if (st && p->len <= sizeof(p->data) && p->offset + p->len <= st->size)
+      memcpy((XM_U8 *)st->p + p->offset, p->data, p->len);
+  }
+  pthread_mutex_unlock(&attr_lock);
+}
+
+/* the gamma Init leaves: the sensor's */
+static void attr_gamma(void) {
+  pthread_mutex_lock(&attr_lock);
+  gamma_write(&attr_GammaAttr);
+  pthread_mutex_unlock(&attr_lock);
 }
 
 static void attr_snapshot(struct isp_tune_attrs *a) {
