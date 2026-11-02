@@ -29,6 +29,14 @@ struct xm530_attr {
   XM_U32 w[128];
 };
 
+/* 3D noise reduction where the gain has settled at iso: NR_3D_BASE + 0x14,
+ * 0x50, 0x54, 0x60, 0x64, 0x68, 0x6c, 0x14c, 0x150, 0x154, 0x158 */
+#define XM530_NR3D_REGS 11
+struct xm530_nr3d {
+  XM_U32 iso;
+  XM_U32 r[XM530_NR3D_REGS];
+};
+
 struct xm530_mode {
   const char *name;
   XM_U32 width, height;
@@ -38,11 +46,13 @@ struct xm530_mode {
   const struct xm530_reg *post; /* in XM_MPI_ISP_Init, after them */
   const struct xm530_reg *run;  /* the first pass of XM_MPI_ISP_Run */
   const struct xm530_attr *attr;
+  const struct xm530_nr3d *nr3d; /* by ISO, ending with iso 0 */
 };
 
 extern const struct xm530_reg xm530_imx335_init[], xm530_imx335_post[],
     xm530_imx335_run[];
 extern const struct xm530_attr xm530_imx335_attr[];
+extern const struct xm530_nr3d xm530_imx335_nr3d[];
 extern const XM_U32 xm530_imx335_mmz_size;
 
 #pragma GCC visibility pop
