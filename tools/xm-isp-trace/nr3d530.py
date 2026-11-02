@@ -105,11 +105,15 @@ def sensors(manifest):
         if m:
             ids[m.group(1)] = int(m.group(2))
     groups = []
+    here = os.path.dirname(os.path.abspath(manifest))
     for line in open(manifest):
         if not line.strip() or line.startswith('#'):
             continue
         names, pairs = line.split('--')
-        names, pairs = names.split(), pairs.split()
+        # traces named relative to the manifest
+        names = names.split()
+        pairs = [':'.join(os.path.join(here, p) for p in pair.split(':'))
+                 for pair in pairs.split()]
         for n in names:
             if n not in ids:
                 sys.exit('nr3d530: no SENSOR_CHIP_%s' % n)

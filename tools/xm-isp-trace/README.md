@@ -226,9 +226,19 @@ STATFAKE_L=155000 LD_PRELOAD='/tmp/isptrace.so /tmp/statfake.so /tmp/3aprobe.so'
 ```
 
 Held on the emulated IMX335 at ISO 285 and 1164, every 3D NR register is
-what the lab camera settled at, at those ISOs. `nr3d530.py --sensors`
-turns such traces of each group of sensors into
-`libraries/libisp_XM530/arch/xm530/xm530_nr3d.c`.
+what the lab camera settled at, at those ISOs. `hold530.sh` runs the
+holds for one sensor in qemu-bench (one boot of a camera's flash dump,
+the sensor shown by `xm-sensor`), and `nr3d530.py --sensors
+nr3d530-groups.txt`, run where the traces are, turns them into
+`libraries/libisp_XM530/arch/xm530/xm530_nr3d.c`:
+
+```sh
+DUMP=xm550.bin SSHPASS=... OUT=traces ./hold530.sh sc2335 X123_XM530 0x30 2 \
+    0x3107:0xcb,0x3108:0x14 1800000 1250000 900000 ... 12000
+(cd traces; for f in *.bin; do ../decode.py -t $f > ${f%.bin}.t.txt; done)
+cp nr3d530-groups.txt traces/ && ./nr3d530.py --sensors traces/nr3d530-groups.txt \
+    > ../../libraries/libisp_XM530/arch/xm530/xm530_nr3d.c
+```
 
 `chromasweep.so` sets each colour strength of `XM_MPI_ISP_SetChromaAttr` to
 every value in turn (the others neutral) and logs the hue LUT the library

@@ -40,7 +40,10 @@ static void attr_gamma(void);
 static void attr_snapshot(struct isp_tune_attrs *a);
 
 const ISP_PUB_ATTR_S *isp_pub(void) { return &pub; }
-SENSOR_ID isp_sensor_id(void) { return sensor_id; }
+/* the Run loop's tuning reads it while the sensor library may register */
+SENSOR_ID isp_sensor_id(void) {
+  return __atomic_load_n(&sensor_id, __ATOMIC_RELAXED);
+}
 
 XM_S32 XM_MPI_ISP_MemInit(ISP_DEV IspDev) {
   /* majestic calls it again later, from another thread */
@@ -61,7 +64,7 @@ XM_S32 XM_MPI_ISP_SensorRegCallBack(SENSOR_ID SensorId,
   if (!pstRegister)
     return XM_FAILURE;
   sensor = *pstRegister;
-  sensor_id = SensorId;
+  __atomic_store_n(&sensor_id, SensorId, __ATOMIC_RELAXED);
   return XM_SUCCESS;
 }
 
@@ -69,7 +72,7 @@ XM_S32 XM_MPI_ISP_SensorUnRegCallBack(SENSOR_ID SensorId) {
   if (SensorId != sensor_id)
     return XM_FAILURE;
   memset(&sensor, 0, sizeof(sensor));
-  sensor_id = -1;
+  __atomic_store_n(&sensor_id, (SENSOR_ID)-1, __ATOMIC_RELAXED);
   return XM_SUCCESS;
 }
 

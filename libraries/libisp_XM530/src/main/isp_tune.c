@@ -78,7 +78,10 @@ static const XM_U32 nr3d_regs[XM530_NR3D_REGS] = {
     0x64, 0x68, 0x6c, 0x130, 0x134, 0x138, 0x14c, 0x150, 0x154, 0x158};
 
 /* The sensor's schedule (the IMX335's for one not traced), the nearest ISO
- * in log; written every pass, so a failed write is put right on the next */
+ * in log; written every pass, so a failed write is put right on the next.
+ * But 0x134 and 0x138, which step at each ISO octave: min(0x40, 0x10 +
+ * 3 << k), k the octave above 100, and 0x40 less half that, rounded up, at
+ * every point of every schedule, computed so the step is at its ISO. */
 static void nr3d(XM_U32 iso) {
   const struct xm530_nr3d *t = xm530_imx335_nr3d, *best = NULL;
   double gap = 0;
@@ -92,7 +95,14 @@ static void nr3d(XM_U32 iso) {
   }
   if (best)
     for (int i = 0; i < XM530_NR3D_REGS; i++)
-      isp_write(REG_NR3D + nr3d_regs[i], best->r[i]);
+      if (nr3d_regs[i] != 0x134 && nr3d_regs[i] != 0x138)
+        isp_write(REG_NR3D + nr3d_regs[i], best->r[i]);
+  XM_U32 k = 0;
+  while (k < 15 && iso >= 200u << k)
+    k++;
+  const XM_U32 s = 0x10 + (3u << (k > 4 ? 4 : k)); /* 0x40 from k 4 */
+  isp_write(REG_NR3D + 0x134, s);
+  isp_write(REG_NR3D + 0x138, 0x40 - (s + 1) / 2);
 }
 
 void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a) {
