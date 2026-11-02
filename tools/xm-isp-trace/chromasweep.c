@@ -50,28 +50,37 @@ static void *sweep(void *arg) {
   (void)arg;
   sleep(22);
   int (*set)(struct chroma *) = dlsym(RTLD_DEFAULT, "XM_MPI_ISP_SetChromaAttr");
+  int (*get_attr)(struct chroma *) =
+      dlsym(RTLD_DEFAULT, "XM_MPI_ISP_GetChromaAttr");
   int (*get)(uint32_t, uint32_t *) =
       dlsym(RTLD_DEFAULT, "XM_MPI_ISP_GetRegister");
   FILE *f = log_open();
-  if (!set || !get || !f)
+  struct chroma saved;
+  if (!set || !get || !get_attr || !f || get_attr(&saved)) {
+    if (f)
+      fclose(f);
     return NULL;
+  }
   const struct chroma neutral = {
       1, {0}, {0x80, 0x80, 0x80, 0x80, 0x80, 0x80}, {0}};
   for (int c = 0; c < 6; c++)
     for (int s = 0; s < 256; s++) {
       struct chroma a = neutral;
       a.strength[c] = (uint8_t)s;
-      set(&a);
+      /* a failed call ends the sweep, so the log holds no made-up rows */
+      if (set(&a))
+        goto out;
+      uint32_t v[65];
+      for (int e = 0; e < 65; e++)
+        if (get(0x300710e4 + 4 * e, &v[e]))
+          goto out;
       fprintf(f, "%d %d", c, s);
-      for (int e = 0; e < 65; e++) {
-        uint32_t v = 0;
-        get(0x300710e4 + 4 * e, &v);
-        fprintf(f, " %u", v);
-      }
+      for (int e = 0; e < 65; e++)
+        fprintf(f, " %u", v[e]);
       fprintf(f, "\n");
     }
-  struct chroma a = neutral;
-  set(&a);
+out:
+  set(&saved);
   fclose(f);
   return NULL;
 }

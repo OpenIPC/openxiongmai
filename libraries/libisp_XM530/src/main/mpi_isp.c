@@ -236,7 +236,7 @@ static void attr_defaults(const struct xm530_attr *a) {
 }
 
 /* cq: const, where the SDK headers have it; apply: what takes effect at
- * once */
+ * once, under the lock, so the registers end as the stored attribute */
 #define ATTR(name, type, cq, apply)                                            \
   static type attr_##name;                                                     \
   XM_S32 XM_MPI_ISP_Set##name(cq type *p) {                                    \
@@ -244,8 +244,8 @@ static void attr_defaults(const struct xm530_attr *a) {
       return XM_FAILURE;                                                       \
     pthread_mutex_lock(&attr_lock);                                            \
     attr_##name = *p;                                                          \
-    pthread_mutex_unlock(&attr_lock);                                          \
     apply;                                                                     \
+    pthread_mutex_unlock(&attr_lock);                                          \
     return XM_SUCCESS;                                                         \
   }                                                                            \
   XM_S32 XM_MPI_ISP_Get##name(type *p) {                                       \

@@ -60,7 +60,11 @@ make CROSS_COMPILE=arm-openipc-linux-musleabi-
   the share of moved zones among `MoWinset`'s is returned (and sets
   `MoReflag` from `u8RatioThresh`), and results gather until read. On the lab
   XM550 it answers bulb changes and a blinking LED's zone as the vendor
-  library does. Cover detection reports nothing yet.
+  library does. Cover detection never marks a cover: on the lab XM550 the
+  vendor library's marked nothing through darkness and a black or white
+  sensor test pattern either (its focus value, `XM_MPI_VDA_Afgetdata`,
+  returned -1), and enabled without `XM_MPI_VDA_CreatChn` and
+  `XM_MPI_VDA_VdaApInit` first, it killed the process with SIGFPE.
 - **Restarts:** majestic's AE and AWB keep their state, and AE its last
   statistics, in the block `/dev/isp` shares, at the vendor library's places,
   so a restarted majestic starts AE where it was, as with the vendor library.

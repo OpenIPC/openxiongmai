@@ -11,7 +11,12 @@
  *  - results gather (OR) until read; a read doesn't clear them, the next
  *    analysis after it does.
  *
- * Cover detection keeps its settings and reports nothing yet.
+ * Cover detection keeps its settings and never marks a cover, as the vendor
+ * library on the lab XM550: there it needs XM_MPI_VDA_CreatChn and
+ * XM_MPI_VDA_VdaApInit first (enabled without them, the process dies of
+ * SIGFPE within 8 s), and enabled after them it marked nothing through
+ * darkness and a black or white sensor test pattern, while
+ * XM_MPI_VDA_Afgetdata, the focus value it is set against, returned -1.
  */
 #include <pthread.h>
 #include <string.h>
