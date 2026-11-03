@@ -1,4 +1,5 @@
-/* The 3A libraries, which are majestic's: the ISP library takes their
+/* The 3A libraries, which are majestic's (but AE when the open one runs,
+ * isp_ae.c): the ISP library takes their
  * functions from XM_MPI_ISP_AELibRegCallBack and XM_MPI_ISP_AWBLibRegCallBack
  * and runs them every frame, as the vendor library does:
  *
@@ -132,6 +133,7 @@ int isp_3a_init(ISP_DEV dev, const ISP_PUB_ATTR_S *pub) {
     return XM_FAILURE;
   }
   awb_window(&awb_bk.stWin);
+  open_ae_init(pub->u8FrameRate, ae_state);
   return XM_SUCCESS;
 }
 
@@ -179,13 +181,20 @@ static void *run_3a(void *arg) {
     stats_grid(awb_gain.au32WhiteBalanceGain, zone_sites, &ae_info.stAeStat2,
                &ae_info.stAeStat3);
     vda_frame(&ae_info.stAeStat2);
-    if (ae_reg.stAeExpFunc.pfn_ae_run(0, 0, &ae_info, &ae_res, !(n & 1)) ==
-        XM_SUCCESS) {
+    int ae_ok;
+    if (open_ae_active()) {
+      open_ae_frame(&ae_info, ae_state, &ae_res);
+      ae_ok = 1;
+    } else {
+      ae_ok = ae_reg.stAeExpFunc.pfn_ae_run(0, 0, &ae_info, &ae_res,
+                                            !(n & 1)) == XM_SUCCESS;
+    }
+    if (ae_ok) {
       if (debug && n % 50 == 0)
-        DBG("frame %u: zones %u %u %u, V2 %u %u, R %x G %x B %x, AE %x %x %x "
-            "%x "
-            "%x",
-            n, ae_info.stAeStat2.au32MeteringWin[3][2],
+        DBG("frame %u: mean %u, zones %u %u %u, V2 %u %u, R %x G %x B %x, AE "
+            "%x %x %x %x %x",
+            n, stats_mean(&ae_info.stAeStat2),
+            ae_info.stAeStat2.au32MeteringWin[3][2],
             ae_info.stAeStat2.au32MeteringWin[3][3],
             ae_info.stAeStat2.au32MeteringWin[3][4],
             ae_info.stAeStat3.au16MeteringWinV2[8][14],

@@ -2,6 +2,7 @@
 #ifndef ISP_MAIN_H
 #define ISP_MAIN_H
 
+#include "mpi_ae.h"
 #include "mpi_isp.h"
 #include "xm530_start.h"
 
@@ -44,6 +45,14 @@ void stats_port_write(XM_U32 addr, XM_U32 val);
 void stats_port_read(XM_U32 addr, XM_U32 val);
 void stats_grid(const XM_U32 gains[3], XM_U32 sites, ISP_AE_STAT_2_S *grid7,
                 ISP_AE_STAT_3_S *grid16);
+XM_U32 stats_mean(const ISP_AE_STAT_2_S *grid7);
+
+/* isp_ae.c: the open AE, in place of majestic's when LIBISP_OPEN_AE=1 and
+ * the sensor library gave its callbacks; state is the AE state buffer */
+int open_ae_init(XM_U8 fps, void *state);
+int open_ae_active(void);
+void open_ae_frame(const ISP_AE_INFO_S *info, void *state,
+                   ISP_AE_RESULT_S *res);
 
 /* isp_tune.c: the attributes the tuning by gain follows */
 struct isp_tune_attrs {

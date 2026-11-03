@@ -58,3 +58,12 @@ void stats_grid(const XM_U32 gains[3], XM_U32 sites, ISP_AE_STAT_2_S *grid7,
     }
   }
 }
+
+/* The 7 x 7 grid's mean, the brightness AE holds */
+XM_U32 stats_mean(const ISP_AE_STAT_2_S *grid7) {
+  XM_U32 sum = 0;
+  for (int r = 0; r < AE_ZONE_ROW; r++)
+    for (int c = 0; c < AE_ZONE_COLUMN; c++)
+      sum += grid7->au32MeteringWin[r][c];
+  return sum / (AE_ZONE_ROW * AE_ZONE_COLUMN);
+}

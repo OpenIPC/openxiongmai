@@ -101,6 +101,46 @@ make CROSS_COMPILE=arm-openipc-linux-musleabi-
   statistics, in the block `/dev/isp` shares, at the vendor library's places,
   so a restarted majestic starts AE where it was, as with the vendor library.
 
+## Open AE (M2, first part)
+
+With `LIBISP_OPEN_AE=1` in majestic's environment, the library runs its own
+auto-exposure in place of majestic's (`src/main/isp_ae.c`, on libxmisp's
+`ae.c`). It is off by default; AWB stays majestic's.
+
+- **What it holds:** what the vendor AE holds, measured on the lab XM550:
+  the mean of the 7 × 7 luma grid weighted by the exposure attributes'
+  table, over 256 (the "average luminance", 0-255), within the attributes'
+  tolerance of their compensation. Majestic moves the compensation with the
+  light (55 in a lit room, 51 to 33 as it darkens), and the attributes are
+  read every frame through `XM_MPI_ISP_GetExposureAttr`, so it follows.
+  Anti-flicker follows them too.
+- **The sensor:** its library hands the open ISP its AE and AWB callbacks
+  (`libisp_ae_sensor_register`, `libisp_awb_sensor_register`, weak calls
+  the X50 and X123 libraries make after registering with majestic; absent
+  with the vendor ISP library, which is unaffected). Lines come first, then
+  the sensor's analog and digital gain at its nearest step, then the ISP's
+  gain for the rest.
+- **Majestic:** the result goes where the vendor AE keeps its own, in the AE
+  state the library owns: lines, the three gains, the exposure and the
+  average luminance. So `/metrics`, automatic day/night and the
+  compensation majestic sets see the open AE's exposure.
+- **Not yet:** manual and bypassed exposure (it holds the exposure where
+  it is and says so), slow shutter, and the "exposure is at its most" flag.
+
+Against majestic's AE on the lab XM550 (IMX335, 2560x1440 H.264), each
+settled in turn under the same light:
+
+| Bulbs | Majestic's AE: gain, `avelum` | Open AE: gain, `avelum` |
+|---|---|---|
+| 100% | 9.1x, ISP 1.02, 50 | 9.5x, ISP 1.00, 50 |
+| 30% | 61x, ISP 1.00, 35 | 61x, ISP 1.01, 35 |
+| 5% | 61x, ISP 1.00, 30 | 61x, ISP 1.04, 31 |
+| off | 61x, ISP 1.07, 29 | 61x, ISP 1.09, 31 |
+
+A step from dark to the bulbs settled within a second with either. After a
+restart the open AE starts from the last run's exposure and settled in
+about 6 s, majestic's AE in about 9 s, from black.
+
 ## Not yet
 
 - 3D NR is a measured schedule for each sensor (`arch/xm530/xm530_nr3d.c`;

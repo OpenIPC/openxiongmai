@@ -6,17 +6,20 @@ override CFLAGS += -I../isp/include/isp \
 	   -I../isp/include/xm \
 	   -Iinclude \
 	   -Iarch/xm530 \
+	   -I../libxmisp \
 	   -D_GNU_SOURCE -DCHIPID_XM530 -DSOC_SYSTEM \
 	   -Werror -Wall -std=c99 -fPIC -O2
 
 OBJECTS = \
 	src/main/isp_3a.o \
+	src/main/isp_ae.o \
 	src/main/isp_color.o \
 	src/main/isp_reg.o \
 	src/main/isp_stats.o \
 	src/main/isp_tune.o \
 	src/main/mpi_isp.o \
 	src/main/mpi_vda.o \
+	src/main/xmisp_ae.o \
 	arch/xm530/xm530_chroma.o \
 	arch/xm530/xm530_geometry.o \
 	arch/xm530/xm530_imx335_nr3d.o \
