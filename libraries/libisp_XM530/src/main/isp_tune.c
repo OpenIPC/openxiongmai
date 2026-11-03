@@ -86,12 +86,17 @@ static void nr2d(XM_U32 t) {
     isp_write(REG_SHARPEN_CURVE + 4 * k, base[k] > d ? base[k] - d : 0);
 }
 
-/* (x - 8) / 2, x - 8 and x, at two banks 0x40 apart */
-static void sharpen_triple(XM_U32 reg, XM_U32 x) {
-  const XM_U32 v[3] = {x >= 8 ? (x - 8) / 2 : 0, x >= 8 ? x - 8 : 0, x};
+/* at two banks 0x40 apart */
+static void sharpen_banks(XM_U32 reg, const XM_U32 v[3]) {
   for (int b = 0; b < 2; b++)
     for (int i = 0; i < 3; i++)
       isp_write(reg + 0x40 * b + 4 * i, v[i]);
+}
+
+/* (x - 8) / 2, x - 8 and x */
+static void sharpen_triple(XM_U32 reg, XM_U32 x) {
+  const XM_U32 v[3] = {x >= 8 ? (x - 8) / 2 : 0, x >= 8 ? x - 8 : 0, x};
+  sharpen_banks(reg, v);
 }
 
 static void sharpen(XM_U32 iso, const struct isp_tune_attrs *a) {
@@ -123,6 +128,13 @@ static void sharpen(XM_U32 iso, const struct isp_tune_attrs *a) {
     sharpen_triple(REG_SHARPEN_D_V2, d);
     return;
   }
+  /* V2's own registers as every V1 sensor's start-up leaves them, for a
+   * switch from V2 */
+  static const XM_U32 v1[3] = {3, 8, 16};
+  sharpen_banks(REG_SHARPEN_UD_V2, v1);
+  sharpen_banks(REG_SHARPEN_D_V2, v1);
+  isp_write(REG_SHARPEN_DETAIL, 0);
+  isp_write(REG_SHARPEN_DETAIL + 4, 2);
   const ISP_SHARPEN_AUTO_ATTR_S *s = &a->sharpen.stAuto;
   XM_U32 ud, d, kd;
   if (!a->sharpen.bEnable) {
