@@ -97,14 +97,23 @@ extern const struct xm530_sensor xm530_sensors[];
 #define XM530_DGAIN_1X 0x109
 
 /* 3D noise reduction where the gain has settled at iso: NR_3D_BASE + 0x14,
- * 0x50, 0x54, 0x60, 0x64, 0x68, 0x6c, 0x14c, 0x150, 0x154, 0x158 */
-#define XM530_NR3D_REGS 11
+ * 0x40, 0x44, 0x48, 0x4c, 0x50, 0x54, 0x58, 0x5c, 0x60, 0x64, 0x68, 0x6c,
+ * 0x130, 0x134, 0x138, 0x14c, 0x150, 0x154, 0x158: every register the
+ * vendor Run loop sets */
+#define XM530_NR3D_REGS 20
 struct xm530_nr3d {
   XM_U32 iso;
   XM_U32 r[XM530_NR3D_REGS];
 };
 /* measured on the IMX335; by ISO, ending with iso 0 */
 extern const struct xm530_nr3d xm530_imx335_nr3d[];
+/* by SENSOR_CHIP id, for the sensors traced in qemu-bench with the gain
+ * held (xm530_nr3d.c); ends with id 0. The IMX335's, for any other. */
+struct xm530_nr3d_sensor {
+  XM_U32 id;
+  const struct xm530_nr3d *t;
+};
+extern const struct xm530_nr3d_sensor xm530_nr3d_sensors[];
 
 /* The hue LUT's response to a colour strength s at an entry: with
  * a = |s - 0x80|, a - k1 below cut, a - k2 from it, not below 0, with the

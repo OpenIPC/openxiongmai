@@ -92,6 +92,11 @@ jobs:
           done
           ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/3aprobe.so | grep -q 'Type:.*DYN'
           ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/chromasweep.so | grep -q 'Type:.*DYN'
+          ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/statfake.so | grep -q 'Type:.*DYN'
+          for s in XM_MPI_ISP_MemInit ioctl; do
+            ${CROSS_COMPILE}nm -D --defined-only tools/xm-isp-trace/statfake.so | grep -qw "$s" ||
+              { echo "statfake.so does not export $s" >&2; exit 1; }
+          done
           ${CROSS_COMPILE}nm -D --defined-only tools/xm-isp-trace/3aprobe.so | grep -qw XM_MPI_ISP_MemInit ||
             { echo "3aprobe.so does not export XM_MPI_ISP_MemInit" >&2; exit 1; }
           python3 -m py_compile tools/xm-isp-trace/decode.py
@@ -109,6 +114,7 @@ jobs:
           echo "::endgroup::"
           echo "::group::libisp_XM530 geometry, on the host"
           make -C libraries/libisp_XM530 test HOSTCC=gcc
+          bash -n tools/xm-isp-trace/hold530.sh
           python3 -m py_compile tools/xm-isp-trace/extract530.py \
             tools/xm-isp-trace/start530.py tools/xm-isp-trace/compare530.py
           echo "::endgroup::"
