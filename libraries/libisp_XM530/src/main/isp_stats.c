@@ -12,8 +12,9 @@
  *  - stAeStat2, 7 x 7: means of 4 x 2 of those, but the last column and row,
  *    which take the rest (8 columns, 4 rows).
  */
-#include <stdio.h>
+#include <fcntl.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "isp_main.h"
 
@@ -75,11 +76,14 @@ XM_U32 stats_mean(const ISP_AE_STAT_2_S *grid7) {
 /* LIBISP_ZONES=path (with LIBISP_DEBUG): the zones' R, G and B sums, as
  * AWB read them, written there in a row of 512 x 3 words */
 void stats_dump(const char *path) {
-  FILE *f = fopen(path, "wb");
-  if (!f)
+  /* never blocking the frame loop: a FIFO nobody reads is skipped */
+  const int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NONBLOCK, 0644);
+  if (fd < 0)
     return;
-  fwrite(zone_rgb, sizeof(zone_rgb), 1, f);
-  fclose(f);
+  if (write(fd, zone_rgb, sizeof(zone_rgb)) < 0) {
+    /* a dump that cannot go is dropped */
+  }
+  close(fd);
 }
 
 /* The zones read here, as the AWB library reads them: the first selected,

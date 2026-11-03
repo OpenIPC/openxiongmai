@@ -32,7 +32,11 @@ static const SENSOR_ID known[] = {155 /* IMX335 */};
 
 #define GREY_MIN 16     /* zones, fewer and the gains are held */
 #define CLIP_LEVEL 3686 /* 0.9 of 12 bits: a channel's mean at the clip */
+#define DARK_LEVEL 64   /* a G mean below it is too dark to count */
 #define SMOOTH 0.05f    /* of the way to the measured gains, a frame */
+/* frames after the start the gains hold, while the exposure settles: dark
+ * or clipped first frames pulled them away and back */
+#define START_HOLD 25
 
 static AWB_SENSOR_EXP_FUNC_S sns;
 static int have_sns;
@@ -42,6 +46,21 @@ static int active;
 static int inside_sign[8];
 static float log_r, log_b; /* the gains set, natural log */
 static int ct_now;
+
+/* The gains it set, kept in the block /dev/isp shares, which outlives the
+ * process: majestic's start resets the ISP (its VI init), so a restart
+ * starts from these. Past the AE statistics the block keeps at 0x2000. */
+#define SHM_AWB_OPEN 0x3f00
+#define AWB_MAGIC 0x4f415742 /* "OAWB" */
+struct kept {
+  XM_U32 magic;
+  float log_r, log_b;
+};
+
+static struct kept *kept(void) {
+  char *shm = isp_shm();
+  return shm ? (struct kept *)(shm + SHM_AWB_OPEN) : NULL;
+}
 
 __attribute__((visibility("default"))) XM_S32
 libisp_awb_sensor_register(ISP_DEV IspDev, SENSOR_ID SensorId,
@@ -150,10 +169,20 @@ int open_awb_init(void) {
   sides(r0 * 4096, b0 * 4096, inside_sign);
   log_r = logf(cal.init_gain[0] / 1024.0f);
   log_b = logf(cal.init_gain[2] / 1024.0f);
-  ct_now = colour_temp(r0, b0);
+  /* After a restart, from the gains the last run kept, if they are sane
+   * (0.5x to 8x); the calibration's on a cold start */
+  const struct kept *k = kept();
+  const char *from = "the calibration";
+  if (k && k->magic == AWB_MAGIC && fabsf(k->log_r) < 2.08f &&
+      fabsf(k->log_b) < 2.08f) {
+    log_r = k->log_r;
+    log_b = k->log_b;
+    from = "the last run";
+  }
+  ct_now = colour_temp(expf(-log_r), expf(-log_b));
   active = 1;
-  DBG("open AWB: start gains R %.2f B %.2f, %d K", expf(log_r), expf(log_b),
-      ct_now);
+  DBG("open AWB: start gains R %.2f B %.2f, %d K, from %s", expf(log_r),
+      expf(log_b), ct_now, from);
   return 1;
 }
 
@@ -163,6 +192,7 @@ int open_awb_frame(XM_U32 sites, ISP_AWB_RESULT_GAIN_S *gain,
                    ISP_AWB_RESULT_CC_S *cc) {
   const XM_U32(*z)[3] = stats_zones();
   const double clip = (double)CLIP_LEVEL * (sites ? sites : 1);
+  const double dark = (double)DARK_LEVEL * (sites ? sites : 1);
   double sr = 0, sg = 0, sb = 0;
   int n = 0, clipped = 0;
   for (int i = 0; i < AWB_ZONES; i++) {
@@ -173,18 +203,27 @@ int open_awb_frame(XM_U32 sites, ISP_AWB_RESULT_GAIN_S *gain,
       clipped++;
       continue;
     }
+    if (G < dark)
+      continue;
     if (!inside((float)(R / G * 4096), (float)(B / G * 4096)))
       continue;
     sr += R, sg += G, sb += B, n++;
   }
   static XM_U32 frames;
-  if (n >= GREY_MIN) {
+  ++frames;
+  if (n >= GREY_MIN && frames > START_HOLD) {
     const float r = (float)(sr / sg), b = (float)(sb / sg);
     log_r += SMOOTH * (logf(1 / r) - log_r);
     log_b += SMOOTH * (logf(1 / b) - log_b);
     ct_now = colour_temp(expf(-log_r), expf(-log_b));
+    struct kept *kp = kept();
+    if (kp) {
+      kp->log_r = log_r;
+      kp->log_b = log_b;
+      kp->magic = AWB_MAGIC;
+    }
   }
-  if (getenv("LIBISP_DEBUG") && ++frames % 50 == 0)
+  if (getenv("LIBISP_DEBUG") && frames % 50 == 0)
     DBG("open AWB: %d grey zones, %d clipped, gains R %.3f B %.3f, %d K", n,
         clipped, expf(log_r), expf(log_b), ct_now);
   gain->au32WhiteBalanceGain[0] = (XM_U32)lroundf(expf(log_r) * 256);

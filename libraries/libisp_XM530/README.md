@@ -166,7 +166,12 @@ works with or without the open AE.
   grey point lies, and no channel is within 10% of the clip. The gains are
   the inverse of the grey zones' summed R/G and B/G, G at 1x, moved 5% of
   the way a frame; with fewer than 16 grey zones (a coloured light) they
-  are held, as the vendor AWB holds them.
+  are held, as the vendor AWB holds them. Zones with a G mean under 64 are
+  too dark to count.
+- **Restarts:** majestic's start resets the ISP, so the gains it set are
+  kept in the block `/dev/isp` shares (at 0x3f00) and a restart starts from
+  them, holding them for the first 25 frames while the exposure settles;
+  three restarts under the same light stayed within 1% of each other.
 - **Colour:** the colour temperature is the grey point's position on the
   calibration's distance table (`dis`, `val`), the point (Q10) projected at
   `key` / 512 of a turn from (`ini_y`, `ini_x`), plus `key`: fitted to the
