@@ -17,7 +17,7 @@ The XM510 (3.0 kernel) has an older `mmz.ko`, and a build against a kernel with 
 - **`/proc/umap/mmz`:** the zone, then start, size and name per block, with no overrun flag and no free-space line.
 - **Interface:** the old module's is a subset of this one: ioctls 0–3 on 40-byte records, and `mmz_alloc`/`mmz_free`. It has no `mmap`, so XM510 user space maps the zone through `/dev/mem`.
 - **Commands:** only ioctls 0–3 on 40-byte records; anything else logs `ioctl cmd error` and returns 0, as the old module does.
-- **No CMA mode:** `allocator=cma` is refused. The XM510 kernel has no CMA, and 32 MB of DDR leaves nothing to lend.
+- **No CMA mode:** `allocator=cma` and `allocator=hybrid` are refused. The XM510 kernel has no CMA, and 32 MB of DDR leaves nothing to lend.
 
 ```sh
 insmod open_mmz.ko mmz_start=0x81200000 mmz_size=0xe00000   # XM510: mem=18M of 32 MB
@@ -55,6 +55,29 @@ Measured on an XM550 + IMX335 with majestic (1080p H.264 main stream, sub stream
 - restarts reused the same 13 blocks at the same addresses;
 - after a reset, a 20 MB allocation that didn't fit beside the held blocks succeeded after 5.05 s;
 - a mapped block outlived a reset until it was unmapped.
+
+### The risk at a start
+
+Under CMA, every pipeline start takes its buffers back from Linux: the kernel migrates whatever Linux put in the CMA area out of it. When userland has filled memory meanwhile, that migration leaves the kernel's own, unmovable allocations nothing to take from. On an XM550 booted as a 64 MB XM530 (`mem=63M cma=28M`) with majestic on H.265 1080p, a start with userland that grows into whatever memory is free took the board down 3 times in 4: it logged `page allocation failure` from the H.265 driver's work queue (`HEVCENC: mve_mem_alloc`), then was reset by the watchdog, rebooted, or (watchdog off) hung until power-cycled. With 6 or 9 MB of userland of a fixed size, 20 of 20 restarts were clean. HiSilicon boards show the same at a start ([memory tuning](https://github.com/OpenIPC/wiki/blob/master/en/memory-tuning.md)).
+
+## Hybrid mode
+
+With `allocator=hybrid` a block comes from the zone if the zone has room for it, and from the CMA area otherwise. Booted with a zone sized for what the pipeline holds all the time and a small CMA area beside Linux, a start finds its buffers in the zone, which Linux never had, so it has nothing to take back. Linux uses the CMA area meanwhile, and a peak past the zone borrows from it, under the CMA rules above. Zone blocks follow the vendor's rules: laid one after another, released only by a reset.
+
+```sh
+# a 64 MB XM530, 35 MB for Linux, 8 MB of CMA: mem=43M cma=8M, the zone above mem=
+insmod open_mmz.ko allocator=hybrid mmz_start=0x82b00000 mmz_size=0x1500000
+```
+
+Firmware's `set_allocator hybrid [osmem] [cma share]` writes those bootargs (`mmz_allocator=hybrid`), and `load_xiongmai` loads the module so.
+
+Measured on an XM550 booted as that XM530 (the zone 21 MB, as on a 64 MB board), majestic on H.265 1080p25 with the open encoder:
+- every block came from the zone; CMA held nothing;
+- Linux had 7.7 MB free and 7.3 MB cached while streaming, as under `cma` (7 and 7.5 MB), and 1.2 and 4 MB under a fixed `mem=35M`;
+- 10 restarts, then 10 with 6 MB and 10 with 9 MB of userland held, all came back on H.265 within 14 s, with no allocation failure;
+- with userland growing into free memory at a start, the board stayed up in 10 of 10 starts (under `cma`, 1 of 4). H.265 can still fail to get its memory then, as under a fixed zone: the system itself is out of memory, and libxmvenc waits for memory before it opens a session.
+
+With the vendor's 2560x1440 H.264 stream, which wants more than the 21 MB, three blocks (872 KB) came from CMA.
 
 ## Kernel interface
 
