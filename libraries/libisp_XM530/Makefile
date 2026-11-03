@@ -13,6 +13,7 @@ override CFLAGS += -I../isp/include/isp \
 OBJECTS = \
 	src/main/isp_3a.o \
 	src/main/isp_ae.o \
+	src/main/isp_awb.o \
 	src/main/isp_color.o \
 	src/main/isp_reg.o \
 	src/main/isp_stats.o \

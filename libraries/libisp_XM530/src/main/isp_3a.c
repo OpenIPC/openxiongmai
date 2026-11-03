@@ -1,5 +1,5 @@
-/* The 3A libraries, which are majestic's (but AE when the open one runs,
- * isp_ae.c): the ISP library takes their
+/* The 3A libraries, which are majestic's (but AE and AWB when the open
+ * ones run, isp_ae.c and isp_awb.c): the ISP library takes their
  * functions from XM_MPI_ISP_AELibRegCallBack and XM_MPI_ISP_AWBLibRegCallBack
  * and runs them every frame, as the vendor library does:
  *
@@ -134,6 +134,7 @@ int isp_3a_init(ISP_DEV dev, const ISP_PUB_ATTR_S *pub) {
   }
   awb_window(&awb_bk.stWin);
   open_ae_init(pub->u8FrameRate, ae_state);
+  open_awb_init();
   return XM_SUCCESS;
 }
 
@@ -169,10 +170,18 @@ static void *run_3a(void *arg) {
     n++;
     /* the frame count stays 0, as the vendor library leaves it */
     awb_info.u32Rsv = ae_res.u32Rsv;
-    if (awb_reg.stAwbExpFunc.pfn_awb_run(0, &awb_info, &awb_res,
-                                         (XM_S32)ae_res.u32Iso) == XM_SUCCESS)
+    if (open_awb_active()) {
+      stats_read_zones();
+      if (open_awb_frame(zone_sites, &awb_gain, &awb_cc))
+        awb_apply();
+    } else if (awb_reg.stAwbExpFunc.pfn_awb_run(0, &awb_info, &awb_res,
+                                                (XM_S32)ae_res.u32Iso) ==
+               XM_SUCCESS) {
       awb_apply();
+    }
 
+    if (debug && n % 50 == 0 && getenv("LIBISP_ZONES"))
+      stats_dump(getenv("LIBISP_ZONES"));
     ae_info.u32FrameCnt = n;
     ae_info.u8FrameRate = isp_pub()->u8FrameRate;
     /* every bin 0x80, as the vendor library gives it */
