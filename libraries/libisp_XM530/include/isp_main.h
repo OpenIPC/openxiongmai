@@ -49,6 +49,7 @@ void stats_grid(const XM_U32 gains[3], XM_U32 sites, ISP_AE_STAT_2_S *grid7,
 struct isp_tune_attrs {
   ISP_2DNR_ATTR_S nr;
   ISP_SHARPEN_ATTR_S sharpen;
+  ISP_SHARPENV2_ATTR_S sharpen2;
   ISP_BLACKLVL_ATTR_S black;
   ISP_SATURATION_ATTR_S saturation;
   ISP_CSC_ATTR_S csc;

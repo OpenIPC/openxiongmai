@@ -422,6 +422,7 @@ static void attr_snapshot(struct isp_tune_attrs *a) {
   pthread_mutex_lock(&attr_lock);
   a->nr = attr_NRAttr;
   a->sharpen = attr_SharpenAttr;
+  a->sharpen2 = attr_SharpenV2Attr;
   a->black = attr_BlackLevelAttr;
   a->saturation = attr_SaturationAttr;
   a->csc = attr_CSCAttr;
