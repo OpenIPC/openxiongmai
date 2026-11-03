@@ -1,16 +1,25 @@
 /* The picture tuning by gain, every few frames, from the attributes' auto
  * tables (16 entries, one an ISO octave from 100), as the vendor library's
  * Run loop does it. Fitted against the vendor library on the lab XM550
- * (IMX335) at eleven light levels, ISO 100 to 12800:
+ * (IMX335) at eleven light levels, ISO 100 to 12800, and checked in
+ * qemu-bench with the gain held for every sensor the sensor libraries
+ * start:
  *
  *  - each entry is interpolated linearly in ISO between its octaves;
- *  - 2D NR (NR_2D_BASE): t, rounded; then 3t, 128/t and 0x20 + 3t;
- *  - sharpening: Ud, D and Kd, rounded up, to 0x3007500c/508c/511c;
+ *  - 2D NR (NR_2D_BASE): t, rounded half down; then 3t, 128/t (0x100 at
+ *    t 0) and 0x20 + 3t;
+ *  - sharpening: Ud, D and Kd, rounded up, to 0x3007500c/508c/511c; in the
+ *    SharpenV2 algorithm (u8AlgChoice 1) Ud and D 16, Kd, the detail
+ *    control and threshold, and two triples ((x - 8) / 2, x - 8, x) each
+ *    of V2's Ud and D, rounded half down;
+ *  - the sharpening curve (0x30075144, 7 nodes): 16, 32, 64, 96, 128, 160,
+ *    160, each less min(48, 2 (t - 16)), t the 2D NR threshold, at least 0;
  *  - black level: rounded up, to R, G and B;
  *  - Cb/Cr gain: 0x100 + 6 (s - 0x80), s the saturation rounded up, at
  *    least 0x100 (with the CSC saturation 50);
- *  - dynamic defect pixels (DDPC_BASE + 8, + 0xc): 511 - 2s and 255 - s, s
- *    the threshold rounded down;
+ *  - dynamic defect pixels (DDPC_BASE + 8, + 0xc): 2b and b = 256 - s
+ *    below s 128, 2b + 1 and b = 255 - s from it, s the threshold rounded
+ *    down;
  *  - DRC (0x3000b020): the defog strength, rounded down; 0x3000b024 the
  *    largest of the 64 local tone mapping statistics at 0x3000b300;
  *  - 3D noise reduction: every register the vendor's loop sets, as it
@@ -31,6 +40,10 @@
 #define REG_SHARPEN_UD 0x3007500c
 #define REG_SHARPEN_D 0x3007508c
 #define REG_SHARPEN_KD 0x3007511c
+#define REG_SHARPEN_UD_V2 0x3007501c /* and 0x3007505c */
+#define REG_SHARPEN_D_V2 0x3007509c  /* and 0x300750dc */
+#define REG_SHARPEN_DETAIL 0x30075130
+#define REG_SHARPEN_CURVE 0x30075144
 #define REG_BLACK 0x30004000
 #define REG_DDPC 0x30035008
 #define REG_DRC 0x3000b020
@@ -58,11 +71,74 @@ static XM_U32 strength(double v, XM_U8 global) {
   return (XM_U32)v * global / 0x80;
 }
 
+/* rounded half down, as the vendor rounds most of them */
+static XM_U32 half_down(double v) { return (XM_U32)ceil(v - 0.5); }
+
 static void nr2d(XM_U32 t) {
   isp_write(REG_NR2D, t);
   isp_write(REG_NR2D + 0x04, 3 * t);
-  isp_write(REG_NR2D + 0x08, t ? 128 / t : 0x80);
+  isp_write(REG_NR2D + 0x08, t ? 128 / t : 0x100);
   isp_write(REG_NR2D + 0x10, 0x20 + 3 * t);
+  /* the sharpening curve eases off as the noise reduction rises */
+  static const XM_U32 base[7] = {16, 32, 64, 96, 128, 160, 160};
+  const XM_U32 d = t <= 16 ? 0 : t >= 40 ? 48 : 2 * (t - 16);
+  for (int k = 0; k < 7; k++)
+    isp_write(REG_SHARPEN_CURVE + 4 * k, base[k] > d ? base[k] - d : 0);
+}
+
+/* (x - 8) / 2, x - 8 and x, at two banks 0x40 apart */
+static void sharpen_triple(XM_U32 reg, XM_U32 x) {
+  const XM_U32 v[3] = {x >= 8 ? (x - 8) / 2 : 0, x >= 8 ? x - 8 : 0, x};
+  for (int b = 0; b < 2; b++)
+    for (int i = 0; i < 3; i++)
+      isp_write(reg + 0x40 * b + 4 * i, v[i]);
+}
+
+static void sharpen(XM_U32 iso, const struct isp_tune_attrs *a) {
+  const ISP_SHARPENV2_ATTR_S *v2 = &a->sharpen2;
+  if (v2->u8AlgChoice == 1 && v2->bEnable) {
+    XM_U32 ud, d, kd, thr, ctrl;
+    if (v2->enOpType == OP_TYPE_MANUAL) {
+      ud = v2->stManual.u8SharpenUd;
+      d = v2->stManual.u8SharpenD;
+      kd = v2->stManual.u8SharpenKd;
+      thr = v2->stManual.u8DetailThr;
+      ctrl = v2->stManual.u8DetailCtrl;
+    } else {
+      const ISP_SHARPENV2_AUTO_ATTR_S *s = &v2->stAuto;
+#define V2(tab) strength(half_down(interp(s->tab, NULL, iso)), s->u8GlobalSth)
+      ud = V2(au8SharpenUd);
+      d = V2(au8SharpenD);
+      kd = V2(au8SharpenKd);
+      thr = V2(au8DetailThr);
+      ctrl = V2(au8DetailCtrl);
+#undef V2
+    }
+    isp_write(REG_SHARPEN_UD, 16);
+    isp_write(REG_SHARPEN_D, 16);
+    isp_write(REG_SHARPEN_KD, kd);
+    isp_write(REG_SHARPEN_DETAIL, ctrl);
+    isp_write(REG_SHARPEN_DETAIL + 4, thr);
+    sharpen_triple(REG_SHARPEN_UD_V2, ud);
+    sharpen_triple(REG_SHARPEN_D_V2, d);
+    return;
+  }
+  const ISP_SHARPEN_AUTO_ATTR_S *s = &a->sharpen.stAuto;
+  XM_U32 ud, d, kd;
+  if (!a->sharpen.bEnable) {
+    ud = d = kd = 0;
+  } else if (a->sharpen.enOpType == OP_TYPE_MANUAL) {
+    ud = a->sharpen.stManual.u8SharpenUd;
+    d = a->sharpen.stManual.u8SharpenD;
+    kd = a->sharpen.stManual.u8SharpenKd;
+  } else {
+    ud = strength(ceil(interp(s->au8SharpenUd, NULL, iso)), s->u8GlobalSth);
+    d = strength(ceil(interp(s->au8SharpenD, NULL, iso)), s->u8GlobalSth);
+    kd = strength(ceil(interp(s->au8SharpenKd, NULL, iso)), s->u8GlobalSth);
+  }
+  isp_write(REG_SHARPEN_UD, ud);
+  isp_write(REG_SHARPEN_D, d);
+  isp_write(REG_SHARPEN_KD, kd);
 }
 
 static void luma_curve(void) {
@@ -120,27 +196,9 @@ void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a) {
   else
     nr2d(a->nr.enOpType == OP_TYPE_MANUAL
              ? a->nr.stManual.u8Thresh
-             : strength(floor(interp(a->nr.stAuto.au8Thresh, NULL, iso) + 0.5),
+             : strength(half_down(interp(a->nr.stAuto.au8Thresh, NULL, iso)),
                         a->nr.stAuto.u8GlobalSth));
-
-  {
-    const ISP_SHARPEN_AUTO_ATTR_S *s = &a->sharpen.stAuto;
-    XM_U32 ud, d, kd;
-    if (!a->sharpen.bEnable) {
-      ud = d = kd = 0;
-    } else if (a->sharpen.enOpType == OP_TYPE_MANUAL) {
-      ud = a->sharpen.stManual.u8SharpenUd;
-      d = a->sharpen.stManual.u8SharpenD;
-      kd = a->sharpen.stManual.u8SharpenKd;
-    } else {
-      ud = strength(ceil(interp(s->au8SharpenUd, NULL, iso)), s->u8GlobalSth);
-      d = strength(ceil(interp(s->au8SharpenD, NULL, iso)), s->u8GlobalSth);
-      kd = strength(ceil(interp(s->au8SharpenKd, NULL, iso)), s->u8GlobalSth);
-    }
-    isp_write(REG_SHARPEN_UD, ud);
-    isp_write(REG_SHARPEN_D, d);
-    isp_write(REG_SHARPEN_KD, kd);
-  }
+  sharpen(iso, a);
 
   const XM_U32 blc =
       a->black.enOpType == OP_TYPE_MANUAL
@@ -168,8 +226,9 @@ void isp_tune(XM_U32 iso, const struct isp_tune_attrs *a) {
           ? a->dpc.stManual.u8Sth
           : (XM_U32)floor(interp(a->dpc.stAuto.au8Sth, NULL, iso));
   if (dpc <= 0xff) {
-    isp_write(REG_DDPC, 511 - 2 * dpc);
-    isp_write(REG_DDPC + 4, 255 - dpc);
+    const XM_U32 b = dpc < 128 ? 256 - dpc : 255 - dpc;
+    isp_write(REG_DDPC, 2 * b + (dpc >= 128));
+    isp_write(REG_DDPC + 4, b);
   }
 
   if (!a->defog.bEnable) {
