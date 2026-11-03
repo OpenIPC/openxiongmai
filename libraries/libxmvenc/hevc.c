@@ -17,6 +17,7 @@
 #define _DEFAULT_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -30,6 +31,13 @@
 /* GET_EVENT timeout, and how long a frame may take in all */
 #define EVENT_MS 100
 #define FRAME_MS 2000
+/* After a second failure in a row, the wait before the next session, which
+ * doubles up to the last */
+#define RETRY_FIRST_MS 500
+#define RETRY_MAX_MS 30000
+/* A new session waits for this many times the kernel's minimum of free
+ * memory */
+#define FREE_MIN_TIMES 4
 
 struct xmvenc_hevc {
   struct xmvenc *enc;
@@ -37,6 +45,12 @@ struct xmvenc_hevc {
   /* A frame went wrong: the firmware may still hold its buffers, so the
    * next encode starts a new session */
   int broken;
+  /* Failures since the last frame, and when the next session may be
+   * tried. A camera short of memory fails the session again and again,
+   * and each new one has the vendor driver allocate firmware memory under
+   * that shortage: the first is tried at once, the next ones back off. */
+  int fails;
+  uint64_t retry_at;
   struct xmvenc_chn_attr attr;
   struct xmvenc_buf *strm;
   uint8_t hdr[1024]; /* VPS, SPS and PPS */
@@ -199,6 +213,69 @@ static int queue(struct xmvenc_hevc *h, uint32_t nr, void *addr,
   return cmd(h, nr, &q, sizeof(q), 0) < 0 ? -1 : 0;
 }
 
+/* A number from a /proc file: the one after key, or the first. -1 if the
+ * file is not there, -2 if it could not be read. */
+static long proc_kb(const char *path, const char *key) {
+  char line[128];
+  long v = -2;
+  FILE *f = fopen(path, "r");
+
+  if (!f)
+    return errno == ENOENT ? -1 : -2;
+  while (fgets(line, sizeof(line), f))
+    if (!key || !strncmp(line, key, strlen(key))) {
+      char *end;
+
+      v = strtol(line + (key ? strlen(key) : 0), &end, 10);
+      if (end == line + (key ? strlen(key) : 0) || v < 0)
+        v = -2;
+      break;
+    }
+  fclose(f);
+  return v;
+}
+
+/* Whether there is memory for a session's firmware. The vendor driver
+ * allocates it without checking: one it failed to get worked on, stalled,
+ * and oopsed when it was closed (cache maintenance on an address of
+ * nothing), leaving the process unkillable until a reboot. A session
+ * replaced while Linux was short of memory got there every time. Without
+ * /proc there is nothing to go by, and a session is opened; a read that
+ * failed is tried again. */
+static int memory_for_session(struct xmvenc_hevc *h) {
+  const long min = proc_kb("/proc/sys/vm/min_free_kbytes", NULL);
+  const long free_kb = proc_kb("/proc/meminfo", "MemFree:");
+
+  if (min == -2 || free_kb == -2) {
+    xmvenc__log(h->enc, "H.265 channel %d: free memory unknown: no new session",
+                h->id);
+    return 0;
+  }
+  if (min <= 0 || free_kb < 0 || free_kb >= FREE_MIN_TIMES * min)
+    return 1;
+  xmvenc__log(h->enc,
+              "H.265 channel %d: %ld kB free, under %ld: no new session", h->id,
+              free_kb, FREE_MIN_TIMES * min);
+  return 0;
+}
+
+/* One more failure: the next session at once after the first, later after
+ * each one more */
+static void backoff(struct xmvenc_hevc *h) {
+  uint32_t ms = 0;
+
+  if (h->fails++) {
+    ms = RETRY_FIRST_MS;
+    for (int i = 1; i < h->fails - 1 && ms < RETRY_MAX_MS; i++)
+      ms *= 2;
+    if (ms > RETRY_MAX_MS)
+      ms = RETRY_MAX_MS;
+    xmvenc__log(h->enc, "H.265 channel %d: %d failures, next session in %u ms",
+                h->id, h->fails, ms);
+  }
+  h->retry_at = now_us() + (uint64_t)ms * 1000;
+}
+
 /* A session with the channel's settings, executing */
 static int session_open(struct xmvenc_hevc *h) {
   const struct xmvenc_chn_attr *a = &h->attr;
@@ -266,6 +343,19 @@ struct xmvenc_hevc *xmvenc__hevc_create(struct xmvenc *enc, int id, int fd_mem,
   h->strm = strm;
   /* fps is 0 (25) or within (0, 1000) (xmvenc_chn_create) */
   h->fps_want = (uint32_t)((a->fps > 0 ? a->fps : 25) * 65536);
+  /* Short of memory, the channel has no session yet: the first encode
+   * opens one once there is memory for it. Not where there is no H.265
+   * engine to open one on (XM510). */
+  if (access("/dev/mv500", F_OK)) {
+    xmvenc__log(h->enc, "/dev/mv500: %s", strerror(errno));
+    free(h);
+    return NULL;
+  }
+  if (!memory_for_session(h)) {
+    h->fd = -1;
+    h->broken = 1;
+    return h;
+  }
   if (session_open(h)) {
     free(h);
     return NULL;
@@ -298,13 +388,17 @@ int xmvenc__hevc_encode(struct xmvenc_hevc *h, uint32_t phys_y, uint32_t phys_c,
 
   memset(out, 0, sizeof(out[0]));
   if (h->broken) {
-    /* Closing the descriptor ends the old session and frees what its
-     * firmware held; the new one starts with an IDR */
-    if (h->fd >= 0)
-      close(h->fd);
-    h->fd = -1;
-    if (session_open(h))
+    if (now_us() < h->retry_at)
+      return -1; /* the frame is dropped */
+    if (!memory_for_session(h)) {
+      backoff(h);
       return -1;
+    }
+    /* the new one starts with an IDR */
+    if (session_open(h)) {
+      backoff(h);
+      return -1;
+    }
     h->broken = 0;
     idr = 0;
     xmvenc__log(h->enc, "H.265 channel %d: new session", h->id);
@@ -396,11 +490,17 @@ int xmvenc__hevc_encode(struct xmvenc_hevc *h, uint32_t phys_y, uint32_t phys_c,
     out->hdr_len = h->hdr_len;
   }
   ret = 0;
+  h->fails = 0;
   goto unreg_out;
 stuck:
-  /* The firmware may still hold the buffers: the next encode replaces
-   * the session */
+  /* The firmware may still hold the buffers, the output one in the stream
+   * ring: closing the descriptor ends the session and frees what its
+   * firmware held, and the next encode opens another */
   h->broken = 1;
+  backoff(h);
+  close(h->fd);
+  h->fd = -1;
+  goto unmap;
 unreg_out:
   unreg(h, dst);
 unreg_in:
