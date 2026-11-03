@@ -36,6 +36,13 @@
  * still be running into them until the next one sets the hardware up, and
  * Linux must not have the pages by then. A name asked for again before that
  * gets its block back, at the address it had, as from the zone.
+ *
+ * allocator=hybrid takes each block from the zone first and from the CMA area
+ * only when the zone has no room for it. Booted with a zone sized for what the
+ * pipeline holds all the time and a small CMA area beside Linux, a start never
+ * has to take memory back from Linux: under plain CMA that migration, with
+ * Linux short of memory, left the kernel's own allocations nothing and took
+ * the board down. A block that spills into CMA follows the CMA rules above.
  */
 
 #include <linux/delay.h>
@@ -104,7 +111,9 @@ MODULE_PARM_DESC(mmz_size, "memalloc size");
 
 static char *allocator = "xm";
 module_param(allocator, charp, 0444);
-MODULE_PARM_DESC(allocator, "xm: blocks from the zone; cma: from the CMA area");
+MODULE_PARM_DESC(allocator,
+		 "xm: blocks from the zone; cma: from the CMA area; hybrid: "
+		 "from the zone, then the CMA area");
 static unsigned int cma_size;
 module_param(cma_size, uint, 0444);
 MODULE_PARM_DESC(cma_size, "most the CMA blocks may take, 0 for no limit");
@@ -112,6 +121,8 @@ static char *zone_names = "rgn";
 module_param(zone_names, charp, 0444);
 MODULE_PARM_DESC(zone_names,
 		 "with allocator=cma, kernel blocks kept in the zone (a,b,...)");
+/* allocator=hybrid: the zone first, the CMA area when it is full */
+static bool hybrid;
 static unsigned int cma_hold_ms = 5000;
 module_param(cma_hold_ms, uint, 0644);
 MODULE_PARM_DESC(cma_hold_ms, "how long a reset keeps the CMA blocks");
@@ -197,7 +208,8 @@ static bool guard_marker(u32 phys, u32 size, bool write)
 	return ok;
 }
 
-static int alloc_block(const char *name, u32 size, u32 *phys, bool cached)
+static int zone_alloc(const char *name, u32 size, u32 *phys, bool cached,
+		      bool quiet)
 {
 	struct mmz_block *b, *last;
 	unsigned long flags;
@@ -231,7 +243,8 @@ static int alloc_block(const char *name, u32 size, u32 *phys, bool cached)
 	    size > mmz_size - (at - mmz_start) ||
 	    guarded(size) > mmz_size - (at - mmz_start)) {
 		spin_unlock_irqrestore(&mmz_lock, flags);
-		pr_err("mmz: out of memory\n");
+		if (!quiet)
+			pr_err("mmz: out of memory\n");
 		kfree(b);
 		return -1;
 	}
@@ -257,7 +270,48 @@ static int alloc_block(const char *name, u32 size, u32 *phys, bool cached)
 	return 0;
 }
 
+static int alloc_block(const char *name, u32 size, u32 *phys, bool cached)
+{
+	return zone_alloc(name, size, phys, cached, false);
+}
+
 static int alloc_cma(const char *name, u32 size, u32 *phys, bool cached);
+
+/* A CMA block a reset forgot, of the name and room enough for size */
+static bool held_cma(const char *name, u32 size)
+{
+	struct mmz_block *b;
+	unsigned long flags;
+	bool held = false;
+
+	spin_lock_irqsave(&mmz_lock, flags);
+	list_for_each_entry (b, &cma_blocks, list)
+		if (b->stale && b->room >= guarded(size) &&
+		    !strncmp(b->name, name, MMZ_NAME_LEN)) {
+			held = true;
+			break;
+		}
+	spin_unlock_irqrestore(&mmz_lock, flags);
+	return held;
+}
+
+/* allocator=hybrid: the zone if it has room, the CMA area otherwise. A
+ * name the last run had in CMA, still held, gets that block back at its
+ * address, as under allocator=cma: its DMA may still be running. */
+static int alloc_hybrid(const char *name, u32 size, u32 *phys, bool cached)
+{
+	if (!held_cma(name, size) && !zone_alloc(name, size, phys, cached, true))
+		return 0;
+	return alloc_cma(name, size, phys, cached);
+}
+
+/* A block by the allocator chosen */
+static int alloc_any(const char *name, u32 size, u32 *phys, bool cached)
+{
+	if (hybrid)
+		return alloc_hybrid(name, size, phys, cached);
+	return (use_cma ? alloc_cma : alloc_block)(name, size, phys, cached);
+}
 
 /* A kernel caller's block: the zone's for a name in zone_names, or without
  * CMA */
@@ -275,7 +329,7 @@ static int alloc_kernel(const char *name, u32 size, u32 *phys, bool cached)
 		p = end ? end + 1 : NULL;
 	}
 	if (use_cma && !p)
-		return alloc_cma(name, size, phys, cached);
+		return alloc_any(name, size, phys, cached);
 	return alloc_block(name, size, phys, cached);
 }
 
@@ -558,8 +612,8 @@ static long mmz_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	switch (cmd) {
 	case MMZ_IOC_ALLOC:
 	case MMZ_IOC_ALLOC_CACHED:
-		ret = (use_cma ? alloc_cma : alloc_block)(
-			r.name, r.size, &r.phys, cmd == MMZ_IOC_ALLOC_CACHED);
+		ret = alloc_any(r.name, r.size, &r.phys,
+				cmd == MMZ_IOC_ALLOC_CACHED);
 		break;
 	case MMZ_IOC_GET:
 		ret = mmz_get_addr(r.name, &r.size, &r.phys);
@@ -833,25 +887,29 @@ static struct miscdevice mmz_misc = {
 
 static int __init xm_mmz_init(void)
 {
+	const char *mode = "";
 	int ret;
 
-	if (!strcmp(allocator, "cma")) {
+	hybrid = !strcmp(allocator, "hybrid");
+	if (hybrid || !strcmp(allocator, "cma")) {
 #ifndef CONFIG_CMA
-		pr_err("mmz: allocator=cma needs a kernel with CMA\n");
+		pr_err("mmz: allocator=%s needs a kernel with CMA\n",
+		       allocator);
 		return -EINVAL;
 #endif
 		/* CMA blocks carry the marker, and /proc lists them only in the
 		 * XM530 layout */
 		if (!MMZ_MARKER) {
-			pr_err("mmz: allocator=cma is for XM530/XM550\n");
+			pr_err("mmz: allocator=%s is for XM530/XM550\n",
+			       allocator);
 			return -EINVAL;
 		}
 		use_cma = true;
 	} else if (strcmp(allocator, "xm")) {
-		pr_err("mmz: allocator is xm or cma\n");
+		pr_err("mmz: allocator is xm, cma or hybrid\n");
 		return -EINVAL;
 	}
-	if (!mmz_size && !use_cma) {
+	if (!mmz_size && (!use_cma || hybrid)) {
 		pr_err("mmz: mmz_start and mmz_size are required\n");
 		return -EINVAL;
 	}
@@ -875,8 +933,12 @@ static int __init xm_mmz_init(void)
 			platform_device_unregister(mmz_pdev);
 		return ret;
 	}
+	if (hybrid)
+		mode = ", blocks from the zone, then CMA";
+	else if (use_cma)
+		mode = ", user blocks from CMA";
 	pr_info("mmz: openxiongmai xm_mmz init ok start=%#x, size=%#x%s\n",
-		mmz_start, mmz_size, use_cma ? ", user blocks from CMA" : "");
+		mmz_start, mmz_size, mode);
 	return 0;
 }
 
