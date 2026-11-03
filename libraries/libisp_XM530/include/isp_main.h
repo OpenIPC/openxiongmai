@@ -51,8 +51,8 @@ XM_U32 stats_mean(const ISP_AE_STAT_2_S *grid7);
  * the sensor library gave its callbacks; state is the AE state buffer */
 int open_ae_init(XM_U8 fps, void *state);
 int open_ae_active(void);
-void open_ae_frame(const ISP_AE_INFO_S *info, void *state,
-                   ISP_AE_RESULT_S *res);
+/* 0 when majestic's AE is to run the frame (manual or bypassed exposure) */
+int open_ae_frame(const ISP_AE_INFO_S *info, void *state, ISP_AE_RESULT_S *res);
 
 /* isp_tune.c: the attributes the tuning by gain follows */
 struct isp_tune_attrs {

@@ -161,6 +161,78 @@ static void apply(XM_U32 lines, float gain, const struct limits *l,
              ((float)ispdgain_now / 1024);
 }
 
+/* Whether the sensor's gains are in the units the open AE drives: 1024 is
+ * 1x, in its limits and in what its tables return. Not every sensor
+ * library's are (Auge's digital gain takes 128 for 1x, and its analog
+ * table returns 32 times its input): those keep majestic's AE until their
+ * units are known. */
+static int gains_in_q10(void) {
+  AE_SENSOR_GAININFO_S g;
+  if (dft.u32MinAgain != 1024 || (dft.u32MinDgain && dft.u32MinDgain != 1024))
+    return 0;
+  if (sns.pfn_cmos_again_calc_table) {
+    memset(&g, 0, sizeof(g));
+    sns.pfn_cmos_again_calc_table(1024, &g);
+    if (g.u32SnsTimes != 1024)
+      return 0;
+    if (dft.u32MaxAgain >= 2048) {
+      memset(&g, 0, sizeof(g));
+      sns.pfn_cmos_again_calc_table(2048, &g);
+      if (g.u32SnsTimes < 1800 || g.u32SnsTimes > 2048)
+        return 0;
+    }
+  }
+  if (sns.pfn_cmos_dgain_calc_table && dft.u32MaxDgain > 1024) {
+    memset(&g, 0, sizeof(g));
+    sns.pfn_cmos_dgain_calc_table(1024, &g);
+    if (g.u32SnsTimes != 1024)
+      return 0;
+  }
+  return 1;
+}
+
+static XM_U8 fps_now;
+
+/* The lines the exposure may have: the sensor's at its frame rate, within
+ * the attributes' exposure time (microseconds) */
+static void line_range(const ISP_EXPOSURE_ATTR_S *a, XM_U32 *lo, XM_U32 *hi) {
+  *lo = dft.u32MinIntTime ? dft.u32MinIntTime : 1;
+  *hi = dft.u32MaxIntTime;
+  if (!a || !dft.u32LinesPer500ms)
+    return;
+  const ISP_AE_RANGE_S *t = &a->stAuto.stExpTimeRange;
+  const XM_U64 per = dft.u32LinesPer500ms; /* lines in 500000 us */
+  const XM_U32 tlo = (XM_U32)((t->u32Min * per + 499999) / 500000);
+  const XM_U32 thi = (XM_U32)(t->u32Max * per / 500000);
+  if (tlo > *lo && tlo <= *hi)
+    *lo = tlo;
+  if (thi < *hi && thi >= *lo)
+    *hi = thi;
+}
+
+/* The target: the attributes' compensation, the sensor's for none */
+static float target_of(const ISP_EXPOSURE_ATTR_S *a) {
+  if (a && a->stAuto.u8Compensation)
+    return a->stAuto.u8Compensation;
+  return dft.u8AeCompensation ? dft.u8AeCompensation : 50;
+}
+
+/* Take the exposure up from what the state holds (the last run's, or what
+ * majestic's AE set while it had the exposure) */
+static void take_over(void *state, const struct limits *l) {
+  XM_U32 lines = st_word(state, ST_LINES);
+  float g = (float)st_word(state, ST_AGAIN) / 1024 *
+            ((float)st_word(state, ST_DGAIN) / 1024) *
+            ((float)st_word(state, ST_ISPDGAIN) / 1024);
+  if (lines < ae.cfg.lines_min || lines > ae.cfg.lines_max)
+    lines = ae.cfg.lines_max;
+  if (!(g >= 1.0f && g <= ae.cfg.gain_max))
+    g = 1.0f;
+  float applied;
+  apply(lines, g, l, &applied);
+  xmisp_ae_init(&ae, &ae.cfg, lines, applied);
+}
+
 int open_ae_init(XM_U8 fps, void *state) {
   const char *e = getenv("LIBISP_OPEN_AE");
   active = 0;
@@ -174,37 +246,37 @@ int open_ae_init(XM_U8 fps, void *state) {
   get_attr = (XM_S32 (*)(ISP_DEV, ISP_EXPOSURE_ATTR_S *))dlsym(
       RTLD_DEFAULT, "XM_MPI_ISP_GetExposureAttr");
   memset(&dft, 0, sizeof(dft));
-  if (sns.pfn_cmos_get_ae_default(&dft))
+  if (sns.pfn_cmos_get_ae_default(&dft)) {
+    DBG("open AE: the sensor's AE defaults failed; majestic's AE");
     return 0;
+  }
   if (sns.pfn_cmos_fps_set && fps)
     sns.pfn_cmos_fps_set(fps, &dft);
+  fps_now = fps;
+  if (!gains_in_q10()) {
+    DBG("open AE: the sensor's gains are not in 1024-for-1x units (analog "
+        "%u-%u, digital %u-%u); majestic's AE",
+        dft.u32MinAgain, dft.u32MaxAgain, dft.u32MinDgain, dft.u32MaxDgain);
+    return 0;
+  }
   ISP_EXPOSURE_ATTR_S attr, *a = NULL;
   if (get_attr && get_attr(0, &attr) == XM_SUCCESS)
     a = &attr;
   const struct limits l = limits(a);
-  const struct xmisp_ae_cfg cfg = {
-      .target = a && a->stAuto.u8Compensation ? a->stAuto.u8Compensation
-                                              : dft.u8AeCompensation,
+  struct xmisp_ae_cfg cfg = {
+      .target = target_of(a),
       .tolerance = 0.05f,
-      .lines_min = dft.u32MinIntTime ? dft.u32MinIntTime : 1,
-      .lines_max = dft.u32MaxIntTime,
       .gain_max = gain_max(&l),
       .interval = AE_INTERVAL,
   };
-  if (!cfg.lines_max || cfg.lines_max < cfg.lines_min)
+  line_range(a, &cfg.lines_min, &cfg.lines_max);
+  if (!cfg.lines_max || cfg.lines_max < cfg.lines_min) {
+    DBG("open AE: the sensor's lines %u-%u are no range; majestic's AE",
+        cfg.lines_min, cfg.lines_max);
     return 0;
-  /* From where the last run left the sensor, as the vendor AE starts */
-  XM_U32 lines = st_word(state, ST_LINES);
-  float g = (float)st_word(state, ST_AGAIN) / 1024 *
-            ((float)st_word(state, ST_DGAIN) / 1024) *
-            ((float)st_word(state, ST_ISPDGAIN) / 1024);
-  if (lines < cfg.lines_min || lines > cfg.lines_max)
-    lines = cfg.lines_max;
-  if (!(g >= 1.0f && g <= cfg.gain_max))
-    g = 1.0f;
-  float applied;
-  apply(lines, g, &l, &applied);
-  xmisp_ae_init(&ae, &cfg, lines, applied);
+  }
+  ae.cfg = cfg;
+  take_over(state, &l);
   active = 1;
   DBG("open AE: lines %u-%u, gain to %.1fx, target %.0f", cfg.lines_min,
       cfg.lines_max, cfg.gain_max, cfg.target);
@@ -212,24 +284,51 @@ int open_ae_init(XM_U8 fps, void *state) {
 }
 
 /* One frame: the grid in, the ISP gain and ISO out (res), the state for
- * majestic */
-void open_ae_frame(const ISP_AE_INFO_S *info, void *state,
-                   ISP_AE_RESULT_S *res) {
+ * majestic. 0 for a frame majestic's AE is to run: manual or bypassed
+ * exposure, which it does itself; the open AE takes the exposure up again
+ * from what it left when they end. */
+int open_ae_frame(const ISP_AE_INFO_S *info, void *state,
+                  ISP_AE_RESULT_S *res) {
+  static int handed;
   ISP_EXPOSURE_ATTR_S attr, *a = NULL;
   if (get_attr && get_attr(0, &attr) == XM_SUCCESS)
     a = &attr;
+  if (a && (a->bByPass || a->enOpType == OP_TYPE_MANUAL)) {
+    if (!handed++)
+      DBG("open AE: %s exposure: majestic's AE has it",
+          a->bByPass ? "bypassed" : "manual");
+    return 0;
+  }
   const struct limits l = limits(a);
+
+  /* A new frame rate: the sensor's lines and flicker period with it */
+  const XM_U8 fps = isp_pub()->u8FrameRate;
+  if (fps && fps != fps_now && sns.pfn_cmos_fps_set) {
+    sns.pfn_cmos_fps_set(fps, &dft);
+    fps_now = fps;
+  }
   ae.cfg.gain_max = gain_max(&l);
-  if (a && a->stAuto.u8Compensation) {
-    ae.cfg.target = a->stAuto.u8Compensation;
-    ae.cfg.tolerance = a->stAuto.u8Tolerance
-                           ? (float)a->stAuto.u8Tolerance / ae.cfg.target
-                           : 0.05f;
+  line_range(a, &ae.cfg.lines_min, &ae.cfg.lines_max);
+  ae.cfg.target = target_of(a);
+  ae.cfg.tolerance = a && a->stAuto.u8Tolerance
+                         ? (float)a->stAuto.u8Tolerance / ae.cfg.target
+                         : 0.05f;
+  if (a) {
     const ISP_ANTIFLICKER_S *f = &a->stAuto.stAntiflicker;
     xmisp_ae_flicker(&ae, f->bEnable && f->u8Frequency
                               ? (float)dft.u32LinesPer500ms / f->u8Frequency
                               : 0);
   }
+  if (handed) {
+    handed = 0;
+    DBG("open AE: automatic exposure again");
+    take_over(state, &l);
+  }
+  /* An exposure the limits no longer allow is planned again, even within
+   * the tolerance */
+  if (ae.lines < ae.cfg.lines_min || ae.lines > ae.cfg.lines_max ||
+      ae.gain > ae.cfg.gain_max * 1.001f)
+    ae.replan = 1;
 
   /* the weighted mean, as the vendor AE's average luminance */
   XM_U64 sum = 0, wsum = 0;
@@ -244,24 +343,16 @@ void open_ae_frame(const ISP_AE_INFO_S *info, void *state,
   XM_U32 lines;
   float gain, applied;
   static XM_U32 frames;
-  static int held_said;
-  /* Bypassed or manual: the exposure stays where it is. The manual
-   * attributes' units are not known yet. */
-  const int hold = a && (a->bByPass || a->enOpType == OP_TYPE_MANUAL);
-  if (hold && !held_said++)
-    DBG("open AE: %s exposure is not done yet; the exposure is held",
-        a->bByPass ? "bypassed" : "manual");
-  if (!hold)
-    held_said = 0;
-  if (!hold && xmisp_ae_update(&ae, mean, &lines, &gain)) {
+  if (xmisp_ae_update(&ae, mean, &lines, &gain)) {
     apply(lines, gain, &l, &applied);
     xmisp_ae_applied(&ae, lines, applied);
   }
   if (getenv("LIBISP_DEBUG") && ++frames % 50 == 0)
-    DBG("open AE: mean %.1f target %.0f tol %.2f, lines %u gain %.2f "
-        "(again %u dgain %u isp %u), max %.1f",
-        mean, ae.cfg.target, ae.cfg.tolerance, ae.lines, ae.gain, again_now,
-        dgain_now, ispdgain_now, ae.cfg.gain_max);
+    DBG("open AE: mean %.1f target %.0f tol %.2f, lines %u (%u-%u) gain "
+        "%.2f (again %u dgain %u isp %u), max %.1f",
+        mean, ae.cfg.target, ae.cfg.tolerance, ae.lines, ae.cfg.lines_min,
+        ae.cfg.lines_max, ae.gain, again_now, dgain_now, ispdgain_now,
+        ae.cfg.gain_max);
   const float total = ae.gain;
   res->u32IspDgain = ispdgain_now >> 2; /* 8.8 */
   res->u32IspDgainShift = 8;
@@ -269,12 +360,13 @@ void open_ae_frame(const ISP_AE_INFO_S *info, void *state,
 
   st_put(state, ST_LINES, ae.lines);
   st_put(state, ST_LINES2, ae.lines);
+  st_put(state, ST_AGAIN, again_now);
+  st_put(state, ST_DGAIN, dgain_now);
+  st_put(state, ST_ISPDGAIN, ispdgain_now);
   st_put(state, ST_EXPOSURE,
          (XM_U32)((XM_U64)ae.lines * again_now * dgain_now / 1024 *
                   ispdgain_now / 1024));
   st_put(state, ST_AGAIN_STEP, again_step);
-  st_put(state, ST_AGAIN, again_now);
-  st_put(state, ST_DGAIN, dgain_now);
-  st_put(state, ST_ISPDGAIN, ispdgain_now);
   ((XM_U8 *)state)[ST_AVELUM] = (XM_U8)(mean > 255 ? 255 : mean + 0.5f);
+  return 1;
 }

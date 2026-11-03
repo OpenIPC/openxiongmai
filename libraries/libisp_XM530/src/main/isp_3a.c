@@ -182,8 +182,7 @@ static void *run_3a(void *arg) {
                &ae_info.stAeStat3);
     vda_frame(&ae_info.stAeStat2);
     int ae_ok;
-    if (open_ae_active()) {
-      open_ae_frame(&ae_info, ae_state, &ae_res);
+    if (open_ae_active() && open_ae_frame(&ae_info, ae_state, &ae_res)) {
       ae_ok = 1;
     } else {
       ae_ok = ae_reg.stAeExpFunc.pfn_ae_run(0, 0, &ae_info, &ae_res,

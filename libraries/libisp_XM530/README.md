@@ -124,8 +124,18 @@ auto-exposure in place of majestic's (`src/main/isp_ae.c`, on libxmisp's
   state the library owns: lines, the three gains, the exposure and the
   average luminance. So `/metrics`, automatic day/night and the
   compensation majestic sets see the open AE's exposure.
-- **Not yet:** manual and bypassed exposure (it holds the exposure where
-  it is and says so), slow shutter, and the "exposure is at its most" flag.
+- **Sensors:** it runs where the sensor's gains are in 1024-for-1x units,
+  in its limits and its gain tables, which it checks at start: by their
+  defaults the IMX335, IMX307, SC2239, SC2335 and F37. A sensor in other
+  units (Auge's digital gain takes 128 for 1x, MIS2003's analog 64) keeps
+  majestic's AE, and the log says why.
+- **Majestic's settings:** the exposure-time range, the gain ranges and
+  anti-flicker are read every frame, a new frame rate takes the sensor's
+  line limit with it, and an exposure a narrowed limit no longer allows is
+  planned again. Manual or bypassed exposure goes to majestic's AE, which
+  does it; the open AE takes over again from where it left the exposure.
+- **Not yet:** slow shutter and the "exposure is at its most" flag. Only the
+  IMX335 has run on a camera.
 
 Against majestic's AE on the lab XM550 (IMX335, 2560x1440 H.264), each
 settled in turn under the same light:
