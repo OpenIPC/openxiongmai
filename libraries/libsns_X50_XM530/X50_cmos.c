@@ -12,6 +12,17 @@
 #include "Camera.h"
 #include "X50_cmos.h"
 
+/* The open ISP library (OpenIPC/openxiongmai libisp_XM530) runs AE and AWB
+ * itself when asked to, on the sensor's callbacks, which it takes here too.
+ * Absent with the vendor's ISP library. */
+extern XM_S32 libisp_ae_sensor_register(ISP_DEV IspDev, SENSOR_ID SensorId,
+                                        const AE_SENSOR_REGISTER_S *pstRegister)
+    __attribute__((weak));
+extern XM_S32
+libisp_awb_sensor_register(ISP_DEV IspDev, SENSOR_ID SensorId,
+                           const AWB_SENSOR_REGISTER_S *pstRegister)
+    __attribute__((weak));
+
 ISP_CMOS_SNS_ATTR_S gstSnsAttr = {0};
 XM_U32 gu32ShutNow = 100;
 XM_U32 gau32AllGain = 16;
@@ -123,6 +134,8 @@ int sensor_register_callback(ISP_DEV IspDev) {
     ERR("sensor register callback function to ae lib failed!\n");
     return s32Ret;
   }
+  if (libisp_ae_sensor_register)
+    libisp_ae_sensor_register(IspDev, (SENSOR_ID)gSensorChip, &stAeRegister);
   stLib.s32Id = (XM_S32)gSensorChip;
   XM_MPI_ISP_Memncpy((XM_U8 *)stLib.acLibName, (XM_U8 *)XM_AWB_LIB_NAME,
                      sizeof(XM_AWB_LIB_NAME));
@@ -132,6 +145,8 @@ int sensor_register_callback(ISP_DEV IspDev) {
     ERR("sensor register callback function to awb lib failed!\n");
     return s32Ret;
   }
+  if (libisp_awb_sensor_register)
+    libisp_awb_sensor_register(IspDev, (SENSOR_ID)gSensorChip, &stAwbRegister);
   return 0;
 }
 
