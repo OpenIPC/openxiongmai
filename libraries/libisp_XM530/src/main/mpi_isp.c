@@ -69,7 +69,7 @@ XM_S32 XM_MPI_ISP_SensorRegCallBack(SENSOR_ID SensorId,
 }
 
 XM_S32 XM_MPI_ISP_SensorUnRegCallBack(SENSOR_ID SensorId) {
-  if (SensorId != sensor_id)
+  if (SensorId != isp_sensor_id())
     return XM_FAILURE;
   memset(&sensor, 0, sizeof(sensor));
   __atomic_store_n(&sensor_id, (SENSOR_ID)-1, __ATOMIC_RELAXED);
@@ -157,11 +157,12 @@ XM_S32 XM_MPI_ISP_Init(ISP_DEV IspDev) {
   }
   if (nr3d_buffers() != XM_SUCCESS)
     return XM_FAILURE;
+  const SENSOR_ID id = isp_sensor_id();
   sns_start = NULL;
   for (const struct xm530_sensor *s = xm530_sensors; s->id; s++)
-    if ((SENSOR_ID)s->id == sensor_id)
+    if ((SENSOR_ID)s->id == id)
       sns_start = s;
-  DBG("sensor %d, %ux%u%s", (int)sensor_id, w, h,
+  DBG("sensor %d, %ux%u%s", (int)id, w, h,
       sns_start ? "" : ", no built-in tuning");
   attr_start(sns_start);
   const XM_U32 mmz8 = (mmz_phys - 0x80000000) / 8;

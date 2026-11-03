@@ -85,8 +85,9 @@ static const XM_U32 nr3d_regs[XM530_NR3D_REGS] = {
 static void nr3d(XM_U32 iso) {
   const struct xm530_nr3d *t = xm530_imx335_nr3d, *best = NULL;
   double gap = 0;
+  const SENSOR_ID id = isp_sensor_id(); /* one snapshot a lookup */
   for (const struct xm530_nr3d_sensor *s = xm530_nr3d_sensors; s->id; s++)
-    if ((SENSOR_ID)s->id == isp_sensor_id())
+    if ((SENSOR_ID)s->id == id)
       t = s->t;
   for (const struct xm530_nr3d *n = t; n->iso; n++) {
     const double g = fabs(log((double)iso / n->iso));
