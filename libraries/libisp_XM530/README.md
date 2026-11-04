@@ -177,8 +177,11 @@ polygon read about 2850 K in daylight and turned the chart's greys blue
 - **Neutrals:** they lie on a line in log R/G against log B/G, within 0.004
   for the bulbs and 0.03 for daylight. An orange surface in daylight lies on
   that line too, far out at the warm end, so a zone counts only inside the
-  calibration's polygon, in a band around the line, and no warmer than about
-  2700 K (R/G 0.9); clipped and dark zones don't count.
+  calibration's polygon, in a band around the line, and under R/G 0.9; clipped
+  and dark zones don't count. That limit is past the warmest neutral measured
+  (0.81, 3000 K) and extrapolates to about 2400 K, so warm lamps still count:
+  0.84 to 0.90 chose the same neutrals on all six captures, and 0.95 took the
+  orange surfaces in daylight.
 - **Gains:** a coloured surface only pulls warmer, so the neutrals are the
   coolest group with support: sorted by R/G, the first window 12% wide with
   at least 4 zones and a fifth of them. Its median R/G and B/G give the

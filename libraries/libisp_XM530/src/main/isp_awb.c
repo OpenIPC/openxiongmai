@@ -37,7 +37,7 @@ struct neutrals {
   SENSOR_ID id; /* SENSOR_CHIP */
   float slope, at0;
   float band_warm, band_cool; /* log B/G either side of the line */
-  float r_min, r_max;         /* a neutral's R/G: r_max is about 2700 K */
+  float r_min, r_max;         /* a neutral's R/G */
   float r[NEUTRALS], kelvin[NEUTRALS];
 };
 

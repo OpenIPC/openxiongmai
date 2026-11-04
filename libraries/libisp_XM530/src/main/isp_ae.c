@@ -359,6 +359,7 @@ int open_ae_frame(const ISP_AE_INFO_S *info, void *state,
   st_put(state, ST_AGAIN_STEP, again_step);
   ((XM_U8 *)state)[ST_AVELUM] = (XM_U8)(mean > 255 ? 255 : mean + 0.5f);
   ((XM_U8 *)state)[ST_AT_MAX] =
-      ae.lines >= ae.cfg.lines_max && ae.gain >= ae.cfg.gain_max * 0.99f;
+      ae.lines >= xmisp_ae_lines_most(&ae) &&
+      ae.gain >= ae.cfg.gain_max * 0.99f;
   return 1;
 }

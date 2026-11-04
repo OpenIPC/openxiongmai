@@ -59,9 +59,9 @@ int open_3a_wanted(const char *env, const char *key);
  * sensor library gave its callbacks; state is the AE state buffer */
 int open_ae_init(XM_U8 fps, void *state);
 int open_ae_active(void);
-/* isp_awb.c: the open AWB, in place of majestic's when LIBISP_OPEN_AWB=1 on
- * a sensor whose calibration it reads; on zones read with
- * stats_read_zones(); 1 with gains and matrix to apply */
+/* isp_awb.c: the open AWB, in place of majestic's when asked for on a sensor
+ * whose neutrals were measured; on zones read with stats_read_zones(); 1
+ * with gains and matrix to apply */
 int open_awb_init(void);
 int open_awb_active(void);
 int open_awb_frame(XM_U32 sites, ISP_AWB_RESULT_GAIN_S *gain,
