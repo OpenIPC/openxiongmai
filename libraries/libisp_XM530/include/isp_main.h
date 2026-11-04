@@ -3,6 +3,7 @@
 #define ISP_MAIN_H
 
 #include "mpi_ae.h"
+#include "mpi_awb.h"
 #include "mpi_isp.h"
 #include "xm530_start.h"
 
@@ -46,11 +47,22 @@ void stats_port_read(XM_U32 addr, XM_U32 val);
 void stats_grid(const XM_U32 gains[3], XM_U32 sites, ISP_AE_STAT_2_S *grid7,
                 ISP_AE_STAT_3_S *grid16);
 XM_U32 stats_mean(const ISP_AE_STAT_2_S *grid7);
+void stats_dump(const char *path);
+/* the zones read by the ISP library itself, for the open AWB */
+void stats_read_zones(void);
+const XM_U32 (*stats_zones(void))[3];
 
 /* isp_ae.c: the open AE, in place of majestic's when LIBISP_OPEN_AE=1 and
  * the sensor library gave its callbacks; state is the AE state buffer */
 int open_ae_init(XM_U8 fps, void *state);
 int open_ae_active(void);
+/* isp_awb.c: the open AWB, in place of majestic's when LIBISP_OPEN_AWB=1 on
+ * a sensor whose calibration it reads; on zones read with
+ * stats_read_zones(); 1 with gains and matrix to apply */
+int open_awb_init(void);
+int open_awb_active(void);
+int open_awb_frame(XM_U32 sites, ISP_AWB_RESULT_GAIN_S *gain,
+                   ISP_AWB_RESULT_CC_S *cc);
 /* 0 when majestic's AE is to run the frame (manual or bypassed exposure) */
 int open_ae_frame(const ISP_AE_INFO_S *info, void *state, ISP_AE_RESULT_S *res);
 

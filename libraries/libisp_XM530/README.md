@@ -151,6 +151,43 @@ A step from dark to the bulbs settled within a second with either. After a
 restart the open AE starts from the last run's exposure and settled in
 about 6 s, majestic's AE in about 9 s, from black.
 
+## Open AWB (M2, second part)
+
+With `LIBISP_OPEN_AWB=1` the library runs its own white balance in place of
+majestic's (`src/main/isp_awb.c`), for the sensors whose calibration it
+reads: the IMX335 so far, others keeping majestic's AWB with a log line. It
+works with or without the open AE.
+
+- **Statistics:** it reads the 32 × 16 AWB zones itself, as the vendor AWB
+  does (`AWB_SRAM_ADDR_RC`, then each zone's R, G, B and `AWB_SRAM_RD_EN`).
+- **Grey:** a zone is grey when its R/G and B/G (Q12) lie inside the
+  polygon of the eight lines `A x + B y + C = 0` of the sensor's
+  calibration (`ISP_AWB_CALIBRATION_V2_S`), on the side its initial gains'
+  grey point lies, and no channel is within 10% of the clip. The gains are
+  the inverse of the grey zones' summed R/G and B/G, G at 1x, moved 5% of
+  the way a frame; with fewer than 16 grey zones (a coloured light) they
+  are held, as the vendor AWB holds them. Zones with a G mean under 64 are
+  too dark to count.
+- **Restarts:** majestic's start resets the ISP, so the gains it set are
+  kept in the block `/dev/isp` shares (at 0x3f00) and a restart starts from
+  them, holding them for the first 25 frames while the exposure settles;
+  three restarts under the same light stayed within 1% of each other.
+- **Colour:** the colour temperature is the grey point's position on the
+  calibration's distance table (`dis`, `val`), the point (Q10) projected at
+  `key` / 512 of a turn from (`ini_y`, `ini_x`), plus `key`: fitted to the
+  vendor AWB's matrices within 14 on the IMX335, not yet checked on another
+  sensor. The colour matrix is the sensor's, at its three temperatures,
+  blended linearly in mired between the two around it, as the vendor's
+  matrices are.
+- **Majestic:** its white-balance query and attributes calls fail with
+  either ISP library, so nothing of majestic's reads the AWB's state.
+
+Against majestic's AWB on the lab XM550 (IMX335) under the bulbs, back to
+back: gains (R, B, 256 = 1x) 270, 844 against 275, 824 at 3000 K; 291, 751
+against 295, 747 at 4500 K; 324, 685 against 324, 686 at 5990 K; the colour
+matrix within 5 of the vendor's. With the open AE too, the pictures' mean
+R/G/B were within 3 of majestic's 3A at each light but B at 3000 K (+5).
+
 ## Not yet
 
 - 3D NR is a measured schedule for each sensor (`arch/xm530/xm530_nr3d.c`;

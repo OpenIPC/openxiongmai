@@ -27,7 +27,6 @@
 #pragma GCC visibility pop
 #include "isp_main.h"
 #include "mpi_ae.h"
-#include "mpi_awb.h"
 
 /* The vendor AE's state, found by comparing it with the inner-state query
  * in two lights: lines and the gains (1024 is 1x) as words, the average
@@ -64,22 +63,6 @@ libisp_ae_sensor_register(ISP_DEV IspDev, SENSOR_ID SensorId,
     return XM_FAILURE;
   sns = pstRegister->stSnsExp;
   have_sns = 1;
-  return XM_SUCCESS;
-}
-
-/* AWB's are taken for the open AWB to come */
-static AWB_SENSOR_EXP_FUNC_S awb_sns;
-static int have_awb_sns;
-
-__attribute__((visibility("default"))) XM_S32
-libisp_awb_sensor_register(ISP_DEV IspDev, SENSOR_ID SensorId,
-                           const AWB_SENSOR_REGISTER_S *pstRegister) {
-  (void)IspDev;
-  (void)SensorId;
-  if (!pstRegister)
-    return XM_FAILURE;
-  awb_sns = pstRegister->stSnsExp;
-  have_awb_sns = 1;
   return XM_SUCCESS;
 }
 

@@ -12,9 +12,14 @@
  *  - stAeStat2, 7 x 7: means of 4 x 2 of those, but the last column and row,
  *    which take the rest (8 columns, 4 rows).
  */
+#include <fcntl.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "isp_main.h"
+
+XM_S32 Read_IspReg(XM_U32 u32Addr);
+XM_S32 Write_IspReg(XM_U32 u32Addr, XM_U32 u32Value);
 
 static XM_U32 zone_rgb[AWB_ZONES][3];
 static int zone;
@@ -67,3 +72,29 @@ XM_U32 stats_mean(const ISP_AE_STAT_2_S *grid7) {
       sum += grid7->au32MeteringWin[r][c];
   return sum / (AE_ZONE_ROW * AE_ZONE_COLUMN);
 }
+
+/* LIBISP_ZONES=path (with LIBISP_DEBUG): the zones' R, G and B sums, as
+ * AWB read them, written there in a row of 512 x 3 words */
+void stats_dump(const char *path) {
+  /* never blocking the frame loop: a FIFO nobody reads is skipped */
+  const int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NONBLOCK, 0644);
+  if (fd < 0)
+    return;
+  if (write(fd, zone_rgb, sizeof(zone_rgb)) < 0) {
+    /* a dump that cannot go is dropped */
+  }
+  close(fd);
+}
+
+/* The zones read here, as the AWB library reads them: the first selected,
+ * each one's R, G and B, then the next */
+void stats_read_zones(void) {
+  Write_IspReg(REG_AWB_PORT, 1);
+  for (int i = 0; i < AWB_ZONES; i++) {
+    for (int c = 0; c < 3; c++)
+      Read_IspReg(REG_AWB_R + 4 * c);
+    Write_IspReg(REG_AWB_NEXT, 1);
+  }
+}
+
+const XM_U32 (*stats_zones(void))[3] { return (const XM_U32(*)[3])zone_rgb; }
