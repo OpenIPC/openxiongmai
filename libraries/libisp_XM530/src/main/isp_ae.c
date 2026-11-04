@@ -1,4 +1,4 @@
-/* The open auto-exposure (LIBISP_OPEN_AE=1), in place of majestic's.
+/* The open auto-exposure (system.openAe), in place of majestic's.
  *
  * It holds what the vendor AE holds, measured on the lab XM550 (IMX335):
  * the mean of the 7 x 7 luma grid, weighted by the AE attributes' table,
@@ -36,6 +36,7 @@
 #define ST_DGAIN 0xd8
 #define ST_ISPDGAIN 0xdc
 #define ST_AVELUM 0x109
+#define ST_AT_MAX 0x10c     /* a byte: no exposure left */
 #define ST_EXPOSURE 0xe0    /* lines x the three gains, Q10: what it reports */
 #define ST_AGAIN_STEP 0x610 /* the analog gain as the sensor's table step */
 #define ST_LINES2 0x60c     /* lines again */
@@ -82,7 +83,7 @@ static XM_U32 umin(XM_U32 a, XM_U32 b) { return a < b ? a : b; }
 
 /* The limits of each gain, Q10: the sensor's, within the attributes' */
 struct limits {
-  XM_U32 again, dgain, ispdgain;
+  XM_U32 again, dgain, ispdgain, system;
 };
 
 static struct limits limits(const ISP_EXPOSURE_ATTR_S *a) {
@@ -92,6 +93,7 @@ static struct limits limits(const ISP_EXPOSURE_ATTR_S *a) {
       .dgain = dft.u32MaxDgain ? dft.u32MaxDgain : 1024,
       .ispdgain = dft.u32MaxISPDgain ? dft.u32MaxISPDgain << 10 >> shift : 1024,
   };
+  l.system = 0;
   if (a) {
     const ISP_AE_ATTR_S *u = &a->stAuto;
     if (u->stAGainRange.u32Max >= 1024)
@@ -100,13 +102,19 @@ static struct limits limits(const ISP_EXPOSURE_ATTR_S *a) {
       l.dgain = umin(l.dgain, u->stDGainRange.u32Max);
     if (u->stISPDGainRange.u32Max >= 1024)
       l.ispdgain = umin(l.ispdgain, u->stISPDGainRange.u32Max);
+    /* the most gain of all: 128x on the lab IMX335, where the vendor AE
+     * stopped, with the ISP's at 2.09x of its 8x */
+    if (u->stSysGainRange.u32Max >= 1024)
+      l.system = u->stSysGainRange.u32Max;
   }
   return l;
 }
 
 static float gain_max(const struct limits *l) {
-  return (float)l->again / 1024 * ((float)l->dgain / 1024) *
-         ((float)l->ispdgain / 1024);
+  const float g = (float)l->again / 1024 * ((float)l->dgain / 1024) *
+                  ((float)l->ispdgain / 1024);
+  const float sys = (float)l->system / 1024;
+  return l->system && sys < g ? sys : g;
 }
 
 /* Lines and a total gain to the sensor and the ISP, each at its nearest
@@ -217,9 +225,8 @@ static void take_over(void *state, const struct limits *l) {
 }
 
 int open_ae_init(XM_U8 fps, void *state) {
-  const char *e = getenv("LIBISP_OPEN_AE");
   active = 0;
-  if (!e || strcmp(e, "1"))
+  if (!open_3a_wanted("LIBISP_OPEN_AE", "openAe"))
     return 0;
   if (!have_sns || !sns.pfn_cmos_get_ae_default ||
       !sns.pfn_cmos_inttime_update || !sns.pfn_cmos_gains_update) {
@@ -351,5 +358,8 @@ int open_ae_frame(const ISP_AE_INFO_S *info, void *state,
                   ispdgain_now / 1024));
   st_put(state, ST_AGAIN_STEP, again_step);
   ((XM_U8 *)state)[ST_AVELUM] = (XM_U8)(mean > 255 ? 255 : mean + 0.5f);
+  ((XM_U8 *)state)[ST_AT_MAX] =
+      ae.lines >= xmisp_ae_lines_most(&ae) &&
+      ae.gain >= ae.cfg.gain_max * 0.99f;
   return 1;
 }

@@ -103,9 +103,10 @@ make CROSS_COMPILE=arm-openipc-linux-musleabi-
 
 ## Open AE (M2, first part)
 
-With `LIBISP_OPEN_AE=1` in majestic's environment, the library runs its own
+With `system.openAe: true` in `/etc/majestic.yaml`, the library runs its own
 auto-exposure in place of majestic's (`src/main/isp_ae.c`, on libxmisp's
-`ae.c`). It is off by default; AWB stays majestic's.
+`ae.c`). It is off by default. `LIBISP_OPEN_AE=1` or `0` in majestic's
+environment overrides the key, for tests.
 
 - **What it holds:** what the vendor AE holds, measured on the lab XM550:
   the mean of the 7 × 7 luma grid weighted by the exposure attributes'
@@ -134,8 +135,14 @@ auto-exposure in place of majestic's (`src/main/isp_ae.c`, on libxmisp's
   line limit with it, and an exposure a narrowed limit no longer allows is
   planned again. Manual or bypassed exposure goes to majestic's AE, which
   does it; the open AE takes over again from where it left the exposure.
-- **Not yet:** slow shutter and the "exposure is at its most" flag. Only the
-  IMX335 has run on a camera.
+- **Limits:** gain stops at the attributes' system gain range, 128x on the
+  lab IMX335, where the vendor AE stops too (with the ISP's gain at 2.09x
+  of its 8x), and the "exposure is at its most" flag is set there, as the
+  vendor AE sets it. Light never changes the frame rate, on either AE:
+  with majestic's fixed frame rate there is no slow shutter. The longer
+  frame (4000 lines) seen from a cold start is not one either: it comes
+  with any light, on either AE, and a restart ends it.
+- **Not yet:** only the IMX335 has run on a camera.
 
 Against majestic's AE on the lab XM550 (IMX335, 2560x1440 H.264), each
 settled in turn under the same light:
@@ -153,40 +160,56 @@ about 6 s, majestic's AE in about 9 s, from black.
 
 ## Open AWB (M2, second part)
 
-With `LIBISP_OPEN_AWB=1` the library runs its own white balance in place of
-majestic's (`src/main/isp_awb.c`), for the sensors whose calibration it
-reads: the IMX335 so far, others keeping majestic's AWB with a log line. It
-works with or without the open AE.
+With `system.openAwb: true` the library runs its own white balance in place
+of majestic's (`src/main/isp_awb.c`), for the sensors whose neutrals are
+measured: the IMX335 so far, others keeping majestic's AWB with a log line.
+It works with or without the open AE. `LIBISP_OPEN_AWB=1` or `0` overrides
+the key, for tests.
 
-- **Statistics:** it reads the 32 × 16 AWB zones itself, as the vendor AWB
+It was measured against a colour checker on the lab XM550 (IMX335), under
+3000-5990 K bulbs and cloudy daylight, with an orange chair and wood in
+view. Those trap the vendor AWB: grey-world over the calibration's wide
+polygon read about 2850 K in daylight and turned the chart's greys blue
+(b* to -36).
+
+- **Statistics:** it reads the 32 x 16 AWB zones itself, as the vendor AWB
   does (`AWB_SRAM_ADDR_RC`, then each zone's R, G, B and `AWB_SRAM_RD_EN`).
-- **Grey:** a zone is grey when its R/G and B/G (Q12) lie inside the
-  polygon of the eight lines `A x + B y + C = 0` of the sensor's
-  calibration (`ISP_AWB_CALIBRATION_V2_S`), on the side its initial gains'
-  grey point lies, and no channel is within 10% of the clip. The gains are
-  the inverse of the grey zones' summed R/G and B/G, G at 1x, moved 5% of
-  the way a frame; with fewer than 16 grey zones (a coloured light) they
-  are held, as the vendor AWB holds them. Zones with a G mean under 64 are
-  too dark to count.
-- **Restarts:** majestic's start resets the ISP, so the gains it set are
-  kept in the block `/dev/isp` shares (at 0x3f00) and a restart starts from
-  them, holding them for the first 25 frames while the exposure settles;
-  three restarts under the same light stayed within 1% of each other.
-- **Colour:** the colour temperature is the grey point's position on the
-  calibration's distance table (`dis`, `val`), the point (Q10) projected at
-  `key` / 512 of a turn from (`ini_y`, `ini_x`), plus `key`: fitted to the
-  vendor AWB's matrices within 14 on the IMX335, not yet checked on another
-  sensor. The colour matrix is the sensor's, at its three temperatures,
-  blended linearly in mired between the two around it, as the vendor's
-  matrices are.
+- **Neutrals:** they lie on a line in log R/G against log B/G, within 0.004
+  for the bulbs and 0.03 for daylight. An orange surface in daylight lies on
+  that line too, far out at the warm end, so a zone counts only inside the
+  calibration's polygon, in a band around the line, and under R/G 0.9; clipped
+  and dark zones don't count. That limit is past the warmest neutral measured
+  (0.81, 3000 K) and extrapolates to about 2400 K, so warm lamps still count:
+  0.84 to 0.90 chose the same neutrals on all six captures, and 0.95 took the
+  orange surfaces in daylight.
+- **Gains:** a coloured surface only pulls warmer, so the neutrals are the
+  coolest group with support: sorted by R/G, the first window 12% wide with
+  at least 4 zones and a fifth of them. Its median R/G and B/G give the
+  gains, G at 1x, moved 5% of the way a frame. With no such group (a
+  coloured light) they are held, as the vendor AWB holds them.
+- **Colour:** the colour temperature is the R/G's place among the measured
+  neutrals. The colour matrix is the sensor's, at its three temperatures,
+  blended linearly in mired between the two around it, as the vendor's are.
+- **Restarts:** majestic's start resets the ISP, so the gains are kept in
+  the block `/dev/isp` shares (at 0x3f00) and a restart starts from them,
+  holding them for the first 25 frames while the exposure settles.
 - **Majestic:** its white-balance query and attributes calls fail with
   either ISP library, so nothing of majestic's reads the AWB's state.
 
-Against majestic's AWB on the lab XM550 (IMX335) under the bulbs, back to
-back: gains (R, B, 256 = 1x) 270, 844 against 275, 824 at 3000 K; 291, 751
-against 295, 747 at 4500 K; 324, 685 against 324, 686 at 5990 K; the colour
-matrix within 5 of the vendor's. With the open AE too, the pictures' mean
-R/G/B were within 3 of majestic's 3A at each light but B at 3000 K (+5).
+The chart's 24 patches through the open AE and AWB, against majestic's, one
+after the other under the same light (mean dE against the chart's reference,
+and the grey patches' a* and b*):
+
+| Light | Majestic's: dE, grey a*, b* | Open: dE, grey a*, b* |
+|---|---|---|
+| 3000 K | 31.5, 1.0, -27.6 | 11.6, -0.7, 1.4 |
+| 4500 K | 38.6, -1.5, -36.1 | 11.8, -0.1, 2.0 |
+| 5990 K | 37.6, -2.8, -35.3 | 11.5, -0.2, 2.5 |
+| cloudy daylight | 28.9, -3.2, -23.8 | 16.6, 0.1, -0.3 |
+
+Its neutrals come from one scene, one sensor and one set of bulbs. What is
+left of the dE is the colour matrix and saturation, which are the sensor
+library's and majestic's (tuning, M3).
 
 ## Not yet
 

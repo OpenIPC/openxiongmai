@@ -45,6 +45,10 @@ int xmisp_ae_update(struct xmisp_ae *ae, float mean, uint32_t *lines,
  * update. */
 void xmisp_ae_flicker(struct xmisp_ae *ae, float flicker_lines);
 
+/* The most lines the exposure can reach: below cfg.lines_max under
+ * anti-flicker, which takes whole periods. */
+uint32_t xmisp_ae_lines_most(const struct xmisp_ae *ae);
+
 /* The exposure the sensor took, after its gain steps. */
 void xmisp_ae_applied(struct xmisp_ae *ae, uint32_t lines, float gain);
 

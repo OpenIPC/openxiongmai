@@ -178,6 +178,26 @@ int main(void) {
     check(l == 188, "not retried after a failed write", 0);
   }
 
+  /* The ceiling a caller sees is the one the exposure stops at: under
+   * anti-flicker the last whole period, not the sensor's maximum. */
+  {
+    struct xmisp_ae_cfg top = cfg;
+    top.lines_max = 100;
+    top.lines_min = 1;
+    struct xmisp_ae ae;
+    xmisp_ae_init(&ae, &top, 50, 1.0f);
+    check(xmisp_ae_lines_most(&ae) == 100, "ceiling without anti-flicker", 0);
+    xmisp_ae_flicker(&ae, 33.0f);
+    check(xmisp_ae_lines_most(&ae) == 99, "ceiling under anti-flicker", 0);
+    uint32_t l = 0;
+    float g = 0;
+    for (int f = 0; f < 400; f++) {
+      if (xmisp_ae_update(&ae, 0.01f, &l, &g))
+        xmisp_ae_applied(&ae, l, g);
+    }
+    check(l == xmisp_ae_lines_most(&ae), "exposure stops elsewhere", 0);
+  }
+
   printf(failures ? "%d failed\n" : "ok\n", failures);
   return failures != 0;
 }

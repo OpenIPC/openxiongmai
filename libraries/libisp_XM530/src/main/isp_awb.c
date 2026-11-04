@@ -1,22 +1,25 @@
-/* The open auto white balance (LIBISP_OPEN_AWB=1), in place of majestic's,
- * for the sensors whose calibration is understood: the IMX335 so far.
+/* The open auto white balance (system.openAwb), in place of majestic's,
+ * for the sensors whose neutrals are measured: the IMX335 so far.
  *
- * Measured against the vendor AWB on the lab XM550 under 4000 K and
- * 3000-6000 K bulbs:
- *  - the grey zones are those whose R/G and B/G (Q12) lie inside the
- *    polygon of the sensor calibration's eight lines A x + B y + C = 0, on
- *    the side its initial gains lie on, less any zone with a channel near
- *    the clip;
- *  - the gains are the inverse of their summed R/G and B/G, G at 1x;
- *  - the colour temperature is a position along the calibration's table of
- *    distances: the grey point (Q10) projected at key / 512 of a turn, from
- *    (ini_y, ini_x), plus key (fitted to the vendor's matrices within 14
- *    on the IMX335, and so far checked on no other sensor);
- *  - the colour matrix is the sensor's, at its three temperatures, blended
- *    linearly in mired between the two around it and held at the ends.
- * The vendor's gains were within 1.7% of these at every temperature. With
- * too few grey zones (a coloured light) the gains are held, as the vendor
- * AWB holds them. */
+ * Measured on the lab XM550 against a colour checker's grey patches under
+ * 3000-5990 K bulbs and cloudy daylight, with an orange chair and wood in
+ * view, which trap the vendor AWB (its grey-world over the calibration's
+ * wide polygon read about 2850 K in daylight, and turned the chart's greys
+ * blue; 35-40% off in R/G and B/G):
+ *  - neutrals lie on a line in log R/G against log B/G, within 0.004 for
+ *    the bulbs and 0.03 for daylight;
+ *  - an orange surface in daylight lies on that line too, far out at the
+ *    warm end, so a limit on how warm a neutral can be is needed as well as
+ *    the distance from the line;
+ *  - within the band the neutrals are the coolest group with support, a
+ *    coloured surface only pulling warmer: sorted by R/G, the first window
+ *    12% wide with at least 4 zones and a fifth of them. Its median R/G and
+ *    B/G were within 1.5% of the chart at every light.
+ * The gains are their inverse, G at 1x. With too few such zones (a coloured
+ * light) the gains are held, as the vendor AWB holds them. The colour
+ * temperature is the R/G's place among the measured neutrals, and the colour
+ * matrix the sensor's, at its three temperatures, blended linearly in mired
+ * between the two around it, as the vendor's are. */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,16 +30,38 @@
 
 #define DBG(fmt, ...) fprintf(stderr, "libisp: " fmt "\n", ##__VA_ARGS__)
 
-/* sensors whose calibration this reads right (SENSOR_CHIP ids) */
-static const SENSOR_ID known[] = {155 /* IMX335 */};
+/* A sensor's neutrals, against a chart: log(B/G) = slope log(R/G) + at0,
+ * from slope and at0's points, R/G falling as the light gets bluer */
+#define NEUTRALS 4
+struct neutrals {
+  SENSOR_ID id; /* SENSOR_CHIP */
+  float slope, at0;
+  float band_warm, band_cool; /* log B/G either side of the line */
+  float r_min, r_max;         /* a neutral's R/G */
+  float r[NEUTRALS], kelvin[NEUTRALS];
+};
 
-#define GREY_MIN 16     /* zones, fewer and the gains are held */
+static const struct neutrals sensors[] = {
+    {155 /* IMX335 */,
+     -0.800f,
+     -1.187f,
+     0.05f,
+     0.10f,
+     0.50f,
+     0.90f,
+     {0.810f, 0.729f, 0.677f, 0.644f},
+     {3000, 4000, 5000, 5990}},
+};
+static const struct neutrals *sensor;
+
 #define CLIP_LEVEL 3686 /* 0.9 of 12 bits: a channel's mean at the clip */
 #define DARK_LEVEL 64   /* a G mean below it is too dark to count */
 #define SMOOTH 0.05f    /* of the way to the measured gains, a frame */
 /* frames after the start the gains hold, while the exposure settles: dark
  * or clipped first frames pulled them away and back */
 #define START_HOLD 25
+#define GROUP_WIDTH 0.12f /* log R/G, the coolest group's */
+#define GROUP_MIN 4       /* its zones, and at least a fifth of them */
 
 static AWB_SENSOR_EXP_FUNC_S sns;
 static int have_sns;
@@ -88,24 +113,18 @@ static int inside(float r, float b) {
   return !memcmp(s, inside_sign, sizeof(s));
 }
 
-/* The colour temperature of a grey point (R/G, B/G) */
-static int colour_temp(float r, float b) {
-  const float th = 2 * (float)M_PI * cal.key / 512;
-  const float d = (r * 1024 - cal.ini_y) * cosf(th) +
-                  (b * 1024 - cal.ini_x) * sinf(th) + cal.key;
-  int n = 0;
-  while (n < 16 && (n == 0 || cal.dis[n] > cal.dis[n - 1]))
-    n++;
-  if (n < 2)
-    return 5000;
-  if (d <= cal.dis[0])
-    return cal.val[0];
-  for (int i = 0; i + 1 < n; i++)
-    if (d <= cal.dis[i + 1])
-      return (int)(cal.val[i] + (d - cal.dis[i]) /
-                                    (cal.dis[i + 1] - cal.dis[i]) *
-                                    (cal.val[i + 1] - cal.val[i]));
-  return cal.val[n - 1];
+/* The colour temperature of a neutral's R/G: linear in mired against log
+ * R/G between the measured neutrals, and on past the ends */
+static int colour_temp(float r) {
+  const struct neutrals *n = sensor;
+  const float l = logf(r);
+  int i = 0;
+  while (i < NEUTRALS - 2 && r < n->r[i + 1])
+    i++;
+  const float l0 = logf(n->r[i]), l1 = logf(n->r[i + 1]);
+  const float m0 = 1e6f / n->kelvin[i], m1 = 1e6f / n->kelvin[i + 1];
+  const float mired = m0 + (l - l0) / (l1 - l0) * (m1 - m0);
+  return mired < 50 ? 20000 : (int)(1e6f / mired);
 }
 
 /* The sensor's matrix at ct: blended in mired between the two around it */
@@ -136,16 +155,16 @@ static void matrix(int ct, XM_U16 out[12]) {
 }
 
 int open_awb_init(void) {
-  const char *e = getenv("LIBISP_OPEN_AWB");
   active = 0;
-  if (!e || strcmp(e, "1"))
+  if (!open_3a_wanted("LIBISP_OPEN_AWB", "openAwb"))
     return 0;
   const SENSOR_ID id = isp_sensor_id();
-  int ok = 0;
-  for (unsigned i = 0; i < sizeof(known) / sizeof(known[0]); i++)
-    ok |= known[i] == id;
-  if (!ok) {
-    DBG("open AWB: sensor %d's calibration is not known yet; majestic's AWB",
+  sensor = NULL;
+  for (unsigned i = 0; i < sizeof(sensors) / sizeof(sensors[0]); i++)
+    if (sensors[i].id == id)
+      sensor = &sensors[i];
+  if (!sensor) {
+    DBG("open AWB: sensor %d's neutrals are not measured yet; majestic's AWB",
         (int)id);
     return 0;
   }
@@ -179,11 +198,39 @@ int open_awb_init(void) {
     log_b = k->log_b;
     from = "the last run";
   }
-  ct_now = colour_temp(expf(-log_r), expf(-log_b));
+  ct_now = colour_temp(expf(-log_r));
   active = 1;
   DBG("open AWB: start gains R %.2f B %.2f, %d K, from %s", expf(log_r),
       expf(log_b), ct_now, from);
   return 1;
+}
+
+static int by_float(const void *a, const void *b) {
+  const float x = *(const float *)a, y = *(const float *)b;
+  return x < y ? -1 : x > y;
+}
+
+struct grey {
+  float r, b;
+};
+
+static int by_r(const void *a, const void *b) {
+  return by_float(&((const struct grey *)a)->r, &((const struct grey *)b)->r);
+}
+
+/* The coolest group with support, of n zones sorted by R/G: 0 for none */
+static int coolest(const struct grey *g, int n, int *first) {
+  const int need = n / 5 > GROUP_MIN ? n / 5 : GROUP_MIN;
+  const float width = expf(GROUP_WIDTH);
+  for (int i = 0, j = 0; i < n; i++) {
+    while (j < n && g[j].r <= g[i].r * width)
+      j++;
+    if (j - i >= need) {
+      *first = i;
+      return j - i;
+    }
+  }
+  return 0;
 }
 
 /* One frame, on the zones read just before (sites: a zone's pixels of one
@@ -193,7 +240,8 @@ int open_awb_frame(XM_U32 sites, ISP_AWB_RESULT_GAIN_S *gain,
   const XM_U32(*z)[3] = stats_zones();
   const double clip = (double)CLIP_LEVEL * (sites ? sites : 1);
   const double dark = (double)DARK_LEVEL * (sites ? sites : 1);
-  double sr = 0, sg = 0, sb = 0;
+  static struct grey g[AWB_ZONES];
+  static float bs[AWB_ZONES];
   int n = 0, clipped = 0;
   for (int i = 0; i < AWB_ZONES; i++) {
     const double R = z[i][0], G = z[i][1] / 2.0, B = z[i][2];
@@ -203,19 +251,31 @@ int open_awb_frame(XM_U32 sites, ISP_AWB_RESULT_GAIN_S *gain,
       clipped++;
       continue;
     }
-    if (G < dark)
+    if (G < dark || R <= 0 || B <= 0)
       continue;
-    if (!inside((float)(R / G * 4096), (float)(B / G * 4096)))
+    const float r = (float)(R / G), b = (float)(B / G);
+    if (r < sensor->r_min || r > sensor->r_max || !inside(r * 4096, b * 4096))
       continue;
-    sr += R, sg += G, sb += B, n++;
+    const float d = logf(b) - (sensor->slope * logf(r) + sensor->at0);
+    if (d < -sensor->band_warm || d > sensor->band_cool)
+      continue;
+    g[n++] = (struct grey){r, b};
   }
   static XM_U32 frames;
   ++frames;
-  if (n >= GREY_MIN && frames > START_HOLD) {
-    const float r = (float)(sr / sg), b = (float)(sb / sg);
+  int first = 0, group = 0;
+  if (frames > START_HOLD) {
+    qsort(g, n, sizeof(g[0]), by_r);
+    group = coolest(g, n, &first);
+  }
+  if (group) {
+    for (int i = 0; i < group; i++)
+      bs[i] = g[first + i].b;
+    qsort(bs, group, sizeof(bs[0]), by_float);
+    const float r = g[first + group / 2].r, b = bs[group / 2];
     log_r += SMOOTH * (logf(1 / r) - log_r);
     log_b += SMOOTH * (logf(1 / b) - log_b);
-    ct_now = colour_temp(expf(-log_r), expf(-log_b));
+    ct_now = colour_temp(expf(-log_r));
     struct kept *kp = kept();
     if (kp) {
       kp->log_r = log_r;
@@ -224,8 +284,9 @@ int open_awb_frame(XM_U32 sites, ISP_AWB_RESULT_GAIN_S *gain,
     }
   }
   if (getenv("LIBISP_DEBUG") && frames % 50 == 0)
-    DBG("open AWB: %d grey zones, %d clipped, gains R %.3f B %.3f, %d K", n,
-        clipped, expf(log_r), expf(log_b), ct_now);
+    DBG("open AWB: %d neutral zones, group %d, %d clipped, gains R %.3f B "
+        "%.3f, %d K",
+        n, group, clipped, expf(log_r), expf(log_b), ct_now);
   gain->au32WhiteBalanceGain[0] = (XM_U32)lroundf(expf(log_r) * 256);
   gain->au32WhiteBalanceGain[1] = 256;
   gain->au32WhiteBalanceGain[2] = (XM_U32)lroundf(expf(log_b) * 256);

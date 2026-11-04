@@ -52,13 +52,16 @@ void stats_dump(const char *path);
 void stats_read_zones(void);
 const XM_U32 (*stats_zones(void))[3];
 
-/* isp_ae.c: the open AE, in place of majestic's when LIBISP_OPEN_AE=1 and
- * the sensor library gave its callbacks; state is the AE state buffer */
+/* isp_3a.c: whether an open 3A part is asked for, by env or system.key */
+int open_3a_wanted(const char *env, const char *key);
+
+/* isp_ae.c: the open AE, in place of majestic's when asked for and the
+ * sensor library gave its callbacks; state is the AE state buffer */
 int open_ae_init(XM_U8 fps, void *state);
 int open_ae_active(void);
-/* isp_awb.c: the open AWB, in place of majestic's when LIBISP_OPEN_AWB=1 on
- * a sensor whose calibration it reads; on zones read with
- * stats_read_zones(); 1 with gains and matrix to apply */
+/* isp_awb.c: the open AWB, in place of majestic's when asked for on a sensor
+ * whose neutrals were measured; on zones read with stats_read_zones(); 1
+ * with gains and matrix to apply */
 int open_awb_init(void);
 int open_awb_active(void);
 int open_awb_frame(XM_U32 sites, ISP_AWB_RESULT_GAIN_S *gain,
