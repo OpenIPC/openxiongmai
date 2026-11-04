@@ -60,6 +60,37 @@ static XM_U32 zone_sites;
 static pthread_t thread;
 static int started;
 
+/* Whether an open 3A part is asked for: env "1" or "0" if set (for tests),
+ * else true at key in the system section of majestic's configuration, as
+ * xmispd reads it. */
+int open_3a_wanted(const char *env, const char *key) {
+  const char *e = getenv(env);
+  if (e)
+    return !strcmp(e, "1");
+  FILE *f = fopen("/etc/majestic.yaml", "r");
+  if (!f)
+    return 0;
+  char line[256];
+  const size_t kl = strlen(key);
+  int in = 0, on = 0;
+  while (fgets(line, sizeof(line), f)) {
+    line[strcspn(line, "\r\n#")] = 0;
+    if (line[0] && line[0] != ' ') {
+      in = !strncmp(line, "system:", 7);
+      continue;
+    }
+    const char *k = line + strspn(line, " ");
+    if (in && !strncmp(k, key, kl) && k[kl] == ':') {
+      const char *v = k + kl + 1;
+      v += strspn(v, " \"'");
+      on = !strncmp(v, "true", 4);
+      break;
+    }
+  }
+  fclose(f);
+  return on;
+}
+
 int isp_3a_register(ISP_DEV dev) {
   if (registered)
     return XM_SUCCESS;
