@@ -97,7 +97,12 @@ static XM_S32 cmos_set_mirror_flip(XM_U8 u8Mirror, XM_U8 u8Flip) {
   return XM_SUCCESS;
 }
 
-// TODO
+/*
+ * SC5332 analog gain: coarse in 0x3e08 (0x03 = 1x, 0x07 = 2x, 0x0f = 4x,
+ * 0x1f = 8x), fine in 0x3e09 (0x20..0x3f = 1.0x..1.97x in 1/32 steps).
+ * u32InTimes is in 1/1024 units (1024 = 1x). The encoded value handed to
+ * cmos_gains_update is (coarse step << 5) | fine step.
+ */
 static XM_VOID cmos_again_calc_table(XM_U32 u32InTimes,
                                      AE_SENSOR_GAININFO_S *pstAeSnsGainInfo) {
   int i;
@@ -106,23 +111,20 @@ static XM_VOID cmos_again_calc_table(XM_U32 u32InTimes,
     return;
   }
 
-  pstAeSnsGainInfo->u32GainDb = 0;
-  pstAeSnsGainInfo->u32SnsTimes = 1024;
+  u32InTimes = u32InTimes / 32; /* 32 = 1x */
+  if (u32InTimes < 32)
+    u32InTimes = 32;
 
-  u32InTimes = u32InTimes / 32;
-  u32InTimes = u32InTimes < 32 ? 32 : u32InTimes; // 15.75
-
-  for (i = 0; i < 4; i++) // 0 1 2 3
-  {
-    if (u32InTimes < 64) // 1 2 4 8 16
-    {
+  for (i = 0; i < 3; i++) { /* coarse 1x 2x 4x 8x */
+    if (u32InTimes < 64)
       break;
-    }
     u32InTimes >>= 1;
   }
-  pstAeSnsGainInfo->u32GainDb = (i << 4) + u32InTimes - 32;
-  u32InTimes = u32InTimes << i;
-  pstAeSnsGainInfo->u32SnsTimes = u32InTimes * 32;
+  if (u32InTimes > 63) /* cap at 8 x 1.97 = 15.75x */
+    u32InTimes = 63;
+
+  pstAeSnsGainInfo->u32GainDb = (i << 5) | (u32InTimes - 32);
+  pstAeSnsGainInfo->u32SnsTimes = (u32InTimes << i) * 32;
   return;
 }
 
@@ -153,7 +155,9 @@ static XM_S32 cmos_get_ae_default(AE_SENSOR_DEFAULT_S *pstAeSnsDft) {
 
   pstAeSnsDft->u32MaxAgain = 15872;
   pstAeSnsDft->u32MinAgain = 1024;
-  pstAeSnsDft->u32MaxDgain = 4032;
+  /* sensor digital gain (0x3e06/0x3e07) is not written: keep it at 1x
+     (128 = 1x) so AE does not count on gain it never gets */
+  pstAeSnsDft->u32MaxDgain = 128;
   pstAeSnsDft->u32MinDgain = 128;
   pstAeSnsDft->u32ISPDgainShift = 8;
 
@@ -194,7 +198,6 @@ static XM_VOID cmos_slow_framerate_set(XM_U16 u16FullLines,
 #endif
 }
 
-// TODO
 static XM_VOID cmos_inttime_update(XM_U32 u32IntTime) {
   static XM_U32 su32IntTime = 0xFFFFFFFF;
   gu32ShutNow = u32IntTime;
@@ -204,35 +207,27 @@ static XM_VOID cmos_inttime_update(XM_U32 u32IntTime) {
     return;
   su32IntTime = u32IntTime;
 
-  sensor_write_register(0x3E02, 0x80);
-  sensor_write_register(0x3E01, 0x49);
-  sensor_write_register(0x3E00, 1);
-
-  //sensor_write_register(0x3E02, 32 * (unsigned char)u32IntTime & 0xE0);
-  //sensor_write_register(0x3E01, (u32IntTime >> 4) & 0xFF);
-  //sensor_write_register(0x3E00, (unsigned short)u32IntTime >> 12);
-
-#if 0
+  /* exposure in half-lines: {0x3e00[3:0], 0x3e01[7:0], 0x3e02[7:4]} */
   sensor_write_register(0x3e00, (u32IntTime >> 12) & 0x0F);
-  sensor_write_register(0x3e01, u32Tmp);
-  sensor_write_register(0x3e02, ((u32IntTime & 0xf) << 4));
-#endif
+  sensor_write_register(0x3e01, (u32IntTime >> 4) & 0xFF);
+  sensor_write_register(0x3e02, (u32IntTime & 0x0F) << 4);
   return;
 }
 
-// TODO
 static XM_VOID cmos_gains_update(XM_U32 u32Again, XM_U32 u32Dgain) {
   static XM_U32 Preu32Again = 0xffff;
-  //XM_U32 u32Tmp;
+  static const XM_U8 au8Coarse[4] = {0x03, 0x07, 0x0f, 0x1f};
+  XM_U32 u32Coarse, u32Fine;
+
   if (Preu32Again == u32Again)
     return;
   Preu32Again = u32Again;
+
   // 2.GainUpdate
-#if 0
-  u32Tmp = ((u32Again & 0xf0) >> 2) | 0x03;
-  sensor_write_register(0x3e08, u32Tmp);
-  sensor_write_register(0x3e09, ((u32Again & 0x0f) + 0x20));
-#endif
+  u32Coarse = (u32Again >> 5) & 0x03;
+  u32Fine = u32Again & 0x1f;
+  sensor_write_register(0x3e08, au8Coarse[u32Coarse]);
+  sensor_write_register(0x3e09, 0x20 + u32Fine);
 #if 0
 	// 2.LogicUpdate
     if(u32Tmp < 0x07)//[gain<2]
