@@ -99,6 +99,12 @@ static XM_S32 cmos_set_mirror_flip(XM_U8 u8Mirror, XM_U8 u8Flip) {
   return XM_SUCCESS;
 }
 
+/*
+ * Analog gain: coarse in 0x3e08 (0x03 = 1x, 0x07 = 2x, 0x0f = 4x, 0x1f = 8x,
+ * the steps the gain logic below tests), fine in 0x3e09 (0x20..0x3f =
+ * 1.0x..1.97x in 1/32 steps). The encoded value handed to cmos_gains_update
+ * is (coarse step << 5) | fine step.
+ */
 static XM_VOID cmos_again_calc_table(XM_U32 u32InTimes,
                                      AE_SENSOR_GAININFO_S *pstAeSnsGainInfo) {
   int i;
@@ -107,23 +113,20 @@ static XM_VOID cmos_again_calc_table(XM_U32 u32InTimes,
     return;
   }
 
-  pstAeSnsGainInfo->u32GainDb = 0;
-  pstAeSnsGainInfo->u32SnsTimes = 1024;
+  u32InTimes = u32InTimes / 32; /* 32 = 1x */
+  if (u32InTimes < 32)
+    u32InTimes = 32;
 
-  u32InTimes = u32InTimes / 32;
-  u32InTimes = u32InTimes < 32 ? 32 : u32InTimes; // 15.75
-
-  for (i = 0; i < 4; i++) // 0 1 2 3
-  {
-    if (u32InTimes < 64) // 1 2 4 8 16
-    {
+  for (i = 0; i < 3; i++) { /* coarse 1x 2x 4x 8x */
+    if (u32InTimes < 64)
       break;
-    }
     u32InTimes >>= 1;
   }
-  pstAeSnsGainInfo->u32GainDb = (i << 4) + u32InTimes - 32;
-  u32InTimes = u32InTimes << i;
-  pstAeSnsGainInfo->u32SnsTimes = u32InTimes * 32;
+  if (u32InTimes > 63) /* cap at 8 x 1.97 = 15.75x */
+    u32InTimes = 63;
+
+  pstAeSnsGainInfo->u32GainDb = (i << 5) | (u32InTimes - 32);
+  pstAeSnsGainInfo->u32SnsTimes = (u32InTimes << i) * 32;
   return;
 }
 
@@ -211,14 +214,19 @@ static XM_VOID cmos_inttime_update(XM_U32 u32IntTime) {
 
 static XM_VOID cmos_gains_update(XM_U32 u32Again, XM_U32 u32Dgain) {
   static XM_U32 Preu32Again = 0xffff;
+  static const XM_U8 au8Coarse[4] = {0x03, 0x07, 0x0f, 0x1f};
   XM_U32 u32Tmp;
+  XM_S32 s32Ret;
+
   if (Preu32Again == u32Again)
     return;
-  Preu32Again = u32Again;
+
   // 2.GainUpdate
-  u32Tmp = ((u32Again & 0xf0) >> 2) | 0x03;
-  sensor_write_register(0x3e08, u32Tmp);
-  sensor_write_register(0x3e09, ((u32Again & 0x0f) + 0x20));
+  u32Tmp = au8Coarse[(u32Again >> 5) & 0x03];
+  s32Ret = sensor_write_register(0x3e08, u32Tmp);
+  s32Ret |= sensor_write_register(0x3e09, 0x20 + (u32Again & 0x1f));
+  /* a failed write is retried at the next update, even for the same gain */
+  Preu32Again = s32Ret ? 0xffff : u32Again;
 #if 0
 	// 2.LogicUpdate
     if(u32Tmp < 0x07)//[gain<2]

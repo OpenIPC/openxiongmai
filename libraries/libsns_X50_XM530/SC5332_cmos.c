@@ -128,7 +128,7 @@ static XM_VOID cmos_again_calc_table(XM_U32 u32InTimes,
   return;
 }
 
-// TODO
+/* sensor digital gain stays at 1x (u32MaxDgain 128) */
 static XM_VOID cmos_dgain_calc_table(XM_U32 u32InTimes,
                                      AE_SENSOR_GAININFO_S *pstAeSnsGainInfo) {
   if (XM_NULL == pstAeSnsGainInfo) {
@@ -218,16 +218,18 @@ static XM_VOID cmos_gains_update(XM_U32 u32Again, XM_U32 u32Dgain) {
   static XM_U32 Preu32Again = 0xffff;
   static const XM_U8 au8Coarse[4] = {0x03, 0x07, 0x0f, 0x1f};
   XM_U32 u32Coarse, u32Fine;
+  XM_S32 s32Ret;
 
   if (Preu32Again == u32Again)
     return;
-  Preu32Again = u32Again;
 
   // 2.GainUpdate
   u32Coarse = (u32Again >> 5) & 0x03;
   u32Fine = u32Again & 0x1f;
-  sensor_write_register(0x3e08, au8Coarse[u32Coarse]);
-  sensor_write_register(0x3e09, 0x20 + u32Fine);
+  s32Ret = sensor_write_register(0x3e08, au8Coarse[u32Coarse]);
+  s32Ret |= sensor_write_register(0x3e09, 0x20 + u32Fine);
+  /* a failed write is retried at the next update, even for the same gain */
+  Preu32Again = s32Ret ? 0xffff : u32Again;
 #if 0
 	// 2.LogicUpdate
     if(u32Tmp < 0x07)//[gain<2]
