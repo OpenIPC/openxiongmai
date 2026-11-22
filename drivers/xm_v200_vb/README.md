@@ -1,6 +1,6 @@
 # xm_v200_vb
 
-`xm_v200_vb` is the V200 series' video buffer pools (XM530V200, XM533, XM535D1/D2/W1), built as `open_vb.ko`. It replaces the vendor `vb.ko` without changes to the modules that use it: `isp`, `vpss` or `vi`, and `venc` take their frame buffers from it and hand them on to each other. They read and write a buffer's descriptor directly, so its layout is the vendor's:
+`xm_v200_vb` is the V200 series' video buffer pools (XM530V200, XM533, XM535D1/D2/W1, XM232), built as `open_vb.ko`. It replaces the vendor `vb.ko` without changes to the modules that use it: `isp`, `vpss` or `vi`, and `venc` take their frame buffers from it and hand them on to each other. They read and write a buffer's descriptor directly, so its layout is the vendor's:
 
 | word | |
 |------|-|
@@ -12,6 +12,18 @@
 | 12..14 (14..16) | bind id, dev, chn |
 
 The descriptor is 64 bytes on the XM530V200 and XM533 and 72 on the XM535 (`VB_LAYOUT=v200` or `xm535` at build time).
+
+The XM232's (`VB_LAYOUT=xm232`) is 80 bytes and differs further:
+
+| word | |
+|------|-|
+| 4 | the address the modules use: a compressed pool's compressed view (0x9xxxxxxx), otherwise the physical address |
+| 5, 6 | physical address, size |
+| 7..9 | stride, width, height |
+| 11 | reference count |
+| 16..18 | bind id, dev, chn |
+
+Its pools are `{size, count, comp}` (`0x41844201`: `{count, {size, count, comp}[32]}`); a pool with `comp` set takes its buffers from `mmz_alloc_comp`. It has six lists (4 vdc, 5 vgs), puts two empty buffers at the head of the free list as the XM535's does, and its get and put calls are `0xc0604202` / `0x40604203` (the put copies words 7..9, 12, 13 and 16..18). A mode other than 0 and 1 finds no free buffer. `0x4204` gives back each block by its physical address (word 5).
 
 Exports: `vb_get_buf(list, size, &buf, ms)`, `vb_put_buf(list, buf)`, `vb_add_buf_reference(buf)`, `vb_get_length(list, &n)`, `vb_flush_dcache(phys, virt, size)`, and `vb_find_buf(addr)`: the descriptor at that address if it is one of the pools', for modules that are handed one by user space (vdec).
 
