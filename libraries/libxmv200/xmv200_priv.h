@@ -171,5 +171,11 @@ void xmv200_h264_set_fps(struct h264enc *e, uint32_t fps);
 void xmv200_h264_set_cabac(struct h264enc *e, int on);
 int xmv200_h264_encode(struct h264enc *e, const struct xmv200_frame *f,
                        int idr, int qp, uint8_t *out, int cap);
+/* venc.c: the XM232's encoder (jpeg.c's snapshots ride on its pictures) */
+int xmv200_venc_xm232(void);
+/* an IDR picture of f, with a JPEG of it (quantisers q, natural order) into
+ * phys (room bytes); the scan's length, or -1 */
+int xmv200_venc_jpeg232(struct xmv200_venc *v, const struct xmv200_frame *f,
+                        const uint8_t q[2][64], uint32_t phys, uint32_t room);
 
 #endif

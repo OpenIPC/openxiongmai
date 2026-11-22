@@ -356,6 +356,30 @@ static const uint32_t x232_tmpl_val[] = {
     0x0, 0x0, 0xffffffff, 0x0,
 };
 
+/* XM232: the table at +0x1000 its vendor encoder writes through /dev/mem
+ * before every job, with +0x08c = 0 (the same for H.264 and H.265 and
+ * every picture) */
+static const uint32_t x232_rd[104] = {
+    0x6704, 0x627e, 0x5da0, 0x596b, 0x5409, 0x4edf,
+    0x4a48, 0x4397, 0x3e59, 0x39d0, 0x342f, 0x3074,
+    0x2c5c, 0x2899, 0x24b9, 0x21c6, 0x1ede, 0x1c66,
+    0x19ce, 0x16d8, 0x12b1, 0xf69, 0xc62, 0xa50,
+    0x878, 0x712, 0x5e0, 0x50b, 0x44f, 0x3c0,
+    0x356, 0x2f4, 0x297, 0x24d, 0x20a, 0x1d8,
+    0x1a7, 0x17e, 0x152, 0x132, 0x112, 0xf8,
+    0xdd, 0xc9, 0xb1, 0x9e, 0x8b, 0x7b,
+    0x70, 0x62, 0x57, 0x4f, 0x6723, 0x629a,
+    0x5dd9, 0x599d, 0x54bc, 0x4fb5, 0x4af0, 0x444e,
+    0x3ed0, 0x3a14, 0x33fc, 0x3039, 0x2bf1, 0x2804,
+    0x2413, 0x2111, 0x1e04, 0x1b76, 0x1746, 0x1264,
+    0xd12, 0x920, 0x68a, 0x4ff, 0x3f4, 0x322,
+    0x282, 0x20a, 0x1a9, 0x163, 0x135, 0x109,
+    0xe5, 0xc5, 0xaa, 0x96, 0x82, 0x73,
+    0x64, 0x59, 0x50, 0x47, 0x3f, 0x3a,
+    0x33, 0x2e, 0x29, 0x25, 0x22, 0x20,
+    0x1d, 0x1b,
+};
+
 static const uint16_t x232_type_off[] = {0x3e0, 0x3e4, 0x3f0, 0x3f4, 0x3f8};
 static const uint32_t x232_idr[] = {0x100, 0x3e8, 0, 0, 0};
 static const uint32_t x232_p[] = {0x40, 0xfa, 0x3e807d0, 0xdac0fa0,
@@ -435,6 +459,11 @@ static const struct engine *engine(void) {
 struct xmv200_venc {
   const struct engine *e;
   struct h264enc *h264; /* H.264 on the H1, not H.265 */
+  int avc;              /* H.264 on the XM232's engine, not H.265 */
+  volatile uint32_t *eng; /* XM232: the engine's registers (/dev/mem) */
+  /* XM232: a JPEG of the next picture (its quantisers, natural order) */
+  const uint8_t (*jq)[64];
+  uint32_t jphys, jroom, jlen;
   int fd_hevc, fd_mem;
   uint32_t width, height, hc, qp, qp_i, gop, fps;
   struct xmv200_buf luma, chroma; /* reference/reconstruction rings */
@@ -507,6 +536,109 @@ static int nal(uint8_t *out, int cap, int type, const uint8_t *rbsp, int len) {
     zeros = rbsp[i] ? 0 : zeros + 1;
   }
   return n;
+}
+
+/* H.264's: start code, a one-byte NAL header, the RBSP with emulation
+ * prevention */
+static int nal264(uint8_t *out, int cap, int hdr, const uint8_t *rbsp,
+                  int len) {
+  int n = 0, zeros = 0;
+
+  if (cap < 5 + len * 3 / 2)
+    return -1;
+  out[n++] = 0, out[n++] = 0, out[n++] = 0, out[n++] = 1;
+  out[n++] = hdr;
+  for (int i = 0; i < len; i++) {
+    if (zeros >= 2 && rbsp[i] <= 3) {
+      out[n++] = 3;
+      zeros = 0;
+    }
+    out[n++] = rbsp[i];
+    zeros = rbsp[i] ? 0 : zeros + 1;
+  }
+  return n;
+}
+
+/* XM232's H.264 parameter sets and slice headers, field for field the
+ * vendor encoder's: Main profile, CAVLC, level 5.1, a 10-bit frame_num,
+ * POC type 2, one reference, deblocking offsets -2 / 5 */
+static int write_sps264(const struct xmv200_venc *v, uint8_t *rbsp, int cap) {
+  struct bw b = {rbsp, cap};
+  uint32_t mbw = (v->width + 15) / 16, mbh = (v->height + 15) / 16;
+
+  put(&b, 77, 8);     /* Main */
+  put(&b, 0, 8);      /* constraint flags */
+  put(&b, 51, 8);     /* level 5.1 */
+  ue(&b, 0);          /* sps_id */
+  ue(&b, 6);          /* log2_max_frame_num_minus4: 10 bits */
+  ue(&b, 2);          /* POC type 2 */
+  ue(&b, 1);          /* one reference */
+  put(&b, 1, 1);      /* gaps in frame_num allowed */
+  ue(&b, mbw - 1);
+  ue(&b, mbh - 1);
+  put(&b, 1, 1);      /* frame_mbs_only */
+  put(&b, 1, 1);      /* direct_8x8_inference */
+  if (mbw * 16 != v->width || mbh * 16 != v->height) {
+    put(&b, 1, 1);    /* cropping, in 4:2:0's units of two */
+    ue(&b, 0);
+    ue(&b, (mbw * 16 - v->width) / 2);
+    ue(&b, 0);
+    ue(&b, (mbh * 16 - v->height) / 2);
+  } else {
+    put(&b, 0, 1);
+  }
+  put(&b, 1, 1);      /* VUI: timing only */
+  put(&b, 0, 4);
+  put(&b, 1, 1);
+  put(&b, 1, 32);
+  put(&b, 2 * v->fps, 32);
+  put(&b, 1, 1);      /* fixed frame rate */
+  put(&b, 0, 5);
+  trailing(&b);
+  return b.len;
+}
+
+static int write_pps264(uint8_t *rbsp, int cap) {
+  struct bw b = {rbsp, cap};
+
+  ue(&b, 0);
+  ue(&b, 0);
+  put(&b, 0, 1);      /* CAVLC */
+  put(&b, 0, 1);
+  ue(&b, 0);          /* one slice group */
+  ue(&b, 0);
+  ue(&b, 0);
+  put(&b, 0, 3);      /* weighted prediction */
+  se(&b, 0);          /* init QP 26 */
+  se(&b, 0);
+  se(&b, 0);          /* chroma QP offset */
+  put(&b, 1, 1);      /* deblocking control */
+  put(&b, 0, 2);
+  trailing(&b);
+  return b.len;
+}
+
+/* the slice header, unaligned: its bits are b->len whole bytes and the
+ * b->nacc in b->acc */
+static void write_slice264(const struct xmv200_venc *v, int idr, struct bw *b) {
+  ue(b, 0);           /* first MB */
+  ue(b, idr ? 7 : 5); /* I or P, every slice */
+  ue(b, 0);           /* pps */
+  put(b, v->poc & 0x3ff, 10); /* frame_num */
+  if (idr) {
+    ue(b, 0);         /* idr_pic_id */
+    put(b, 0, 1);     /* no_output_of_prior_pics */
+    put(b, 0, 1);     /* long_term_reference */
+  } else {
+    put(b, 1, 1);     /* num_ref_idx override: one */
+    ue(b, 0);
+    put(b, 0, 1);     /* ref_pic_list_modification */
+    put(b, 0, 1);     /* adaptive marking */
+  }
+  se(b, (int)(idr ? v->qp_i : v->qp) - 26);
+  ue(b, 0);           /* deblocking on */
+  se(b, -2);          /* alpha */
+  se(b, 5);           /* beta */
 }
 
 static void ptl(struct bw *b) {
@@ -791,6 +923,15 @@ int xmv200_venc_create(struct xmv200_venc **pv, uint32_t width,
   if (v->e->map == MAP_V1)
     for (int i = 0; i < N(v1_rd); i++)
       xmv200_reg_write(0x21000000 + v1_rd[i].off, v1_rd[i].val);
+  /* XM232: its table at +0x1000 goes in before every job, as the vendor's */
+  if (v->e->map == MAP_XM232) {
+    void *m = mmap(NULL, 0x2000, PROT_READ | PROT_WRITE, MAP_SHARED,
+                   v->fd_mem, 0x21000000);
+
+    if (m == MAP_FAILED)
+      goto fail;
+    v->eng = m;
+  }
   venc_regs(v);
   *pv = v;
   return 0;
@@ -802,6 +943,14 @@ fail:
 int xmv200_venc_create_h264(struct xmv200_venc **pv, uint32_t width,
                             uint32_t height, uint32_t fps, uint32_t qp,
                             uint32_t gop) {
+  /* XM232: H.264 on its own encoder, which has no H1 */
+  if (engine()->map == MAP_XM232) {
+    if (xmv200_venc_create(pv, width, height, fps, qp, gop))
+      return -1;
+    (*pv)->avc = 1;
+    (*pv)->qp_i = (*pv)->qp;
+    return 0;
+  }
   struct xmv200_venc *v = calloc(1, sizeof(*v));
 
   if (!v)
@@ -842,6 +991,8 @@ void xmv200_venc_destroy(struct xmv200_venc *v) {
   xmv200_h264_destroy(v->h264);
   if (v->stream_map && v->stream_map != MAP_FAILED)
     munmap(v->stream_map, v->stream.size);
+  if (v->eng)
+    munmap((void *)v->eng, 0x2000);
   if (v->fd_hevc >= 0)
     close(v->fd_hevc);
   if (v->fd_mem >= 0)
@@ -959,6 +1110,13 @@ static void rate_control(struct xmv200_venc *v, int idr, uint32_t bytes) {
 
 /* Encodes one picture from VPSS into out: parameter sets before an IDR,
  * then the slice. Returns the length, or -1. */
+/* the JPEG quantisers' order in a DQT segment */
+static const uint8_t jpeg_zigzag[64] = {
+    0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18, 11, 4,  5,
+    12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6,  7,  14, 21, 28,
+    35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51,
+    58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63};
+
 static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
                   uint8_t *out, int cap) {
   const struct engine *e = v->e;
@@ -968,7 +1126,31 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
   int idr = v->frame % v->gop == 0, n = 0, k, len;
   const uint32_t *preset;
 
-  if (idr) {
+  uint32_t hdr_bits = 0, hdr_nbits = 0;
+
+  if (v->avc) {
+    /* H.264 (XM232): the slice header's whole bytes here, its last bits
+     * to the engine, which starts its output with them */
+    struct bw b = {rbsp, sizeof(rbsp)};
+
+    if (idr) {
+      v->poc = 0;
+      if ((k = nal264(out + n, cap - n, 0x27, rbsp,
+                      write_sps264(v, rbsp, 128))) < 0)
+        return -1;
+      n += k;
+      if ((k = nal264(out + n, cap - n, 0x28, rbsp, write_pps264(rbsp, 128))) <
+          0)
+        return -1;
+      n += k;
+    }
+    write_slice264(v, idr, &b);
+    hdr_nbits = b.nacc;
+    hdr_bits = (uint32_t)(b.acc << (8 - b.nacc)) & 0xff;
+    if ((k = nal264(out + n, cap - n, idr ? 0x25 : 0x21, rbsp, b.len)) < 0)
+      return -1;
+    n += k;
+  } else if (idr) {
     v->poc = 0;
     if ((k = nal(out + n, cap - n, 32, rbsp, write_vps(v, rbsp, 128))) < 0)
       return -1;
@@ -980,11 +1162,13 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
       return -1;
     n += k;
   }
-  k = nal(out + n, cap - n, idr ? 19 : 1, rbsp,
-          write_slice_header(v, idr, rbsp, sizeof(rbsp)));
-  if (k < 0)
-    return -1;
-  n += k;
+  if (!v->avc) {
+    k = nal(out + n, cap - n, idr ? 19 : 1, rbsp,
+            write_slice_header(v, idr, rbsp, sizeof(rbsp)));
+    if (k < 0)
+      return -1;
+    n += k;
+  }
 
   preset = e->preset[v->width <= 1280][idr ? 0 : v->frame % v->gop == 1 ? 1 : 2];
   for (int i = 0; i < e->n_type; i++)
@@ -1028,6 +1212,15 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
     reg(v, 0x120, v->chroma.phys + rec / 2);
     /* what the vendor's P pictures count up from the IDR */
     reg(v, 0x408, idr ? 0 : 0x31cf0000 | ramp[k - 1 < 4 ? k - 1 : 4]);
+    /* the codec: no register says it but the rate control's +0x3c8 and an
+     * H.264 slice header's bits past its last whole byte */
+    reg(v, 0x3c8, v->avc ? 0x29 : 0x1e);
+    reg(v, 0x52c, hdr_bits);
+    reg(v, 0x530, hdr_nbits);
+    /* a snapshot: the engine's JPEG of the same source, to jphys */
+    reg(v, 0x5c8, v->jq != NULL);
+    reg(v, 0x5fc, v->jq ? v->jphys : 0);
+    reg(v, 0x5d4, v->jq ? v->jroom : 0);
     reg(v, 0x40c, idr ? 0 : (k - 1 < 8 ? k - 1 : 8) << 25);
     memset(job, 0, sizeof(job));
     job[1] = v->width;
@@ -1077,6 +1270,19 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
   job[e->list_word] = (uint32_t)(uintptr_t)v->regs;
   if (ioctl(v->fd_hevc, HEVC_LOCK, 0) < 0)
     return -1;
+  /* +0x1000: the vendor's table for a picture, the JPEG's quantisers
+   * (65536 / q, in the DQT's zigzag order, luma then chroma) for one
+   * with a snapshot (+0x08c 2) */
+  if (v->eng && v->jq) {
+    v->eng[0x08c / 4] = 2;
+    for (int t = 0; t < 2; t++)
+      for (int i = 0; i < 64; i++)
+        v->eng[0x1000 / 4 + t * 64 + i] = 65536 / v->jq[t][jpeg_zigzag[i]];
+  } else if (v->eng) {
+    v->eng[0x08c / 4] = 0;
+    for (int i = 0; i < N(x232_rd); i++)
+      v->eng[0x1000 / 4 + i] = x232_rd[i];
+  }
   /* v1: the stream's encoder OSD, the engine ours */
   if (e->map == MAP_V1 && venc_fd >= 0) {
     uint32_t o[10] = {f->chn, f->y, f->width, f->height};
@@ -1090,14 +1296,45 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
   }
   ioctl(v->fd_hevc, HEVC_UNLOCK, 0);
   len = e->map == MAP_XM232 ? job[18] : job[11];
-  if (len <= 0 || (uint32_t)len > v->stream.size - HDR_ROOM || n + len > cap)
+  if (e->map == MAP_XM232)
+    v->jlen = job[26];
+  if (len <= 0 || (uint32_t)len > v->stream.size - HDR_ROOM || n + len + 2 > cap)
     return -1;
   memcpy(out + n, v->stream_map + HDR_ROOM, len);
+  /* H.264: the engine escapes its own bytes; across the seam between the
+   * header's bytes and its, the escape is ours */
+  for (int i = n - 2; v->avc && i < n && i >= 0; i++)
+    if (!out[i] && !out[i + 1] && out[i + 2] <= 3) {
+      memmove(out + i + 3, out + i + 2, n + len - (i + 2));
+      out[i + 2] = 3;
+      len++;
+      break;
+    }
   v->recon = rec;
   v->frame++;
   v->poc++;
   rate_control(v, idr, n + len);
   return n + len;
+}
+
+int xmv200_venc_xm232(void) { return engine()->map == MAP_XM232; }
+
+int xmv200_venc_jpeg232(struct xmv200_venc *v, const struct xmv200_frame *f,
+                        const uint8_t q[2][64], uint32_t phys, uint32_t room) {
+  int cap = v->stream.size + 0x1000, len;
+  uint8_t *video = malloc(cap); /* the picture itself, not kept */
+
+  if (!video || v->e->map != MAP_XM232)
+    return free(video), -1;
+  v->frame = 0; /* an IDR: nothing to refer to */
+  v->jq = q;
+  v->jphys = phys;
+  v->jroom = room;
+  v->jlen = 0;
+  len = encode(v, f, video, cap);
+  v->jq = NULL;
+  free(video);
+  return len < 0 || !v->jlen || v->jlen > room ? -1 : (int)v->jlen;
 }
 
 int xmv200_frame_get(struct xmv200_frame *f) {
