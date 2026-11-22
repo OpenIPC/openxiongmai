@@ -15,7 +15,12 @@
  *
  * The XM530V200 and XM533 have a 64-byte descriptor (count at word 9, bind
  * at 12..14); the XM535's is 72 bytes, a word more before the count (count
- * at 10, bind at 14..16). VB_LAYOUT=v200 or xm535 at build time.
+ * at 10, bind at 14..16). The XM232's is 80 bytes: word 4 the address the
+ * modules use (a compressed pool's compressed view, otherwise the physical
+ * address), 5 the physical address, 6 the size, 7..9 stride, width and
+ * height, 11 the count, 16..18 the bind; its pools carry a compression flag
+ * ({size, count, comp}, compressed ones from mmz_alloc_comp), and it has six
+ * lists (adding vdc and vgs). VB_LAYOUT=v200, xm535 or xm232 at build time.
  *
  * Lists: 0 the free buffers, in size order; 1 VPSS's, 2 VENC's, 3 one more
  * queue (var), each with a wait queue. vb_get_buf(list, size, &buf, ms)
@@ -51,7 +56,21 @@
 int mmz_alloc(const char *name, u32 size, u32 *phys);
 int mmz_free(u32 phys, u32 *size);
 
-#ifdef VB_LAYOUT_XM535
+#if defined(VB_LAYOUT_XM232)
+int mmz_alloc_comp(const char *name, u32 size, u32 *phys, u32 *comp);
+#define DESC_WORDS 20
+#define W_REF 11
+#define W_BIND 16
+#define DUMMIES 2
+#define W_ADDR 4 /* a compressed pool's buffers: the compressed view */
+#define W_PHYS 5
+#define W_SIZE 6
+#define W_STRIDE 7
+#define N_LISTS 6 /* free, vpss, venc, var, vdc, vgs */
+#define POOL_COMP   /* pools are {size, count, comp} */
+#define MODE_STRICT /* a mode but 0 and 1 finds no buffer */
+#define VB_SET_CONF 0x41844201
+#elif defined(VB_LAYOUT_XM535)
 #define DESC_WORDS 18
 #define W_REF 10
 #define W_BIND 14
@@ -64,11 +83,15 @@ int mmz_free(u32 phys, u32 *size);
 #define PUT_FROM 10
 #define DUMMIES 0
 #endif
+#ifndef W_PHYS
 #define W_PHYS 4
+#define W_ADDR W_PHYS
 #define W_SIZE 5
 #define W_STRIDE 6
-
+#define N_LISTS 4
 #define VB_SET_CONF 0x41044201
+#endif
+
 #define VB_INIT 0x4200
 #define VB_FREE 0x4204
 #define VB_SET_MODE 0x40044205
@@ -76,7 +99,6 @@ int mmz_free(u32 phys, u32 *size);
 #define VB_PUT (0x40004203 | ((DESC_WORDS * 4 + 16) << 16))
 
 #define MAX_POOLS 32
-#define N_LISTS 4
 
 /* a buffer: the descriptor as the modules see it, and its links */
 struct vb_buf {
@@ -90,6 +112,9 @@ static struct {
 	u32 count;
 	struct {
 		u32 size, count;
+#ifdef POOL_COMP
+		u32 comp;
+#endif
 	} pool[MAX_POOLS];
 } conf;
 static struct {
@@ -153,8 +178,13 @@ int vb_get_buf(u32 list, u32 size, struct vb_buf **out, int ms)
 	}
 	if (list == 0) {
 		list_for_each_entry (b, &lists[0], node)
+#ifdef MODE_STRICT
+			if (mode == 1 ? WORD(b, W_SIZE) == size :
+			    mode == 0 && WORD(b, W_SIZE) >= size) {
+#else
 			if (mode == 1 ? WORD(b, W_SIZE) == size :
 					WORD(b, W_SIZE) >= size) {
+#endif
 				found = b;
 				break;
 			}
@@ -293,10 +323,19 @@ static int vb_init(void)
 		for (k = 0; k < conf.pool[i].count; k++) {
 			char name[32];
 			u32 phys;
+#ifdef POOL_COMP
+			u32 comp = 0;
+#endif
 			void __iomem *m;
 
 			snprintf(name, sizeof(name), "vb[%x][%d]", size, k);
+#ifdef POOL_COMP
+			if (conf.pool[i].comp ?
+				    mmz_alloc_comp(name, room, &phys, &comp) :
+				    mmz_alloc(name, room, &phys)) {
+#else
 			if (mmz_alloc(name, room, &phys)) {
+#endif
 				pr_err("vb: mmz_alloc %s failed\n", name);
 				return -1;
 			}
@@ -306,6 +345,9 @@ static int vb_init(void)
 				return -1;
 			}
 			WORD(b, W_PHYS) = phys;
+#ifdef POOL_COMP
+			WORD(b, W_ADDR) = comp ? comp : phys;
+#endif
 			WORD(b, W_SIZE) = size;
 			m = ioremap(phys + room - sizeof(marker), sizeof(marker));
 			if (m) {
@@ -434,8 +476,15 @@ static long vb_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (b) {
 			for (i = W_STRIDE; i <= W_STRIDE + 2; i++)
 				WORD(b, i) = r.desc[i];
+#ifdef VB_LAYOUT_XM232
+			/* words 12, 13 and the bind, 16..18 */
+			for (i = 12; i <= 18; i++)
+				if (i < 14 || i >= W_BIND)
+					WORD(b, i) = r.desc[i];
+#else
 			for (i = PUT_FROM; i < PUT_FROM + 5; i++)
 				WORD(b, i) = r.desc[i];
+#endif
 		}
 		spin_unlock_irqrestore(&vb_lock, flags);
 		if (!b) {
@@ -455,18 +504,32 @@ static void show_list(struct seq_file *s, struct list_head *l)
 {
 	struct vb_buf *b;
 
+#ifdef VB_LAYOUT_XM232
+	seq_puts(s, "Node      Addr      PhysAddr  Size      Stride  Width  Height  BindId  BindDev  BindChn\n");
+	list_for_each_entry (b, l, node)
+		seq_printf(s, "%-8p  %-8x  %-8x  %-8x  %-6d  %-5d  %-6d  %-6d  %-7d  %-7d\n",
+			   b, WORD(b, W_ADDR), WORD(b, W_PHYS), WORD(b, W_SIZE),
+			   WORD(b, W_STRIDE), WORD(b, W_STRIDE + 1),
+			   WORD(b, W_STRIDE + 2), WORD(b, W_BIND),
+			   WORD(b, W_BIND + 1), WORD(b, W_BIND + 2));
+#else
 	seq_puts(s, "Node      PhysAddr  Size      Stride  Width  Height  BindId  BindDev  BindChn\n");
 	list_for_each_entry (b, l, node)
 		seq_printf(s, "%-8p  %-8x  %-8x  %-6d  %-5d  %-6d  %-6d  %-7d  %-7d\n",
 			   b, WORD(b, 4), WORD(b, 5), WORD(b, 6), WORD(b, 7),
 			   WORD(b, 8), WORD(b, W_BIND), WORD(b, W_BIND + 1),
 			   WORD(b, W_BIND + 2));
+#endif
 }
 
 static int vb_show(struct seq_file *s, void *v)
 {
 	static const char *const names[N_LISTS] = {"FREE", "VPSS", "VENC",
-						   "VAR"};
+						   "VAR",
+#ifdef VB_LAYOUT_XM232
+						   "VDC", "VGS"
+#endif
+	};
 	unsigned long flags;
 	struct vb_buf *b;
 	u32 i;
@@ -477,18 +540,37 @@ static int vb_show(struct seq_file *s, void *v)
 	seq_printf(s, "Max Count of Pools:        %d\n", MAX_POOLS);
 	seq_printf(s, "Mode: %d\n", mode);
 	seq_puts(s, "-----COMMON POOL CONFIG--------------------------------------------------------\n");
+#ifdef POOL_COMP
+	seq_puts(s, "PoolId  Count  Comp  Size      CurCnt  MinCnt\n");
+	for (i = 0; i < conf.count && i < MAX_POOLS; i++)
+		seq_printf(s, "%-6d  %-5d  %-4d  %-8x  %-6d  %-6d\n", i,
+			   conf.pool[i].count, conf.pool[i].comp,
+			   conf.pool[i].size, pool_state[i].cur,
+			   pool_state[i].min);
+#else
 	seq_puts(s, "PoolId  Count  Size      CurCnt  MinCnt\n");
 	for (i = 0; i < conf.count && i < MAX_POOLS; i++)
 		seq_printf(s, "%-6d  %-5d  %-8x  %-6d  %-6d\n", i,
 			   conf.pool[i].count, conf.pool[i].size,
 			   pool_state[i].cur, pool_state[i].min);
+#endif
 	seq_puts(s, "-----VB ALL LIST STATUS--------------------------------------------------------\n");
+#ifdef VB_LAYOUT_XM232
+	seq_puts(s, "Node      Addr      PhysAddr  Size      Stride  Width  Height  BindId  BindDev  BindChn  Reference\n");
+	list_for_each_entry (b, &all_bufs, all)
+		seq_printf(s, "%-8p  %-8x  %-8x  %-8x  %-6d  %-5d  %-6d  %-6d  %-7d  %-7d  %-9d\n",
+			   b, WORD(b, W_ADDR), WORD(b, W_PHYS), WORD(b, W_SIZE),
+			   WORD(b, W_STRIDE), WORD(b, W_STRIDE + 1),
+			   WORD(b, W_STRIDE + 2), WORD(b, W_BIND),
+			   WORD(b, W_BIND + 1), WORD(b, W_BIND + 2), WORD(b, W_REF));
+#else
 	seq_puts(s, "Node      PhysAddr  Size      Stride  Width  Height  BindId  BindDev  BindChn  Reference\n");
 	list_for_each_entry (b, &all_bufs, all)
 		seq_printf(s, "%-8p  %-8x  %-8x  %-6d  %-5d  %-6d  %-6d  %-7d  %-7d  %-9d\n",
 			   b, WORD(b, 4), WORD(b, 5), WORD(b, 6), WORD(b, 7),
 			   WORD(b, 8), WORD(b, W_BIND), WORD(b, W_BIND + 1),
 			   WORD(b, W_BIND + 2), WORD(b, W_REF));
+#endif
 	for (i = 0; i < N_LISTS; i++) {
 		seq_printf(s, "-----VB %s LIST STATUS-------------------------------------------------------\n",
 			   names[i]);

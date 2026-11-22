@@ -1,6 +1,6 @@
 # xm_v200_venc
 
-`xm_v200_venc` is the V200 series' VENC frame queue (XM530V200, XM533, XM535D1/D2/W1), `/dev/venc_info`, built as `open_venc.ko`. It replaces the vendor `venc.ko` without changes to what uses it: libxmv200 (`xmv200_frame_get`) or Sofia.
+`xm_v200_venc` is the V200 series' VENC frame queue (XM530V200, XM533, XM535D1/D2/W1, XM232), `/dev/venc_info`, built as `open_venc.ko`. It replaces the vendor `venc.ko` without changes to what uses it: libxmv200 (`xmv200_frame_get`) or Sofia.
 
 VPSS (or VI) hands the pictures bound to VENC to vb.ko's VENC list. A thread takes them from there and has `rgn.ko` draw the OSD regions on them (`osd_process`). It queues them up to `fifo_depth` (default 4); past that a picture goes back to the free list. The thread waits from the first open of the device until `0x4900`.
 
@@ -13,7 +13,16 @@ VPSS (or VI) hands the pictures bound to VENC to vb.ko's VENC list. A thread tak
 | `0x40104904` | 16 bytes kept |
 | `0x40284905` | XM535: the OSD regions composed on a channel's picture (`comp_osd_process`) |
 
-Like `open_vb`, it has to know vb.ko's buffer descriptors: `VENC_LAYOUT=v200` (XM530V200, XM533) or `xm535` at build time. It needs `vb_get_buf`/`vb_put_buf` (open_vb or the vendor's) and `rgn.ko`'s `osd_process` (and `comp_osd_process` on the XM535).
+## XM232
+
+`VENC_LAYOUT=xm232` follows the XM232's `venc.ko`:
+
+- the thread draws nothing: the XM232's rgn.ko has no `osd_process`, and user space has the encoder compose a channel's regions with `0x40104905` `{chn, address, width, height}` (`comp_osd_process`);
+- 48-byte records: `0xc0304902` the next picture (waiting up to 2 s), `0xc0304906` without waiting, `0x40304903` back. A record is `{chn, address, chroma address, width, height, stride, 0, 0, pts lo, pts hi, the descriptor's word 10, descriptor}`, the address the descriptor's word 4 (a compressed pool's compressed view) and the chroma at address + stride x (word 10, or the height without it);
+- `0x4907` wakes a waiting get, which then returns empty-handed;
+- channel settings `0x41a04901`, 416 bytes ending in the version `0x20250902` (refused otherwise).
+
+Like `open_vb`, it has to know vb.ko's buffer descriptors: `VENC_LAYOUT=v200` (XM530V200, XM533), `xm535` or `xm232` at build time. It needs `vb_get_buf`/`vb_put_buf` (open_vb or the vendor's) and `rgn.ko`'s `osd_process` (and `comp_osd_process` on the XM535).
 
 Not here yet: the XM535's `venc.ko` also carries the vendor encoder's memory manager (`/dev/venc_mem`), which only the vendor's Sofia uses.
 

@@ -4,10 +4,13 @@ ifneq ($(KERNELRELEASE),)
 # blobs open_*, and the module's name is the file's.
 obj-m := open_venc.o
 open_venc-objs := xm_v200_venc.o
-# VENC_LAYOUT=v200 (XM530V200, XM533; default) or xm535 (XM535D1/D2/W1):
+# VENC_LAYOUT=v200 (XM530V200, XM533; default), xm535 (XM535D1/D2/W1) or xm232:
 # vb.ko's buffer descriptors, as open_vb's VB_LAYOUT
 ifeq ($(VENC_LAYOUT),xm535)
 ccflags-y += -DVENC_LAYOUT_XM535
+endif
+ifeq ($(VENC_LAYOUT),xm232)
+ccflags-y += -DVENC_LAYOUT_XM232
 endif
 else
 KDIR ?= $(HOME)/projects/cameras/sdk/XM530/os/kernel/linux-xm530
