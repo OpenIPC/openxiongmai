@@ -20,8 +20,18 @@
  *               OSD regions composed on a channel's picture
  *
  * The thread waits from the first open of the device until 0x4900. The
- * buffer descriptors are vb.ko's: VENC_LAYOUT=v200 (XM530V200, XM533) or
- * xm535 at build time, as for open_vb.
+ * buffer descriptors are vb.ko's: VENC_LAYOUT=v200 (XM530V200, XM533),
+ * xm535 or xm232 at build time, as for open_vb.
+ *
+ * The XM232's differ: its thread draws nothing (its rgn.ko has no
+ * osd_process; user space has the encoder compose a channel's regions with
+ * 0x40104905 {chn, address, width, height}), and its records are 48 bytes
+ * (0xc0304902 get, 0xc0304906 get without waiting, 0x40304903 back):
+ * {chn, address, chroma address, width, height, stride, 0, 0, pts lo,
+ * pts hi, the descriptor's word 10, descriptor}, the chroma at address +
+ * stride x (word 10, or the height without it). 0x4907 wakes a waiting get
+ * empty-handed. Its channel settings are 0x41a04901, 416 bytes ending in
+ * the version 0x20250902.
  */
 
 #include <linux/delay.h>
@@ -41,12 +51,24 @@
 /* vb.ko and rgn.ko */
 int vb_get_buf(u32 list, u32 size, void **buf, int ms);
 int vb_put_buf(u32 list, void *buf);
+#ifndef VENC_LAYOUT_XM232
 int osd_process(void *frame, void *bind);
-#ifdef VENC_LAYOUT_XM535
+#endif
+#if defined(VENC_LAYOUT_XM535) || defined(VENC_LAYOUT_XM232)
 int comp_osd_process(void *frame, void *bind);
 #endif
 
-#ifdef VENC_LAYOUT_XM535
+#if defined(VENC_LAYOUT_XM232)
+#define W_ADDR 4  /* the address the encoder reads (a compressed view) */
+#define W_STRIDE 7
+#define W_WIDTH 8
+#define W_HEIGHT 9
+#define W_LINES 10 /* when set, the luma's lines in the buffer */
+#define W_PTS 12
+#define W_BIND 16
+#define REC_WORDS 12
+#define REC_BUF 11
+#elif defined(VENC_LAYOUT_XM535)
 #define W_OWN 9	   /* the XM535's word: set, the OSD is done already */
 #define W_BIND 14  /* id, dev, chn */
 #define W_PTS 12
@@ -56,22 +78,35 @@ int comp_osd_process(void *frame, void *bind);
 #define W_PTS 10
 #define REC_BUF 8
 #endif
+#ifndef W_ADDR
 #define W_PHYS 4
 #define W_STRIDE 6
 #define W_WIDTH 7
 #define W_HEIGHT 8
+#define REC_WORDS 10
+#endif
 
 #define VB_FREE 0
 #define VB_VENC 2
 
-#define VENC_GET 0xc0284902
-#define VENC_RELEASE 0x40284903
+#define VENC_GET (0xc0004902 | (REC_WORDS * 4) << 16)
+#define VENC_RELEASE (0x40004903 | (REC_WORDS * 4) << 16)
 #define VENC_INIT 0x4900
 #define VENC_SET4 0x40104904
-#define VENC_OSD 0x40284905
 #define VENC_NR_CFG 1
 #define N_CHN 33
+#ifdef VENC_LAYOUT_XM232
+#define VENC_OSD 0x40104905
+#define VENC_GET_NOWAIT 0xc0304906
+#define VENC_WAKE 0x4907
+#define VENC_NR_MAX 8
+#define CFG_MAX 0x1a0
+#define CFG_VERSION 0x20250902 /* the settings' last word */
+#else
+#define VENC_OSD 0x40284905
+#define VENC_NR_MAX 5
 #define CFG_MAX 0x104
+#endif
 
 static unsigned int fifo_depth = 4;
 module_param(fifo_depth, uint, 0644);
@@ -95,6 +130,9 @@ static u32 chn_cfg_size;
 static u32 set4[4];
 static atomic_t opens = ATOMIC_INIT(0);
 static volatile int wait_init;
+#ifdef VENC_LAYOUT_XM232
+static volatile int force_wake;
+#endif
 static struct task_struct *thread;
 
 /* the pictures user space holds, to take back only those */
@@ -152,15 +190,19 @@ static int venc_thread(void *arg)
 			drop(p);
 			continue;
 		}
-#ifdef VENC_LAYOUT_XM535
+#if defined(VENC_LAYOUT_XM535)
 		if (!WORD(p, W_OWN))
 #endif
+#ifndef VENC_LAYOUT_XM232
 		{
 			frame[0] = WORD(p, W_STRIDE);
 			frame[1] = WORD(p, W_HEIGHT);
 			frame[2] = frame[3] = WORD(p, W_PHYS);
 			osd_process(frame, &WORD(p, W_BIND));
 		}
+#else
+		(void)frame;
+#endif
 		spin_lock_irqsave(&fifo_lock, flags);
 		list_add_tail(&p->node, &fifo);
 		state.count++;
@@ -186,19 +228,33 @@ static void venc_start(void)
 	wait_init = 0;
 }
 
-static long venc_get(void __user *arg)
+static long venc_get(void __user *arg, bool wait)
 {
 	struct pic *p = NULL;
 	unsigned long flags;
-	u32 r[10];
+	u32 r[REC_WORDS];
 	long t;
 
+#ifdef VENC_LAYOUT_XM232
+	if (wait) {
+		force_wake = 0;
+		t = wait_event_interruptible_timeout(
+			fifo_wq, !list_empty(&fifo) || force_wake,
+			msecs_to_jiffies(2000));
+		force_wake = 0;
+		if (t <= 0) {
+			state.fifo_empty++;
+			return -ERESTARTSYS;
+		}
+	}
+#else
 	t = wait_event_interruptible_timeout(fifo_wq, !list_empty(&fifo),
 					     msecs_to_jiffies(2000));
 	if (t <= 0) {
 		state.fifo_empty++;
 		return -ERESTARTSYS;
 	}
+#endif
 	spin_lock_irqsave(&fifo_lock, flags);
 	if (!list_empty(&fifo)) {
 		p = list_first_entry(&fifo, struct pic, node);
@@ -210,12 +266,24 @@ static long venc_get(void __user *arg)
 		return -ERESTARTSYS;
 	memset(r, 0, sizeof(r));
 	r[0] = WORD(p, W_BIND + 2);
+#ifdef VENC_LAYOUT_XM232
+	r[1] = WORD(p, W_ADDR);
+	r[2] = WORD(p, W_ADDR) + WORD(p, W_STRIDE) *
+		(WORD(p, W_LINES) ? WORD(p, W_LINES) : WORD(p, W_HEIGHT));
+	r[3] = WORD(p, W_WIDTH);
+	r[4] = WORD(p, W_HEIGHT);
+	r[5] = WORD(p, W_STRIDE);
+	r[8] = WORD(p, W_PTS);
+	r[9] = WORD(p, W_PTS + 1);
+	r[10] = WORD(p, W_LINES);
+#else
 	r[1] = WORD(p, W_PHYS);
 	r[2] = WORD(p, W_WIDTH);
 	r[3] = WORD(p, W_HEIGHT);
 	r[4] = WORD(p, W_STRIDE);
 	r[6] = WORD(p, W_PTS);
 	r[7] = WORD(p, W_PTS + 1);
+#endif
 #ifdef VENC_LAYOUT_XM535
 	r[8] = WORD(p, W_OWN);
 #endif
@@ -233,7 +301,7 @@ static long venc_get(void __user *arg)
 
 static long venc_release(void __user *arg)
 {
-	u32 r[10];
+	u32 r[REC_WORDS];
 	struct pic *p;
 
 	if (copy_from_user(r, arg, sizeof(r))) {
@@ -258,11 +326,11 @@ static long venc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	void __user *uarg = (void __user *)arg;
 	u32 size = _IOC_SIZE(cmd);
 
-	if (_IOC_TYPE(cmd) != 0x49 || _IOC_NR(cmd) > 5)
+	if (_IOC_TYPE(cmd) != 0x49 || _IOC_NR(cmd) > VENC_NR_MAX)
 		return -ENOTTY;
 	switch (cmd) {
 	case VENC_GET:
-		return venc_get(uarg);
+		return venc_get(uarg, true);
 	case VENC_RELEASE:
 		return venc_release(uarg);
 	case VENC_INIT:
@@ -272,6 +340,27 @@ static long venc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (copy_from_user(set4, uarg, sizeof(set4)))
 			break;
 		return 0;
+#ifdef VENC_LAYOUT_XM232
+	case VENC_GET_NOWAIT:
+		return venc_get(uarg, false);
+	case VENC_WAKE:
+		force_wake = 1;
+		wake_up(&fifo_wq);
+		return 0;
+	case VENC_OSD: {
+		/* {chn, address, width, height}: picture {w, h, addr, addr} */
+		u32 r[4], frame[4], bind[3] = {7, 0, 0};
+
+		if (copy_from_user(r, uarg, sizeof(r)))
+			break;
+		frame[0] = r[2];
+		frame[1] = r[3];
+		frame[2] = frame[3] = r[1];
+		bind[2] = r[0];
+		comp_osd_process(frame, bind);
+		return 0;
+	}
+#endif
 #ifdef VENC_LAYOUT_XM535
 	case VENC_OSD: {
 		u32 r[10], frame[4] = {0}, bind[3] = {7, 0, 0};
@@ -297,6 +386,14 @@ static long venc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			goto fault;
 		memcpy(&chn, c, 4);
 		memcpy(&on, c + 4, 4);
+#ifdef CFG_VERSION
+		if (size != CFG_MAX ||
+		    *(u32 *)(c + CFG_MAX - 4) != CFG_VERSION) {
+			pr_err("venc: settings version mismatch %x %x\n",
+			       *(u32 *)(c + CFG_MAX - 4), CFG_VERSION);
+			return -1;
+		}
+#endif
 		if (chn >= N_CHN) {
 			pr_err("venc: chn %u is invalid\n", chn);
 			return 0;
