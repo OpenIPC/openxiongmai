@@ -20,7 +20,11 @@
  * - v1, the XM535D1/D2/W1's: CTB 16, no SAO; absolute addresses, the ring's
  *   bounds in registers, and it scales the source to the picture;
  * - x533, the XM533's: v3's job and list, CTB 16 and no SAO as v1, with
- *   absolute addresses and the ring's bounds in registers of its own.
+ *   absolute addresses and the ring's bounds in registers of its own;
+ * - xm232, the XM232's: a 30-word job (0x40784805) on a 402-entry list,
+ *   CTB 16 and no SAO, absolute addresses, the rings' bounds in registers;
+ *   it scales the source to the picture, and VENC channel 0's pictures
+ *   come online from vi_mu.ko's line buffer (the job's line count).
  * Reference and reconstruction share a ring of one picture plus 96 lines:
  * each picture's reconstruction starts 96 lines below the last one's, so it
  * never overwrites rows the next picture still reads.
@@ -50,7 +54,7 @@ static int venc_fd = -1; /* /dev/venc_info */
 #define HEVC_UNLOCK 0x4804
 #define HEVC_RESET 0x40044806
 
-#define MAX_REGS 350
+#define MAX_REGS 402
 #define RING_LINES 96
 #define HDR_ROOM 0x100 /* the vendor's output starts this far in */
 
@@ -324,6 +328,39 @@ static const struct {
     {0x8f8, 0x20}, {0x8fc, 0x20},
 };
 
+/* xm232: the vendor encoder's registers as its P jobs write them, but
+ * for those libxmv200 sets for each picture */
+static const uint16_t x232_tmpl_off[] = {
+    0x030, 0x034, 0x040, 0x044, 0x048, 0x050, 0x054, 0x058, 0x064, 0x068,
+    0x06c, 0x074, 0x080, 0x084, 0x0c8, 0x0cc, 0x0d4, 0x0dc, 0x100, 0x104,
+    0x108, 0x18c, 0x190, 0x194, 0x198, 0x19c, 0x3c8, 0x3cc, 0x3d0, 0x3d4,
+    0x3e8, 0x3ec, 0x414, 0x440, 0x444, 0x448, 0x44c, 0x450, 0x454, 0x458,
+    0x45c, 0x4c0, 0x4c4, 0x4c8, 0x4d0, 0x4d4, 0x4d8, 0x4e4, 0x4e8, 0x4ec,
+    0x4f0, 0x4f4, 0x4f8, 0x4fc, 0x500, 0x504, 0x508, 0x50c, 0x510, 0x514,
+    0x518, 0x51c, 0x520, 0x52c, 0x530, 0x538, 0x53c, 0x540, 0x544, 0x54c,
+    0x550, 0x5bc, 0x5c0, 0x5c8, 0x5d8, 0x620,
+};
+static const uint32_t x232_tmpl_val[] = {
+    0x3f, 0xfff, 0x3, 0x3, 0x3, 0x7,
+    0x0, 0x0, 0x0, 0x0, 0x0, 0x2710000,
+    0xffffffff, 0xffffffff, 0x1, 0x0, 0xffffffff, 0x0,
+    0x2, 0x1, 0x0, 0x0, 0xd555, 0xd555,
+    0xc8, 0x148, 0x1e, 0x33, 0x33, 0x0,
+    0x1, 0x1, 0x0, 0x0, 0x0, 0x0,
+    0x0, 0x0, 0x0, 0x0, 0x0, 0x1,
+    0x9, 0x8, 0x1, 0x1, 0x1, 0xf,
+    0x0, 0xa, 0x800d60, 0x0, 0x0, 0x0,
+    0x0, 0x0, 0x0, 0x0, 0x1, 0x1,
+    0x5, 0xe, 0x0, 0x0, 0x0, 0xffffffff,
+    0xffffffff, 0xffffffff, 0xffffffff, 0x0, 0x0, 0x0,
+    0x0, 0x0, 0xffffffff, 0x0,
+};
+
+static const uint16_t x232_type_off[] = {0x3e0, 0x3e4, 0x3f0, 0x3f4, 0x3f8};
+static const uint32_t x232_idr[] = {0x100, 0x3e8, 0, 0, 0};
+static const uint32_t x232_p[] = {0x40, 0xfa, 0x3e807d0, 0xdac0fa0,
+                                  0x13881770};
+
 struct engine {
   const char *name;
   uint32_t job_cmd, wait_cmd, job_size; /* hevc.ko's job */
@@ -356,8 +393,12 @@ static const struct engine engines[] = {
      {{x533_idr, x533_p1, x533_p}, {x533_idr_s, x533_p1_s, x533_p_s}}},
 };
 
-/* XM232's encoder (hevc.ko's 0x40784805 job, 402 entries): its frames */
-static const struct engine xm232_engine = {"xm232", .map = MAP_XM232};
+/* XM232's: from the vendor encoder's jobs; its IDR and P presets are the
+ * same for every picture size */
+static const struct engine xm232_engine = {
+    "xm232", 0x40784805, 0xc0744802, 0x78, 29, 402, 16, 0, MAP_XM232, 3,
+    x232_tmpl_off, x232_tmpl_val, N(x232_tmpl_off), x232_type_off,
+    N(x232_type_off), {{x232_idr, x232_p, x232_p}, {x232_idr, x232_p, x232_p}}};
 
 static const struct engine *the_engine;
 
@@ -675,6 +716,17 @@ static void venc_regs(struct xmv200_venc *v) {
       reg(v, o, v->width);
     reg(v, 0x2c0, v->width > 1280);
     reg(v, 0x2d8, v->width > 1280);
+  } else if (e->map == MAP_XM232) {
+    reg(v, 0x078, v->width - 1);
+    reg(v, 0x07c, v->height - 1);
+    reg(v, 0x12c, v->luma.phys + rsz); /* the rings' ends and starts */
+    reg(v, 0x130, v->luma.phys);
+    reg(v, 0x134, v->chroma.phys + rsz / 2);
+    reg(v, 0x138, v->chroma.phys);
+    reg(v, 0x15c, v->width * e->ctb); /* a CTB row, luma and chroma */
+    reg(v, 0x160, v->width * e->ctb / 2);
+    reg(v, 0x164, v->width * e->ctb);
+    reg(v, 0x168, v->width * e->ctb / 2);
   } else if (e->map == MAP_X533) {
     reg(v, 0x034, v->width - 1);
     reg(v, 0x038, v->height - 1);
@@ -703,7 +755,7 @@ int xmv200_venc_create(struct xmv200_venc **pv, uint32_t width,
                        uint32_t height, uint32_t fps, uint32_t qp,
                        uint32_t gop) {
   struct xmv200_venc *v = calloc(1, sizeof(*v));
-  uint32_t reset = 0x10002;
+  uint32_t reset;
 
   if (!v)
     return -1;
@@ -733,6 +785,8 @@ int xmv200_venc_create(struct xmv200_venc **pv, uint32_t width,
                        v->stream.phys);
   if (v->stream_map == MAP_FAILED)
     goto fail;
+  /* hevc.ko's version key (the XM232's own) */
+  reset = v->e->map == MAP_XM232 ? 0x05000508 : 0x10002;
   ioctl(v->fd_hevc, HEVC_RESET, &reset);
   if (v->e->map == MAP_V1)
     for (int i = 0; i < N(v1_rd); i++)
@@ -910,7 +964,7 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
   const struct engine *e = v->e;
   uint32_t lsz = lsize(v), rsz = ring(v), band = v->width * RING_LINES;
   uint8_t rbsp[128];
-  uint32_t job[18];
+  uint32_t job[30];
   int idr = v->frame % v->gop == 0, n = 0, k, len;
   const uint32_t *preset;
 
@@ -949,6 +1003,45 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
     reg(v, 0x244, ref / 2);
     reg(v, 0x248, rec);
     reg(v, 0x24c, rec / 2);
+  } else if (e->map == MAP_XM232) {
+    /* VENC channel 0's pictures come online, line by line, from vi_mu.ko's
+     * line buffer: the job waits for the lines (+0x0e0, +0x0f8) */
+    uint32_t online = f->chn == 0, k = v->frame % v->gop;
+    static const uint8_t ramp[] = {0, 0x21, 0x42, 0x43, 0x44};
+
+    reg(v, 0x088, !idr);
+    reg(v, 0x090, idr ? v->qp_i : v->qp);
+    reg(v, 0x0e0, online ? f->height : 0);
+    reg(v, 0x0f8, online);
+    reg(v, 0x10c, f->y);
+    reg(v, 0x110, f->c);
+    reg(v, 0x154, f->stride);
+    reg(v, 0x158, f->stride);
+    reg(v, 0x180, f->width != v->width || f->height != v->height);
+    reg(v, 0x184, f->width - 1);
+    reg(v, 0x188, f->height - 1);
+    reg(v, 0x13c, v->stream.phys + HDR_ROOM);
+    reg(v, 0x0d0, (v->stream.size - HDR_ROOM) & ~0x3fu);
+    reg(v, 0x114, v->luma.phys + ref);
+    reg(v, 0x118, v->chroma.phys + ref / 2);
+    reg(v, 0x11c, v->luma.phys + rec);
+    reg(v, 0x120, v->chroma.phys + rec / 2);
+    /* what the vendor's P pictures count up from the IDR */
+    reg(v, 0x408, idr ? 0 : 0x31cf0000 | ramp[k - 1 < 4 ? k - 1 : 4]);
+    reg(v, 0x40c, idr ? 0 : (k - 1 < 8 ? k - 1 : 8) << 25);
+    memset(job, 0, sizeof(job));
+    job[1] = v->width;
+    job[2] = v->height;
+    job[4] = online ? f->height : 0; /* the line buffer's lines */
+    job[5] = online;                 /* 1: from the line buffer */
+    job[9] = 1;
+    job[10] = v->stream.phys;
+    job[12] = (v->stream.size - HDR_ROOM) & ~0x3fu;
+    job[13] = !idr;
+    job[14] = k;
+    job[15] = HDR_ROOM;
+    job[16] = idr ? v->qp_i : v->qp;
+    job[17] = 0x30;
   } else if (e->map == MAP_X533) {
     reg(v, 0x040, !idr);
     reg(v, 0x044, idr ? v->qp_i : v->qp);
@@ -979,7 +1072,8 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
     reg(v, 0x0b4, v->chroma.phys + rec / 2);
   }
 
-  memset(job, 0, sizeof(job));
+  if (e->map != MAP_XM232)
+    memset(job, 0, sizeof(job));
   job[e->list_word] = (uint32_t)(uintptr_t)v->regs;
   if (ioctl(v->fd_hevc, HEVC_LOCK, 0) < 0)
     return -1;
@@ -995,7 +1089,7 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
     return -1;
   }
   ioctl(v->fd_hevc, HEVC_UNLOCK, 0);
-  len = job[11];
+  len = e->map == MAP_XM232 ? job[18] : job[11];
   if (len <= 0 || (uint32_t)len > v->stream.size - HDR_ROOM || n + len > cap)
     return -1;
   memcpy(out + n, v->stream_map + HDR_ROOM, len);
@@ -1060,9 +1154,10 @@ int xmv200_venc_encode(struct xmv200_venc *v, const struct xmv200_frame *f,
     rate_control(v, idr, len);
     return len;
   }
-  /* v3 and x533 encode what VPSS (or VI) made; v1 scales any source to the
-   * picture */
-  if (v->e->map != MAP_V1 && (f->width != v->width || f->height != v->height))
+  /* v3 and x533 encode what VPSS (or VI) made; v1 and xm232 scale any
+   * source to the picture */
+  if (v->e->map != MAP_V1 && v->e->map != MAP_XM232 &&
+      (f->width != v->width || f->height != v->height))
     return -1;
   return encode(v, f, out, cap);
 }
