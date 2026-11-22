@@ -4,7 +4,11 @@ ifneq ($(KERNELRELEASE),)
 # blobs open_*, and the module's name is the file's.
 obj-m := open_adc.o
 open_adc-objs := xm_v200_adc.o
-# ADC_CHIP=xm535 for the XM535D1/D2/W1; v200 (XM530V200, XM533) otherwise
+# ADC_CHIP=xm535 for the XM535D1/D2/W1, xm232 for the XM232 (calibrated);
+# v200 (XM530V200, XM533) otherwise
+ifeq ($(ADC_CHIP),xm232)
+ccflags-y += -DADC_XM232
+endif
 ifeq ($(ADC_CHIP),xm535)
 ccflags-y += -DADC_XM535
 endif

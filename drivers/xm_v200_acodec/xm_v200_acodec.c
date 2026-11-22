@@ -12,8 +12,10 @@
  *   0x40044105  input gain 0..100 (10 or less mutes)
  *
  * alc=1 turns on the input's automatic level (PGA), aomute=1 starts with
- * the output muted (the inno codec). ACODEC_CHIP=v200, xm533, xm535 or
- * xm535w1 at build time.
+ * the output muted (the inno codec). ACODEC_CHIP=v200, xm533, xm535,
+ * xm535w1 or xm232 at build time. The XM232's is the XM530V200's codec
+ * behind two clock registers of its own (SYS +0xC4/+0xC8), and exports
+ * get_acodec_status() for its i2s.ko.
  */
 
 #include <linux/delay.h>
@@ -37,6 +39,19 @@ static int alc;
 module_param(alc, int, 0444);
 static int aomute;
 module_param(aomute, int, 0444);
+#ifdef ACODEC_XM232
+/* acodec.ko takes it and does nothing with it */
+static int sample_rate = 8;
+module_param(sample_rate, int, 0444);
+static int codec_up;
+
+/* 1 once the codec is set up: the XM232's i2s.ko asks */
+int get_acodec_status(void)
+{
+	return codec_up;
+}
+EXPORT_SYMBOL(get_acodec_status);
+#endif
 
 static void __iomem *regs;
 static int vo_mute, vi_mute;
@@ -292,6 +307,24 @@ static struct miscdevice acodec_misc = {
 	.fops = &acodec_fops,
 };
 
+#ifdef ACODEC_XM232
+/* the codec's clocks: a9b1 unlocks each register for its value */
+static void codec_clocks(void)
+{
+	void __iomem *sys = ioremap(0x20000000, 0x100);
+
+	if (!sys)
+		return;
+	writel(0xa9b1000d, sys + 0xc4);
+	writel(0xa9b1000e, sys + 0xc8);
+	mdelay(10);
+	writel(1, sys + 0xc4);
+	writel(1, sys + 0xc8);
+	mdelay(10);
+	iounmap(sys);
+}
+#endif
+
 static int __init xm_v200_acodec_init(void)
 {
 	int ret;
@@ -299,7 +332,13 @@ static int __init xm_v200_acodec_init(void)
 	regs = ioremap(ACODEC_BASE, 0x200);
 	if (!regs)
 		return -ENOMEM;
+#ifdef ACODEC_XM232
+	codec_clocks();
+#endif
 	codec_init();
+#ifdef ACODEC_XM232
+	codec_up = 1;
+#endif
 	ret = misc_register(&acodec_misc);
 	if (ret) {
 		pr_err("acodec init error!\n");

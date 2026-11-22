@@ -4,7 +4,11 @@ ifneq ($(KERNELRELEASE),)
 # vendor blobs open_*, and the module's name is the file's.
 obj-m := open_acodec.o
 open_acodec-objs := xm_v200_acodec.o
-# ACODEC_CHIP=v200 (XM530V200; default), xm533, xm535 (D1/D2) or xm535w1
+# ACODEC_CHIP=v200 (XM530V200; default), xm533, xm535 (D1/D2), xm535w1 or
+# xm232
+ifeq ($(ACODEC_CHIP),xm232)
+ccflags-y += -DACODEC_XM232
+endif
 ifeq ($(ACODEC_CHIP),xm533)
 ccflags-y += -DACODEC_XM533
 endif

@@ -4,9 +4,13 @@ ifneq ($(KERNELRELEASE),)
 # vendor blobs open_*, and the module's name is the file's.
 obj-m := open_xm_usb0.o
 open_xm_usb0-objs := xm_v200_usb0.o
-# USB0_CHIP=xm535 for the XM535D1/D2/W1; the XM530V200's otherwise
+# USB0_CHIP=xm535 for the XM535D1/D2/W1, xm232 for the XM232; the
+# XM530V200's otherwise
 ifeq ($(USB0_CHIP),xm535)
 ccflags-y += -DUSB0_XM535
+endif
+ifeq ($(USB0_CHIP),xm232)
+ccflags-y += -DUSB0_XM232
 endif
 else
 KDIR ?= $(HOME)/projects/cameras/sdk/XM530/os/kernel/linux-xm530

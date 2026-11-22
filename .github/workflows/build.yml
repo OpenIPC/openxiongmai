@@ -472,6 +472,19 @@ jobs:
           make -C "$RUNNER_TEMP/hx280enc-v200" KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH" H264_CHIP=v200
 
+      - name: Build the XM232 variants (USB0, DMA, ADC, ACODEC_CHIP=xm232)
+        if: matrix.soc == 'xm530'
+        run: |
+          # copies, so the default builds above stay as they were
+          for d in xm_v200_usb0:USB0 xm_v200_dma:DMA xm_v200_adc:ADC \
+                   xm_v200_acodec:ACODEC; do
+            dir=${d%%:*}; var=${d##*:}
+            cp -r "drivers/$dir" "$RUNNER_TEMP/$dir-xm232"
+            make -C "$RUNNER_TEMP/$dir-xm232" clean
+            make -C "$RUNNER_TEMP/$dir-xm232" KDIR="$KDIR" ARCH=arm \
+              CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH" "${var}_CHIP=xm232"
+          done
+
       - name: Build xm530v200_jpeg
         if: matrix.soc == 'xm530'
         run: |
