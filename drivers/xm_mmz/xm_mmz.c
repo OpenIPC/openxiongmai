@@ -183,18 +183,18 @@ static unsigned long reset_at; /* jiffies of the last reset */
 #define MMZ_REC_LEN offsetof(struct mmz_rec, vaddr)
 #else
 #define MMZ_MARKER 1
-/* XM232's /proc layout lists zone nodes only: no CMA there */
-#ifdef MMZ_XM232
-#define MMZ_XM232_ENABLED 1
-#else
-#define MMZ_XM232_ENABLED 0
-#endif
 #define MMZ_REC_LEN sizeof(struct mmz_rec) /* 44 bytes, XM232's 48 */
 #ifdef MMZ_XM232
 #define MMZ_LAST_NR 8
 #else
 #define MMZ_LAST_NR 7
 #endif
+#endif
+/* XM232's /proc layout lists zone nodes only: no CMA there */
+#ifdef MMZ_XM232
+#define MMZ_XM232_ENABLED 1
+#else
+#define MMZ_XM232_ENABLED 0
 #endif
 #ifdef MMZ_XM232
 #define MMZ_BAD_CMD (-1)
