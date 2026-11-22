@@ -151,7 +151,7 @@ struct mmz_rec48 {
 #define MMZ_ALLOC48 _IOWR('M', 1, struct mmz_rec48)
 #define MMZ_ALLOC48_CACHED _IOWR('M', 4, struct mmz_rec48)
 #define MMZ_FREE48 _IOW('M', 2, struct mmz_rec48)
-static int mmz48; /* the 44-byte commands were refused */
+static int mmz48; /* the 44-byte commands were refused or did nothing */
 
 static int mmz_fd = -1;
 
@@ -201,7 +201,10 @@ int xmv200_mmz_alloc(struct xmv200_buf *b, const char *name, uint32_t size,
   memset(&r, 0, sizeof(r));
   strncpy(r.name, name, sizeof(r.name) - 1);
   r.size = size;
-  if (mmz48 || ioctl(mmz_fd, cached ? MMZ_ALLOC_CACHED : MMZ_ALLOC, &r) < 0) {
+  /* a 44-byte command refused, or taken without a block (an mmz.ko of
+   * 48-byte records answers 0 to it, having done nothing) */
+  if (mmz48 || ioctl(mmz_fd, cached ? MMZ_ALLOC_CACHED : MMZ_ALLOC, &r) < 0 ||
+      !r.phys) {
     struct mmz_rec48 r48 = {r, 0};
 
     if (ioctl(mmz_fd, cached ? MMZ_ALLOC48_CACHED : MMZ_ALLOC48, &r48) < 0)

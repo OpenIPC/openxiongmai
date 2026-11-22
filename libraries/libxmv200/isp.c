@@ -17,6 +17,7 @@
  */
 #include <fcntl.h>
 #include <pthread.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -467,8 +468,10 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   memset(img_last, 0, sizeof(img_last));
 
   isp_fd = open("/dev/isp", O_RDWR);
-  if (isp_fd < 0)
+  if (isp_fd < 0) {
+    fprintf(stderr, "libxmv200: /dev/isp: %s\n", strerror(errno));
     return -1;
+  }
 
   /* XM530V200: windows first, the channels' VI and isp.ko's view of them */
   for (int c = 0; chip->vi_window && c < n; c++) {
@@ -492,6 +495,7 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   isp_page = mmap(NULL, isp_page_len, PROT_READ | PROT_WRITE, MAP_SHARED,
                   isp_fd, 0);
   if (isp_page == MAP_FAILED) {
+    fprintf(stderr, "libxmv200: isp pages: %s\n", strerror(errno));
     isp_page = NULL;
     return -1;
   }

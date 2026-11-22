@@ -795,8 +795,10 @@ static int layout_start(const struct xmv200_layout *l,
             popcount(b->stream[s].groups) * 3 / 2,
         2};
   if (chip->vi_mu) {
-    if (np && xmv200_vb_init_comp(pools, np, 1))
+    if (np && xmv200_vb_init_comp(pools, np, 1)) {
+      fprintf(stderr, "libxmv200: vb pools failed\n");
       return -1;
+    }
     np = 0;
   }
   for (int s = 0; !chip->vi_mu && s < b->n_streams; s++) {
@@ -857,8 +859,10 @@ static int layout_start(const struct xmv200_layout *l,
     memset(cfg, 0, sizeof(cfg));
     cfg[0] = s;
     cfg[0x19c / 4] = 0x20250902;
-    if (ioctl(fd_venc, 0x41a04901, cfg) < 0)
+    if (ioctl(fd_venc, 0x41a04901, cfg) < 0) {
+      fprintf(stderr, "libxmv200: venc chn %d settings failed\n", s);
       return -1;
+    }
   }
   for (int s = 0; !no_vpss && s < b->n_streams; s++) {
     uint32_t cfg[65], h = b->stream[s].height * popcount(b->stream[s].groups);
@@ -931,8 +935,10 @@ static int layout_start(const struct xmv200_layout *l,
   }
   isp_pll(chip, fd_sys, b->isp.tuning->pll[1], b->isp.tuning->n_pll[1]);
 
-  if (xmv200_isp_start(&b->isp))
+  if (xmv200_isp_start(&b->isp)) {
+    fprintf(stderr, "libxmv200: isp start failed\n");
     return -1;
+  }
 
   /* XM232: vi_mu.ko's channels, three per sensor (sensor k's output o is
    * channel 3k + o), each sensor's picture scaled to the stream's and
