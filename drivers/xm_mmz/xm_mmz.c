@@ -170,11 +170,17 @@ static void reap_work_fn(struct work_struct *work);
 static DECLARE_DELAYED_WORK(reap_work, reap_work_fn);
 static unsigned long reset_at; /* jiffies of the last reset */
 
+/*
+ * The record size each vendor module takes, its only one: it dispatches on
+ * the whole command word, size and direction included.
+ */
 #ifdef CONFIG_ARCH_XM510
 #define MMZ_MARKER 0 /* the XM510 module lays blocks with no marker */
 #define MMZ_LAST_NR 3 /* and knows ioctls 0-3, on 40-byte records only */
+#define MMZ_REC_LEN offsetof(struct mmz_rec, vaddr)
 #else
 #define MMZ_MARKER 1
+#define MMZ_REC_LEN sizeof(struct mmz_rec) /* 44 bytes, XM232's 48 */
 #ifdef MMZ_XM232
 #define MMZ_LAST_NR 8
 #else
@@ -697,17 +703,30 @@ static long mmz_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		reset_blocks();
 		return 0;
 	}
+	/* A command the vendor module does not have, another record size or
+	 * direction included, is refused as it refuses it: logged, -1 */
 	len = _IOC_SIZE(cmd);
-	if (_IOC_TYPE(cmd) != 'M' ||
-	    (len != sizeof(r) && len != offsetof(struct mmz_rec, vaddr)) ||
-	    _IOC_NR(cmd) < 1 || _IOC_NR(cmd) > MMZ_LAST_NR ||
-	    (!MMZ_MARKER && len != offsetof(struct mmz_rec, vaddr))) {
-		pr_err("mmz: ioctl cmd error\n");
-		return 0;
-	}
-	/* the command numbers carry the size, so compare them without it */
+	if (_IOC_TYPE(cmd) != 'M' || len != MMZ_REC_LEN ||
+	    _IOC_NR(cmd) < 1 || _IOC_NR(cmd) > MMZ_LAST_NR)
+		goto bad_cmd;
+	/* XM510's record is the first 40 bytes of this one */
 	cmd &= ~(_IOC_SIZEMASK << _IOC_SIZESHIFT);
 	cmd |= sizeof(r) << _IOC_SIZESHIFT;
+	switch (cmd) {
+	case MMZ_IOC_ALLOC:
+	case MMZ_IOC_FREE:
+	case MMZ_IOC_GET:
+	case MMZ_IOC_ALLOC_CACHED:
+	case MMZ_IOC_FLUSH:
+	case MMZ_IOC_CACHED:
+	case MMZ_IOC_UNCACHED:
+#ifdef MMZ_XM232
+	case MMZ_IOC_ALLOC_COMP:
+#endif
+		break;
+	default:
+		goto bad_cmd;
+	}
 	memset(&r, 0, sizeof(r));
 	if (copy_from_user(&r, uarg, len)) {
 		pr_err("mmz: ioctl copy_from_user error.\n");
@@ -737,7 +756,7 @@ static long mmz_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case MMZ_IOC_FLUSH:
 		/* the caller's mapping, then the outer cache by address */
-		if (len == sizeof(r) && r.vaddr)
+		if (r.vaddr)
 			__cpuc_flush_dcache_area((void *)(uintptr_t)r.vaddr,
 						 r.size);
 		outer_flush_range(r.phys, r.phys + r.size);
@@ -749,7 +768,7 @@ static long mmz_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		set_cached(r.phys, cmd == MMZ_IOC_CACHED);
 		return 0;
 	default:
-		return 0;
+		goto bad_cmd;
 	}
 	/* The record goes back whether or not the call succeeded, as the
 	 * vendor's does: a failed one carries phys 0, which is what callers
@@ -759,6 +778,10 @@ static long mmz_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return -1;
 	}
 	return ret;
+
+bad_cmd:
+	pr_err("mmz: ioctl cmd error\n");
+	return -1;
 }
 
 /*
