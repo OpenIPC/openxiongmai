@@ -386,6 +386,11 @@ static long ai_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case AI_SET_RATE:
 		if (get_user(v, (u32 __user *)arg))
 			return -EFAULT;
+#ifdef I2S_XM232
+		/* its clock switches between 8 and 16 kHz only */
+		if (v != 8000 && v != 16000)
+			return -1;
+#endif
 		rate = v;
 		pr_info("rate:%d;", rate);
 		clock_for_rate();
@@ -554,6 +559,10 @@ static int __init xm_v200_i2s_init(void)
 	int ret;
 
 #ifdef I2S_XM232
+	if (rate != 8000 && rate != 16000) {
+		pr_err("audio: rate %d: XM232 takes 8000 or 16000\n", rate);
+		return -EINVAL;
+	}
 	if (!get_acodec_status()) {
 		pr_err("audio: acodec is not exist!\n");
 		return -ENODEV;

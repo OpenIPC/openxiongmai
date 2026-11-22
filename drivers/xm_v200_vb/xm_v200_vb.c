@@ -349,7 +349,16 @@ static int vb_init(void)
 			WORD(b, W_ADDR) = comp ? comp : phys;
 #endif
 			WORD(b, W_SIZE) = size;
+			/* vb.ko's marker: at the end of room in the view the
+			 * buffer is addressed by, for a compressed pool the
+			 * compressed one, where room is the logical size; the
+			 * physical block is only 6/8 of it */
+#ifdef POOL_COMP
+			m = ioremap((comp ? comp : phys) + room - sizeof(marker),
+				    sizeof(marker));
+#else
 			m = ioremap(phys + room - sizeof(marker), sizeof(marker));
+#endif
 			if (m) {
 				memcpy_toio(m, marker, sizeof(marker));
 				iounmap(m);

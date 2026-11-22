@@ -879,6 +879,8 @@ static long isp_ioctl_sys(unsigned int cmd, void __user *arg, u32 *w,
 			return -1;
 		}
 		c = (w[0] & 0xffffff) >> 16;
+		if (c > 2) /* the three VICU inputs, as 0x490a checks */
+			return -1;
 		if (C8(CM_BPU_MODE) != 3) {
 			if ((s32)w[0] < 0)
 				w[0] = (rd(0xf0060 + c * 0x1000) & 0xff) |

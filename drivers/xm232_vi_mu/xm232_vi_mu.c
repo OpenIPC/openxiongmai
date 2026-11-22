@@ -184,15 +184,15 @@ static u32 g_vi_save;
 #define N_GIVEN 32
 static void *given[N_GIVEN];
 
-static void given_add(void *b)
+/* a free slot, or -1: a picture is handed out only with one */
+static int given_slot(void)
 {
 	int k;
 
 	for (k = 0; k < N_GIVEN; k++)
-		if (!given[k]) {
-			given[k] = b;
-			return;
-		}
+		if (!given[k])
+			return k;
+	return -1;
 }
 
 static bool given_take(void *b)
@@ -268,6 +268,8 @@ static int vi_set_frame_depth(u32 chn, u32 depth)
 			       chn);
 		chn += (sensor_max - 1) * 3;
 	}
+	if (chn >= N_CHN)
+		return -1;
 	local_irq_save(flags);
 	while (CH(chn, CH_QLEN)) {
 		struct list_head *e = LIST(chn)->next;
@@ -704,7 +706,9 @@ static int vi_thread(void *unused)
 			CH(i, CH_PTS) = (u32)pts;
 			CH(i, CH_PTS + 4) = pts >> 32;
 			cnt = ++CH(i, CH_INT);
-			if (src)
+			/* the table covers source and destination 1..30 */
+			if (src && src <= 30 && CH(i, CH_DST_FPS) >= 1 &&
+			    CH(i, CH_DST_FPS) <= 30)
 				take = frtc_table[CH(i, CH_DST_FPS) +
 						  (src - 1) * 30 - 1] &
 				       1u << (cnt % src);
@@ -902,6 +906,7 @@ static long vi_get_frame(u32 *a)
 	long t;
 	struct list_head *e;
 	void *b;
+	int k;
 
 	if (split()) {
 		if (c > 2)
@@ -918,8 +923,11 @@ static long vi_get_frame(u32 *a)
 	if (t == 0)
 		return -512;
 	local_irq_save(flags);
-	if (!CH(c, CH_QLEN)) {
+	k = given_slot();
+	if (!CH(c, CH_QLEN) || k < 0) {
 		local_irq_restore(flags);
+		if (k < 0)
+			pr_err("vi: %d pictures out, none more\n", N_GIVEN);
 		return -1;
 	}
 	e = LIST(c)->next;
@@ -930,7 +938,7 @@ static long vi_get_frame(u32 *a)
 		vb_add_buf_reference(b);
 		vi_put_buf(b);
 	}
-	given_add(b);
+	given[k] = b;
 	local_irq_restore(flags);
 	a[12] = B(b, B_PTS);
 	a[13] = B(b, B_PTS + 4);
@@ -1241,12 +1249,14 @@ static int __init xm_vi_init(void)
 		goto proc;
 	}
 	ptask = kthread_create(vi_thread, NULL, "vi");
-	if (!IS_ERR_OR_NULL(ptask)) {
-		kthread_set_prio(ptask, 99);
-		wake_up_process(ptask);
-	} else {
+	if (IS_ERR_OR_NULL(ptask)) {
+		pr_err("VI: no capture thread\n");
+		ret = ptask ? PTR_ERR(ptask) : -ENOMEM;
 		ptask = NULL;
+		goto irq;
 	}
+	kthread_set_prio(ptask, 99);
+	wake_up_process(ptask);
 	isp_register_ops(ops);
 	ret = misc_register(&xm_vi_dev);
 	if (ret) {
@@ -1258,6 +1268,8 @@ static int __init xm_vi_init(void)
 thread:
 	if (ptask)
 		kthread_stop(ptask);
+	ptask = NULL;
+irq:
 	free_irq(VI_SEL_IRQ, NULL);
 proc:
 	remove_proc_entry("umap/vi", NULL);

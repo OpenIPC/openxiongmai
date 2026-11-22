@@ -183,6 +183,12 @@ static unsigned long reset_at; /* jiffies of the last reset */
 #define MMZ_REC_LEN offsetof(struct mmz_rec, vaddr)
 #else
 #define MMZ_MARKER 1
+/* XM232's /proc layout lists zone nodes only: no CMA there */
+#ifdef MMZ_XM232
+#define MMZ_XM232_ENABLED 1
+#else
+#define MMZ_XM232_ENABLED 0
+#endif
 #define MMZ_REC_LEN sizeof(struct mmz_rec) /* 44 bytes, XM232's 48 */
 #ifdef MMZ_XM232
 #define MMZ_LAST_NR 8
@@ -1140,7 +1146,7 @@ static int __init xm_mmz_init(void)
 #endif
 		/* CMA blocks carry the marker, and /proc lists them only in the
 		 * XM530 layout */
-		if (!MMZ_MARKER) {
+		if (!MMZ_MARKER || MMZ_XM232_ENABLED) {
 			pr_err("mmz: allocator=%s is for XM530/XM550\n",
 			       allocator);
 			return -EINVAL;

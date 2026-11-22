@@ -259,6 +259,12 @@ static int osd_create(u32 h, const u32 *w)
 		pr_err("rgn: handle %u param error\n", h);
 		return -EINVAL;
 	}
+	/* the encoder fetches the shown w x h from the block: it must fit, as
+	 * osd_set checks for a change */
+	if (!a.w || !a.h || tiled_size(a.fmt, a.w, a.h) > size) {
+		pr_err("rgn: handle %u: %ux%u beyond its canvas\n", h, a.w, a.h);
+		return -EINVAL;
+	}
 	snprintf(name, sizeof(name), "osd_block[%u]", h);
 	mutex_lock(&osd_lock);
 	if (mmz_alloc(name, size, &b->phys)) {
@@ -463,6 +469,13 @@ static int win_ioctl(unsigned int cmd, u32 h, const u32 *w)
 		if (mod != MOD_VENC || chn >= WIN_VENC_CHNS) {
 			pr_err("rgn: covers attach to VENC only\n");
 			ret = -EINVAL;
+			break;
+		}
+		if (cmd == RGN_ATTACH && b->attached) {
+			/* one attachment record: a second would leave the
+			 * first channel's slot behind */
+			pr_err("rgn: handle %u is attached\n", h);
+			ret = -EBUSY;
 			break;
 		}
 		t = win_venc[chn];

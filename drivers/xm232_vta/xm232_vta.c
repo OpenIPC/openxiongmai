@@ -32,6 +32,8 @@
 
 static int vta_ip_base = 0x22000000;
 module_param(vta_ip_base, int, 0400);
+/* XmVtaMte.ko's built-in defaults, kept: XM232's loader passes
+ * vta_irq_num=59 (SPI 27), as the vendor's loadxm530 does */
 static int vta_irq_num = 54;
 module_param(vta_irq_num, int, 0400);
 static int mte_irq_num = 55;

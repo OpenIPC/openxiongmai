@@ -368,9 +368,14 @@ void bpu_offline_deal_in(unsigned long unused)
 	}
 	clk_get_pts(&now);
 	*(u64 *)CP(CM_TIME(chn) + 0x18) = now;
-	ib_get_buf(chn, IB_BPU, 0, &buf, 1000);
-	if (!buf)
+	/* A tasklet with interrupts off: no waiting for the buffer (the vendor
+	 * waits up to 1 s here); without one the frame is dropped and nothing
+	 * is left in progress for the offline suspend to wait on */
+	ib_get_buf(chn, IB_BPU, 0, &buf, 0);
+	if (!buf) {
+		C32(CM_BPU_DEALING) = 0;
 		goto out;
+	}
 	grp = CM_GRP(chn);
 	*(u64 *)CP(CM_TIME(chn)) = *(u64 *)((u8 *)buf + 0x40);
 	C32(CM_TIME(chn) + 0x08) = P32(buf, 0x3c);

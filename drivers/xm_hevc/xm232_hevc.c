@@ -333,11 +333,12 @@ static long hevc_wait(void __user *arg)
 	}
 	if (err)
 		return -1;
-	done = false;
+	/* the result stays pending until it reached the caller */
 	if (arg && copy_to_user(arg, now, sizeof(now))) {
 		pr_err("hevc: copy_to_user failed\n");
 		return -EFAULT;
 	}
+	done = false;
 	return 0;
 }
 
