@@ -549,6 +549,12 @@ jobs:
           make -C drivers/xm232_vta KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
 
+      - name: Build xm232_vi_mu
+        if: matrix.soc == 'xm530'
+        run: |
+          make -C drivers/xm232_vi_mu KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+
       - name: Build xm530v200_jpeg
         if: matrix.soc == 'xm530'
         run: |
