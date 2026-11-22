@@ -926,20 +926,31 @@ static int xm510_seq_show(struct seq_file *s)
 	return 0;
 }
 
+#ifdef MMZ_XM232
+static void xm232_free_row(struct seq_file *s, u32 room)
+{
+	seq_printf(s, "%-8x      %-8x(%5dk)    %-8x       %d        %s\n", 0,
+		   room, (int)(room >> 10), 0, 1, "");
+}
+#endif
+
 static int mmz_seq_show(struct seq_file *s, void *unused)
 {
 	struct mmz_block *b, *copy;
 	unsigned long flags;
 	int n = 0, i, max;
 	u32 used = 0, cma;
+#ifdef MMZ_XM232
+	u32 at;
+#endif
 
 	seq_puts(s, "[MMZ] openxiongmai xm_mmz\n\n");
 	seq_printf(s, "[%#x--------%#x]\n", mmz_start, mmz_start + mmz_size);
 	if (!MMZ_MARKER)
 		return xm510_seq_show(s);
 #ifdef MMZ_XM232
-	seq_puts(s, "--START-----------SIZE----------------COMPADDR------"
-		    "OVERFLOW----NAME---------------\n");
+	seq_puts(s, "--PHYADDR--------SIZE------------COMPADDR----"
+		    "OVERFLOW--------NAME---------------\n");
 #else
 	seq_puts(s, "--START-----------SIZE----------------OVERFLOW----NAME"
 		    "---------------\n");
@@ -972,6 +983,9 @@ static int mmz_seq_show(struct seq_file *s, void *unused)
 	cma = cma_used;
 	spin_unlock_irqrestore(&mmz_lock, flags);
 
+#ifdef MMZ_XM232
+	at = mmz_start;
+#endif
 	for (i = 0; i < n; i++) {
 		bool over = false;
 
@@ -981,10 +995,17 @@ static int mmz_seq_show(struct seq_file *s, void *unused)
 		else if (copy[i].marked)
 			over = !guard_marker(copy[i].phys, copy[i].size, false);
 #ifdef MMZ_XM232
-		seq_printf(s, "%#-10x\t%#-10x(%5dk)\t%#-10x\t%d\t%s\n",
-			   copy[i].phys, copy[i].size,
-			   (int)(ALIGN(copy[i].size, PAGE_SIZE) >> 10),
+		/* As XM232's mmz.ko lists its allocator's nodes: a free span
+		 * before a block as a nameless row at address 0, overflow 1;
+		 * a block with its span, which USED sums */
+		if (copy[i].base > at)
+			xm232_free_row(s, copy[i].base - at);
+		seq_printf(s, "%-8x      %-8x(%5dk)    %-8x       %d        %s\n",
+			   copy[i].phys, copy[i].room, (int)(copy[i].room >> 10),
 			   copy[i].comp, over, copy[i].name);
+		used += copy[i].room;
+		at = copy[i].base + copy[i].room;
+		continue;
 #else
 		seq_printf(s, "%#-10x\t%#-10x(%5dk)\t%d\t%s\n", copy[i].phys,
 			   copy[i].size,
@@ -996,10 +1017,20 @@ static int mmz_seq_show(struct seq_file *s, void *unused)
 	}
 	mutex_unlock(&reap_lock);
 	kfree(copy);
+#ifdef MMZ_XM232
+	if (mmz_start + mmz_size > at)
+		xm232_free_row(s, mmz_start + mmz_size - at);
+#endif
 	seq_puts(s, "-------------------------------------------------------"
 		    "--------------\n");
+#ifdef MMZ_XM232
+	seq_printf(s, "SIZE: %#x(%dk)  USED: %#x(%dk)  FREE: %#x(%dk)\n",
+		   mmz_size, mmz_size >> 10, used, used >> 10, mmz_size - used,
+		   (mmz_size - used) >> 10);
+#else
 	seq_printf(s, "FREE: %#-10x(%5dk)\n", mmz_size - used,
 		   (mmz_size - used) >> 10);
+#endif
 	/* An addition to the vendor's layout, after it: what CMA holds,
 	 * blocks a reset forgot included */
 	if (use_cma)

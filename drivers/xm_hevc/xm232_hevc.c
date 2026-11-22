@@ -441,7 +441,8 @@ static int __init xm232_hevc_init(void)
 	udelay(100);
 	writel(7, clk_reset);
 	hevc_forget();
-	ret = request_irq(HEVC_IRQ, hevc_irq, 0, "hevc", NULL);
+	/* named as XM232's hevc.ko names it */
+	ret = request_irq(HEVC_IRQ, hevc_irq, 0, "h265", NULL);
 	if (ret) {
 		pr_err("h265: request_irq failed!\n");
 		hevc_unmap();

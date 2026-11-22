@@ -567,7 +567,7 @@ static int rgn_show(struct seq_file *s, void *v)
 
 		if (b->created)
 			seq_printf(s, "%-6d  %-2s  %-4d  %-4d  %-4d  %-4d  %-4d  %-5x  %-2x  %-8X  %-3d  %-3d  %-3d\n",
-				   h, b->attached ? "y" : "n", b->a.x, b->a.y,
+				   h, b->attached ? "Y" : "N", b->a.x, b->a.y,
 				   b->a.w, b->a.h, b->a.fmt, b->a.alpha,
 				   b->a.scale, b->phys, b->mod, b->dev, b->chn);
 	}
@@ -580,7 +580,7 @@ static int rgn_show(struct seq_file *s, void *v)
 
 		if (b->created)
 			seq_printf(s, "%-6d  %-2s  %-4d  %-4d  %-4d  %-4d  %-6X  %-4d  %-5d  %-3d  %-3d  %-3d\n",
-				   h, b->attached ? "y" : "n", b->a.x, b->a.y,
+				   h, b->attached ? "Y" : "N", b->a.x, b->a.y,
 				   b->a.w, b->a.h, b->a.color, b->a.type,
 				   b->a.thick, b->mod, b->dev, b->chn);
 	}

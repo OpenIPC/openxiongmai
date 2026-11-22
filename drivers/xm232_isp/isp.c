@@ -987,12 +987,15 @@ static int isp_proc_show(struct seq_file *m, void *v)
 	seq_puts(m, "chn\tfps\tFrmCnt\tibFail\tibSucc\tsnsId\tRsvCnt\tTimInt\tIntMin\tIntMax\twbIdxR\twbIdxW\n");
 	for (c = 0; c < N_CHN; c++) {
 		a = CM_VICU(c);
-		seq_printf(m, "%d\t%d.%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+		/* the AWB, then the MD statistics' buffer indices (two
+		 * more than the header names, as the vendor prints) */
+		seq_printf(m, "%d\t%d.%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
 			   C32(a + 0x30), C32(a + 0x40) / 10, C32(a + 0x40) % 10,
 			   C32(a + 0x44), C32(a + 0x58), C32(a + 0x5c),
 			   C32(a + 0x14), C32(a + 0x48), C32(a + 0x4c),
 			   C32(a + 0x54), C32(a + 0x50), C8(CM_AWB(c) + ST_R),
-			   C8(CM_AWB(c) + ST_W));
+			   C8(CM_AWB(c) + ST_W), C8(CM_MD(c) + ST_R),
+			   C8(CM_MD(c) + ST_W));
 		C32(a + 0x54) = 0xffffffff;
 		C32(a + 0x50) = 0;
 	}

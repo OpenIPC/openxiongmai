@@ -522,6 +522,16 @@ static void show_list(struct seq_file *s, struct list_head *l)
 #endif
 }
 
+/* XM232's vb.ko rules its sections off longer and shows the free, VPSS and
+ * VENC lists only */
+#ifdef VB_LAYOUT_XM232
+#define RULE "-------------"
+#define SHOWN_LISTS 3
+#else
+#define RULE "-----"
+#define SHOWN_LISTS N_LISTS
+#endif
+
 static int vb_show(struct seq_file *s, void *v)
 {
 	static const char *const names[N_LISTS] = {"FREE", "VPSS", "VENC",
@@ -536,10 +546,10 @@ static int vb_show(struct seq_file *s, void *v)
 
 	spin_lock_irqsave(&vb_lock, flags);
 	seq_puts(s, "[VB] openxiongmai xm_v200_vb\n\n");
-	seq_puts(s, "-----VB PUB CONFIG-------------------------------------------------------------\n");
+	seq_puts(s, RULE "VB PUB CONFIG-------------------------------------------------------------\n");
 	seq_printf(s, "Max Count of Pools:        %d\n", MAX_POOLS);
 	seq_printf(s, "Mode: %d\n", mode);
-	seq_puts(s, "-----COMMON POOL CONFIG--------------------------------------------------------\n");
+	seq_puts(s, RULE "COMMON POOL CONFIG--------------------------------------------------------\n");
 #ifdef POOL_COMP
 	seq_puts(s, "PoolId  Count  Comp  Size      CurCnt  MinCnt\n");
 	for (i = 0; i < conf.count && i < MAX_POOLS; i++)
@@ -554,7 +564,7 @@ static int vb_show(struct seq_file *s, void *v)
 			   conf.pool[i].count, conf.pool[i].size,
 			   pool_state[i].cur, pool_state[i].min);
 #endif
-	seq_puts(s, "-----VB ALL LIST STATUS--------------------------------------------------------\n");
+	seq_puts(s, RULE "VB ALL LIST STATUS--------------------------------------------------------\n");
 #ifdef VB_LAYOUT_XM232
 	seq_puts(s, "Node      Addr      PhysAddr  Size      Stride  Width  Height  BindId  BindDev  BindChn  Reference\n");
 	list_for_each_entry (b, &all_bufs, all)
@@ -571,8 +581,8 @@ static int vb_show(struct seq_file *s, void *v)
 			   WORD(b, 8), WORD(b, W_BIND), WORD(b, W_BIND + 1),
 			   WORD(b, W_BIND + 2), WORD(b, W_REF));
 #endif
-	for (i = 0; i < N_LISTS; i++) {
-		seq_printf(s, "-----VB %s LIST STATUS-------------------------------------------------------\n",
+	for (i = 0; i < SHOWN_LISTS; i++) {
+		seq_printf(s, RULE "VB %s LIST STATUS-------------------------------------------------------\n",
 			   names[i]);
 		show_list(s, &lists[i]);
 	}
