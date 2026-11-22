@@ -147,6 +147,19 @@ static const struct {
          .fps = 12},
     },
     {
+        /* XM232 X6S-WEQ-H: two SC2336 taking turns on one capture path
+         * (vi_mu.ko mode 3), each on its own receiver, spliced top to
+         * bottom into 1920x2160, plus 640x720 */
+        "x6s-weq-h",
+        {.chip = "xm232",
+         .n_sensors = 2,
+         .sensor = {{"SC2336", 0, 0x30, 0x00, 1, 0, 1920, 1080},
+                    {"SC2336", 0, 0x32, 0x00, 1, 0, 1920, 1080, .phy = 1}},
+         .n_streams = 2,
+         .stream = {{1920, 1080, 3}, {640, 360, 3}},
+         .fps = 12},
+    },
+    {
         /* XM533 X3-WQ-B: one SC2337P; VI makes 2304x1296 and 800x448 */
         "x3-wq-b",
         {.chip = "xm533",
@@ -439,7 +452,8 @@ static void sensor_clocks_on(const char *family) {
       }
       break;
     }
-  if (!chip || chip->sys_clocks) /* the module loader set them */
+  /* the module loader set them (XM232: its 0x74 is the encoder's clock) */
+  if (!chip || chip->sys_clocks || chip->vi_mu)
     return;
   xmv200_reg_write(SYS, 1);
   xmv200_reg_write(SYS + 0x74, c74);
@@ -475,8 +489,8 @@ static int auto_layout(struct xmv200_layout *l) {
     n = 1;
   for (int c = 1; c < n; c++) {
     l->sensor[c].vi_idx = c;
-    if (cp->vi_mode) {
-      l->sensor[c].phy = c; /* XM535D1: a receiver each */
+    if (cp->vi_mode || cp->vi_mu) {
+      l->sensor[c].phy = c; /* XM535D1, XM232: a receiver each */
     } else {
       l->sensor[c].mipi = c;
       l->sensor[c].flip = 0x66; /* the second lens is mounted turned */
@@ -648,6 +662,7 @@ static struct {
   int started;
   int fd_vpss, fd_sys, fd_venc, fd_rgn, fd_hevc, fd_vb, fd_vi;
   int n_groups, n_streams, vi_scaler;
+  int vi_chns; /* VI channels to disable: vi.ko's per stream, vi_mu.ko's */
   int n_sensors;
   struct xmv200_isp_sensor sensor[XMV200_MAX_SENSORS];
   int sensor_standby; /* SmartSens: their stream off */
@@ -666,7 +681,7 @@ void xmv200_layout_stop(void) {
     return;
   for (int c = 0; run.sensor_standby && c < run.n_sensors; c++)
     xmv200_i2c_write(run.sensor[c].bus, run.sensor[c].addr, 0x0100, 2, 0, 1);
-  for (int s = 0; run.vi_scaler && run.fd_vi >= 0 && s < run.n_streams; s++) {
+  for (int s = 0; run.fd_vi >= 0 && s < run.vi_chns; s++) {
     uint32_t chn = s;
 
     ioctl(run.fd_vi, VI_DISABLE_CHN, &chn);
@@ -721,13 +736,16 @@ static int layout_start(const struct xmv200_layout *l,
   xmv200_venc_set_engine(chip->engine);
   reset = chip->hevc_reset;
 
-  fd_vpss = chip->vi_scaler ? -1 : open_dev("/dev/vpss");
+  /* no VPSS: vi.ko scales (XM533, XM535W1), or vi_mu.ko (XM232) */
+  int no_vpss = chip->vi_scaler || chip->vi_mu;
+
+  fd_vpss = no_vpss ? -1 : open_dev("/dev/vpss");
   fd_sys = open_dev("/dev/sys");
   fd_venc = open_dev("/dev/venc_info");
   fd_rgn = open_dev("/dev/rgn");
   fd_hevc = open_dev("/dev/h265");
   fd_vb = open_dev("/dev/vb");
-  fd_vi = chip->vi_scaler ? open_dev("/dev/vi") : -1;
+  fd_vi = no_vpss ? open_dev("/dev/vi") : -1;
   /* what the stop takes down, from here on: a start that fails part-way is
    * undone by it (xmv200_layout_start) */
   run = (__typeof__(run)){.fd_vpss = fd_vpss,
@@ -737,21 +755,24 @@ static int layout_start(const struct xmv200_layout *l,
                           .fd_hevc = fd_hevc,
                           .fd_vb = fd_vb,
                           .fd_vi = fd_vi,
-                          .n_groups = chip->vi_scaler ? 0 : n,
+                          .n_groups = no_vpss ? 0 : n,
                           .n_streams = b->n_streams,
                           .vi_scaler = chip->vi_scaler,
+                          .vi_chns = chip->vi_mu       ? 3 * n
+                                     : chip->vi_scaler ? b->n_streams
+                                                       : 0,
                           .n_sensors = n,
                           .sensor_standby = !(b->isp.drv && b->isp.drv->probe)};
   memcpy(run.sensor, b->isp.sensor, sizeof(run.sensor));
-  if ((chip->vi_scaler ? fd_vi : fd_vpss) < 0 || fd_sys < 0 || fd_venc < 0 ||
+  if ((no_vpss ? fd_vi : fd_vpss) < 0 || fd_sys < 0 || fd_venc < 0 ||
       fd_hevc < 0)
     return -1;
 
   /* the system: nothing allocates before the MMZ reset */
   if (xmv200_mmz_reset())
     return -1;
-  if (chip->vi_scaler ? ioctl(fd_vi, VI_INIT, 0) < 0
-                      : ioctl(fd_vpss, VPSS_INIT, 0) < 0)
+  if (no_vpss ? ioctl(fd_vi, VI_INIT, 0) < 0
+              : ioctl(fd_vpss, VPSS_INIT, 0) < 0)
     return -1;
   if (fd_rgn >= 0)
     ioctl(fd_rgn, 0x5200, 0);
@@ -765,7 +786,20 @@ static int layout_start(const struct xmv200_layout *l,
 
   if (chip->vb_mode && fd_vb >= 0)
     ioctl(fd_vb, 0x40044205, &one);
-  for (int s = 0; s < b->n_streams; s++) {
+  /* XM232: the first stream goes to VENC online through vi_mu.ko's line
+   * buffer; the others' pictures, all sensors' in one, from compressed
+   * pools (the vendor's: two buffers each) */
+  for (int s = 1; chip->vi_mu && s < b->n_streams; s++)
+    pools[np++] = (struct xmv200_vb_pool){
+        b->stream[s].width * b->stream[s].height *
+            popcount(b->stream[s].groups) * 3 / 2,
+        2};
+  if (chip->vi_mu) {
+    if (np && xmv200_vb_init_comp(pools, np, 1))
+      return -1;
+    np = 0;
+  }
+  for (int s = 0; !chip->vi_mu && s < b->n_streams; s++) {
     uint32_t size = b->stream[s].width * b->stream[s].height *
                     popcount(b->stream[s].groups) * 3 / 2;
 
@@ -780,20 +814,20 @@ static int layout_start(const struct xmv200_layout *l,
         ((b->isp.tuning->width + 15) & ~15u) *
             ((b->isp.tuning->height + 15) & ~15u) * 3 / 2,
         3};
-  if (xmv200_vb_init(pools, np))
+  if (!chip->vi_mu && xmv200_vb_init(pools, np))
     return -1;
 
   /* VPSS: a group per sensor, fed by the ISP; its channels spliced top to
    * bottom into the streams and bound to VENC (without VPSS, VI's channels
    * come after the ISP) */
-  for (int g = 0; !chip->vi_scaler && g < n; g++) {
+  for (int g = 0; !no_vpss && g < n; g++) {
     uint32_t grp[7] = {4096, 2160, 0, 0, 0, 0, 1};
 
     if (vpss(fd_vpss, VPSS_CREATE_GRP, g, 0, grp, 7) ||
         ioctl(fd_vpss, VPSS_START_GRP, &g) < 0)
       return -1;
   }
-  for (int g = 0; !chip->vi_scaler && g < n; g++)
+  for (int g = 0; !no_vpss && g < n; g++)
     for (int s = 0, vc = 0; s < b->n_streams; s++) {
       /* stream s is the group's VPSS channel vc, and VENC channel s */
       uint32_t attr[5] = {2, b->stream[s].width, b->stream[s].height,
@@ -815,7 +849,18 @@ static int layout_start(const struct xmv200_layout *l,
 
   /* venc.ko: its channels and their stream buffers */
   ioctl(fd_venc, 0x4900, 0);
-  for (int s = 0; !chip->vi_scaler && s < b->n_streams; s++) {
+  /* XM232: its channels' settings as its vendor encoder leaves them: none
+   * but the struct's version */
+  for (int s = 0; chip->vi_mu && s < b->n_streams; s++) {
+    uint32_t cfg[0x1a0 / 4];
+
+    memset(cfg, 0, sizeof(cfg));
+    cfg[0] = s;
+    cfg[0x19c / 4] = 0x20250902;
+    if (ioctl(fd_venc, 0x41a04901, cfg) < 0)
+      return -1;
+  }
+  for (int s = 0; !no_vpss && s < b->n_streams; s++) {
     uint32_t cfg[65], h = b->stream[s].height * popcount(b->stream[s].groups);
 
     memset(cfg, 0, sizeof(cfg));
@@ -839,7 +884,8 @@ static int layout_start(const struct xmv200_layout *l,
 
   /* clocks: the sensors' (XM530V200; the XM535's module loader sets them),
    * the ISP out of reset, the ISP's PLL */
-  if (!chip->sys_clocks) {
+  /* (XM232's 0x74 is the encoder's clock, which its module loader sets) */
+  if (!chip->sys_clocks && !chip->vi_mu) {
     xmv200_reg_write(SYS, 1);
     xmv200_reg_write(SYS + 0x74, b->isp.tuning->sns_clk[0]);
     xmv200_reg_write(SYS + 0x78, b->isp.tuning->sns_clk[1]);
@@ -864,9 +910,15 @@ static int layout_start(const struct xmv200_layout *l,
     for (int k = 0; k < c; k++)
       if (b->isp.chn[k].phy == ch->phy)
         first = 0;
+    /* (XM232: one table, both receivers and both inputs, written once) */
+    if (chip->vi_mu && c > 0)
+      continue;
     for (int i = 0; first && i < b->isp.tuning->n_mipi; i++)
-      xmv200_reg_write(b->isp.tuning->mipi[i].addr + ch->phy * 0x1000,
+      xmv200_reg_write(b->isp.tuning->mipi[i].addr +
+                           (chip->vi_mu ? 0 : ch->phy * 0x1000),
                        b->isp.tuning->mipi[i].val);
+    if (chip->vi_mu)
+      continue;
     /* VI's input: on the XM535 the channel's VI device and its place; on
      * the XM530V200 bit 2 its two-frame HDR */
     xmv200_reg_write(VI + chip->vi_ctrl,
@@ -881,6 +933,34 @@ static int layout_start(const struct xmv200_layout *l,
 
   if (xmv200_isp_start(&b->isp))
     return -1;
+
+  /* XM232: vi_mu.ko's channels, three per sensor (sensor k's output o is
+   * channel 3k + o), each sensor's picture scaled to the stream's and
+   * spliced with the other sensors' (mode 3); stream o's channel bound to
+   * VENC channel o */
+  for (int k = 0; chip->vi_mu && k < n; k++)
+    for (int s = 0; s < b->n_streams && s < 3; s++) {
+      uint32_t chn = 3 * k + s, a[20] = {0, chn, 0, 0, 0, 0,
+                                         b->isp.tuning->width,
+                                         b->isp.tuning->height, 0,
+                                         b->stream[s].width,
+                                         b->stream[s].height, 0, 0, b->fps,
+                                         b->fps};
+
+      if (ioctl(fd_vi, VI_SET_CHN_ATTR, a) < 0 ||
+          ioctl(fd_vi, VI_ENABLE_CHN, &chn) < 0) {
+        fprintf(stderr, "libxmv200: vi chn %u failed\n", chn);
+        return -1;
+      }
+    }
+  for (int s = 0; chip->vi_mu && s < b->n_streams && s < 3; s++) {
+    uint32_t bind[20] = {0, s, 0, 0, MOD_VENC, 0, s, 1};
+
+    if (ioctl(fd_vi, VI_BIND, bind) < 0) {
+      fprintf(stderr, "libxmv200: vi bind %d failed\n", s);
+      return -1;
+    }
+  }
 
   /* without VPSS: a VI channel per stream, scaling the ISP's picture, and
    * bound to VENC */

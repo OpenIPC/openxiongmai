@@ -59,6 +59,13 @@ struct venc_rec {
   uint32_t chn, y, width, height, stride, rsvd;
   uint32_t pts_lo, pts_hi, vb, rsvd2;
 };
+/* XM232's: the chroma's address of its own, and the VB block's luma lines */
+struct venc_rec48 {
+  uint32_t chn, y, c, width, height, stride, rsvd[2];
+  uint32_t pts_lo, pts_hi, lines, vb;
+};
+#define VENC_GET_FRAME48 0xc0304902
+#define VENC_RELEASE_FRAME48 0x40304903
 
 static const uint16_t v3_tmpl_off[] = {
     0x008, 0x00c, 0x010, 0x014, 0x018, 0x01c, 0x020, 0x024, 0x03c, 0x048,
@@ -323,7 +330,7 @@ struct engine {
   int list_word;                        /* the list pointer in the job */
   int nregs;                            /* entries in the list */
   int ctb, sao;
-  enum { MAP_V3, MAP_V1, MAP_X533 } map; /* the register map */
+  enum { MAP_V3, MAP_V1, MAP_X533, MAP_XM232 } map; /* the register map */
   int qp_i_up;  /* the IDR's QP above the P pictures' */
   /* the template, and the IDR / first P / later P presets (and theirs for
    * pictures up to 1280 wide) */
@@ -349,6 +356,9 @@ static const struct engine engines[] = {
      {{x533_idr, x533_p1, x533_p}, {x533_idr_s, x533_p1_s, x533_p_s}}},
 };
 
+/* XM232's encoder (hevc.ko's 0x40784805 job, 402 entries): its frames */
+static const struct engine xm232_engine = {"xm232", .map = MAP_XM232};
+
 static const struct engine *the_engine;
 
 /* the H1's H.264 (h264.c): an engine only for rate control's sake */
@@ -356,7 +366,8 @@ static const struct engine h1_engine = {"h1"};
 
 /* the chip's engine: the board's, or by the kernel's machine name */
 void xmv200_venc_set_engine(const char *chip) {
-  the_engine = !strncmp(chip, "xm535", 5)   ? &engines[1]
+  the_engine = !strncmp(chip, "xm232", 5)   ? &xm232_engine
+               : !strncmp(chip, "xm535", 5) ? &engines[1]
                : !strncmp(chip, "xm533", 5) ? &engines[2]
                                             : &engines[0];
 }
@@ -370,6 +381,8 @@ static const struct engine *engine(void) {
     while (f && fgets(line, sizeof(line), f))
       if (!strncmp(line, "Hardware", 8) && strstr(line, "xm535"))
         xmv200_venc_set_engine("xm535");
+      else if (!strncmp(line, "Hardware", 8) && strstr(line, "xm232"))
+        xmv200_venc_set_engine("xm232");
       else if (!strncmp(line, "Hardware", 8) && strstr(line, "xm533"))
         xmv200_venc_set_engine("xm533");
     if (f)
@@ -998,7 +1011,24 @@ int xmv200_frame_get(struct xmv200_frame *f) {
 
   if (venc_fd < 0)
     venc_fd = open("/dev/venc_info", O_RDWR);
-  if (venc_fd < 0 || ioctl(venc_fd, VENC_GET_FRAME, &r) < 0)
+  if (venc_fd < 0)
+    return -1;
+  if (engine()->map == MAP_XM232) {
+    struct venc_rec48 q;
+
+    if (ioctl(venc_fd, VENC_GET_FRAME48, &q) < 0)
+      return -1;
+    f->chn = q.chn;
+    f->y = q.y;
+    f->c = q.c;
+    f->width = q.width;
+    f->height = q.height;
+    f->stride = q.stride;
+    f->pts = (uint64_t)q.pts_hi << 32 | q.pts_lo;
+    memcpy(f->priv, &q, sizeof(q));
+    return 0;
+  }
+  if (ioctl(venc_fd, VENC_GET_FRAME, &r) < 0)
     return -1;
   f->chn = r.chn;
   f->y = r.y;
@@ -1012,7 +1042,9 @@ int xmv200_frame_get(struct xmv200_frame *f) {
 }
 
 void xmv200_frame_release(struct xmv200_frame *f) {
-  ioctl(venc_fd, VENC_RELEASE_FRAME, f->priv);
+  ioctl(venc_fd,
+        engine()->map == MAP_XM232 ? VENC_RELEASE_FRAME48 : VENC_RELEASE_FRAME,
+        f->priv);
 }
 
 int xmv200_venc_encode(struct xmv200_venc *v, const struct xmv200_frame *f,

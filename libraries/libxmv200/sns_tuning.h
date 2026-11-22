@@ -49,6 +49,9 @@ struct xmv200_isp_block {
 #define XMV200_OP_SNS_RUN(n) (0x2000 | (n)) /* the tuning's sensor run n */
 /* 0x4959 {chn << 24 | m}: the BPU's WDR mode (2 the two-frame HDR) */
 #define XMV200_OP_WDR(m) (0x1000 | (m))
+/* XM232's 0x4909: {chn << 16 | v}, or 0x80000000 (XMV200_OP_SEL_ALL) */
+#define XMV200_OP_SEL(v) (0x0800 | (v))
+#define XMV200_OP_SEL_ALL 0x0c00
 enum {
   XMV200_OP_NOP,
   XMV200_OP_SNS_FLIP,     /* the board's mirror/flip for this lens */
@@ -62,7 +65,7 @@ enum {
   XMV200_OP_CHN_SIZE,     /* 0x4980: the channel's window */
   XMV200_OP_VICU_IRQ0,    /* the VICU's interrupt mask off */
   XMV200_OP_VICU_IRQ1,    /* ... and on */
-  XMV200_OP_VICU_RUN,     /* 0x495e: capture */
+  XMV200_OP_VICU_RUN,     /* 0x495e: capture (XM232: 0x4959) */
   XMV200_OP_CHN_ENABLE0,  /* 0x4914: the channel off */
   XMV200_OP_CHN_ENABLE1,  /* ... and on */
 };
@@ -76,7 +79,7 @@ struct xmv200_reg {
 
 struct xmv200_sns_tuning {
   /* the chip family it was captured on, whose isp.ko it is for:
-   * "xm530v200", "xm535" (XM535D1/D2), "xm535w1" or "xm533" */
+   * "xm530v200", "xm535" (XM535D1/D2), "xm535w1", "xm533" or "xm232" */
   const char *chip;
   /* the mode: the sensor's output, the clocks and the MIPI receiver */
   uint32_t width, height;
@@ -100,6 +103,7 @@ struct xmv200_sns_tuning {
   uint32_t dgain;        /* 0x4964 */
   uint32_t gain[4];      /* 0x4965 */
   uint32_t ldc[12];      /* 0x49e9 */
+  uint32_t sel[7];       /* XM232: 0x4912, the sensors' inputs */
   const struct xmv200_isp_buf *bufs; /* the channel buffers */
   int n_bufs;
   const struct xmv200_sns_run *runs; /* the sensor's register runs */

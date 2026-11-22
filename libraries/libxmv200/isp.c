@@ -44,12 +44,17 @@
 #define ISP_COMM 0x4912       /* 28 bytes */
 #define ISP_VICU_RUN 0x495e   /* {chn} */
 #define ISP_WAIT_FRAME 0x490a /* 12 bytes; the channels with a new frame */
+/* XM232's isp.ko */
+#define ISP_SEL 0x4909        /* {chn << 16 | v} or 0x80000000 */
+#define ISP_CHN_RUN 0x4959    /* {chn}: the channel's capture */
 
 #define VI 0x30000000
 
 static const struct xmv200_chip *cur_chip;
 static struct xmv200_isp_cfg cur_cfg; /* the running one */
-#define VICU(c) (VI + cur_chip->vicu + (c) * 0x10000)
+#define VICU(c)                                                              \
+  (VI + cur_chip->vicu +                                                       \
+   (c) * (cur_chip->vicu_step ? cur_chip->vicu_step : 0x10000))
 
 static int isp_fd = -1;
 static uint8_t *isp_page;
@@ -82,6 +87,28 @@ static void sns_table(const struct xmv200_isp_sensor *s,
 static void vi_window(const struct xmv200_isp_chn *c,
                       const struct xmv200_sns_tuning *t) {
   uint32_t b = VICU(c->chn);
+
+  /* XM232: the sensor's input block, as the vendor ISP sets it: the
+   * window twice (at +0x40, and at +0x98 a line down), the receiver it
+   * takes (+0xc0/+0xc4) and +0x08 */
+  if (cur_chip->vi_mu) {
+    xmv200_reg_write(b + 0x40, c->x0);
+    xmv200_reg_write(b + 0x44, c->x0 + t->width);
+    xmv200_reg_write(b + 0x48, c->y0);
+    xmv200_reg_write(b + 0x4c, c->y0 + t->height + 1);
+    xmv200_reg_write(b + 0x98, c->x0);
+    xmv200_reg_write(b + 0x9c, c->x0 + t->width);
+    xmv200_reg_write(b + 0xa0, c->y0 + 1);
+    xmv200_reg_write(b + 0xa4, c->y0 + t->height + 1);
+    if (c->phy) {
+      xmv200_reg_write(b + 0xc0, 0x110050);
+      xmv200_reg_write(b + 0xc4, c->phy);
+    } else {
+      xmv200_reg_write(b + 0xc4, 0);
+    }
+    xmv200_reg_write(b + 0x08, 0xffff0001);
+    return;
+  }
 
   xmv200_reg_write(b + 0x98, c->x0);
   xmv200_reg_write(b + 0x9c, c->x0 + t->width);
@@ -275,6 +302,14 @@ static int run_program(const struct xmv200_isp_cfg *cfg,
         return -1;
       continue;
     }
+    if ((op & 0xf800) == 0x0800) {
+      uint32_t w = op == XMV200_OP_SEL_ALL ? 0x80000000u
+                                           : c->chn << 16 | (op & 0xff);
+
+      if (isp_cmd(ISP_SEL, &w) < 0)
+        return -1;
+      continue;
+    }
     if (op & 0x2000) {
       if ((op & 0xff) >= t->n_runs)
         return -1;
@@ -340,7 +375,9 @@ static int run_program(const struct xmv200_isp_cfg *cfg,
           a[0] |= (uint32_t)pl.n_on_phy << 16;
         a[2] = (a[2] & ~0xffu) | c->phy;
       }
-      a[out] = a[out + 1] = c->out_width | c->out_height << 16;
+      /* (XM232: the picture's sizes stay the vendor's; vi_mu.ko scales) */
+      if (!chip->vi_mu)
+        a[out] = a[out + 1] = c->out_width | c->out_height << 16;
       r = isp_cmd(ISP_CHN_INIT, a);
       break;
     }
@@ -354,7 +391,7 @@ static int run_program(const struct xmv200_isp_cfg *cfg,
     case XMV200_OP_VICU_RUN: {
       uint32_t a = c->chn;
 
-      r = isp_cmd(ISP_VICU_RUN, &a);
+      r = isp_cmd(chip->vi_mu ? ISP_CHN_RUN : ISP_VICU_RUN, &a);
       break;
     }
     case XMV200_OP_CHN_ENABLE0:
@@ -443,9 +480,13 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
     chn_size(&w, t);
   }
 
-  /* the shared parameter pages, as many as the tuning's image */
+  /* the shared parameter pages, as many as the tuning's image (XM232: its
+   * vendor ISP resets isp.ko with 0x495f first, and sends no 0x4963) */
   uint32_t zero = 0, pages[3] = {0, (t->page_size + 0xfff) >> 12, 0};
-  if (isp_cmd(ISP_RESET_PAGES, &zero) || isp_cmd(ISP_PAGES, pages))
+  if (chip->vi_mu ? isp_cmd(ISP_EXIT, &zero)
+                  : isp_cmd(ISP_RESET_PAGES, &zero))
+    return -1;
+  if (isp_cmd(ISP_PAGES, pages))
     return -1;
   isp_page_len = pages[1] << 12;
   isp_page = mmap(NULL, isp_page_len, PROT_READ | PROT_WRITE, MAP_SHARED,
@@ -474,7 +515,10 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
     memcpy(comm + 36, &n, 4); /* the BPU's raw buffers, one per channel */
   if (isp_cmd(ISP_COMM_INIT, comm) || isp_cmd(ISP_COMM_INIT_VPSS, comm))
     return -1;
-  for (int c = 0; c < n; c++) {
+  /* XM232: the sensors' inputs, as captured */
+  if (chip->vi_mu && isp_cmd(ISP_COMM, (void *)t->sel))
+    return -1;
+  for (int c = 0; c < (chip->n_chn_enable ? chip->n_chn_enable : n); c++) {
     uint32_t a[4] = {c, 8, c, 0};
 
     if (isp_cmd(ISP_CHN_ENABLE, a))
@@ -491,7 +535,7 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
         if (k < c)
           pl.first_on_phy = 0;
       }
-    if (c > 0) {
+    if (c > 0 && !chip->vi_mu) {
       /* a further channel: its VI device and its index there */
       uint32_t a[7] = {ch->vi_dev, ch->vi_idx, 1};
 

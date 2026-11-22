@@ -404,6 +404,57 @@ static int audio(uint32_t rate) {
   return 0;
 }
 
+/* a board's pictures as venc.ko queues them, not encoded: each one's
+ * channel, size and addresses, and the first of each channel to
+ * /tmp/frame<chn>.yuv (NV12, from /dev/mem) */
+static int frames(const char *board, int n) {
+  struct xmv200_board_info info;
+  struct xmv200_layout l = {0};
+  int mem = open("/dev/mem", O_RDWR), dumped[8] = {0}, got = 0;
+
+  if (xmv200_board_layout(board, &l) || xmv200_layout_start(&l, &info)) {
+    xmv200_layout_free(&l);
+    fprintf(stderr, "board %s: start failed\n", board);
+    return 1;
+  }
+  xmv200_layout_free(&l);
+  for (int i = 0; i < 4 * n && got < n; i++) {
+    struct xmv200_frame f;
+
+    if (xmv200_frame_get(&f)) {
+      printf("frame %d: none\n", i);
+      continue;
+    }
+    got++;
+    printf("frame %d: chn %u %ux%u stride %u y %08x c %08x pts %llu\n", i,
+           f.chn, f.width, f.height, f.stride, f.y, f.c,
+           (unsigned long long)f.pts);
+    if (f.chn < 8 && !dumped[f.chn]++ && mem >= 0 && f.stride && f.height) {
+      char path[32];
+      FILE *out;
+
+      snprintf(path, sizeof(path), "/tmp/frame%u.yuv", f.chn);
+      out = fopen(path, "wb");
+      for (int plane = 0; out && plane < 2; plane++) {
+        uint32_t a = plane ? f.c : f.y,
+                 len = f.stride * f.height / (plane ? 2 : 1), off = a & 0xfff;
+        uint8_t *m = mmap(NULL, len + off, PROT_READ, MAP_SHARED, mem,
+                          a & ~0xfffu);
+
+        if (m != MAP_FAILED) {
+          fwrite(m + off, 1, len, out);
+          munmap(m, len + off);
+        }
+      }
+      if (out)
+        fclose(out);
+    }
+    xmv200_frame_release(&f);
+  }
+  xmv200_layout_stop();
+  return got ? 0 : 1;
+}
+
 int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "probe"))
     return probe();
@@ -485,6 +536,8 @@ int main(int argc, char **argv) {
     xmv200_layout_stop();
     return r;
   }
+  if (argc > 2 && !strcmp(argv[1], "frames"))
+    return frames(argv[2], argc > 3 ? atoi(argv[3]) : 10);
   if (argc > 2 && !strcmp(argv[1], "layout")) {
     /* a board's layout as text, to start a layout file from */
     struct xmv200_layout l;
@@ -498,7 +551,7 @@ int main(int argc, char **argv) {
   }
   fprintf(stderr,
           "usage: %s probe | modes [chip] | run <board|layout file> [frames [osd]] | "
-          "layout <board>"
+          "layout <board> | frames <board> [n]"
           " | replay | encode [n]\n",
           argv[0]);
   return 1;
