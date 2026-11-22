@@ -25,13 +25,21 @@ Every ioctl passes the same 15 words: the handle, the kind, then the arguments.
 
 Overlay formats: 0 ARGB1555, 1 ARGB8888, 2 1 bit, 3 2 bits (4 colours), and 4 and 5 for the XM535's encoder (1 and 2 bits, kept in 16x16 tiles). Each VENC channel takes 8 overlays, or 4 on the XM535. The engine draws up to four a run, and `/proc/umap/rgn` counts process calls, engine runs and timeouts.
 
-Build with `RGN_CHIP=v200` (default), `xm533` or `xm535`. The chips differ in:
+Build with `RGN_CHIP=v200` (default), `xm533`, `xm535` or `xm232`. The chips differ in:
 - the engine's address: 0x21300000 on the XM530V200, 0x21200000 on the others;
 - what draws covers: VI and VPSS on the V200, VI only on the XM533, and VI, VPSS and the encoder on the XM535;
 - the XM535's lines and encoder OSD;
 - the XM535's order for 2-bit colours 1 and 2, and its 4x scale code.
 
 It needs `mmz_alloc`/`mmz_free`, plus the cover and line hooks: vpss.ko exports them on the XM530V200 and XM535, vi.ko on the XM533.
+
+## XM232
+
+The XM232 has no OSD engine and no VI or VPSS covers: `RGN_CHIP=xm232` builds its own driver, `xm232_rgn.c`, for its vendor `rgn.ko`. The encoder at 0x21000000 draws both kinds of region, and venc.ko (or Sofia through it) calls `comp_osd_process()` for each picture; `comp_osd_process_once()` and `comp_win_process_once()` are exported as by the vendor's.
+
+- Overlays (kind 0): formats 0 (ARGB1555), 4 (1 bit) and 5 (2 bits), up to 8 a VENC channel. Their bitmaps are kept in 16x16 tiles, ARGB1555 pixels byte-swapped. Region n at +0x2A8 + 0x24n (enable mask +0x2A4): first and last 16x16 block (column << 10 | row), format (4: 0, 5: 1, 0: 3), scale (a shift: 0 1x, 1 2x, 2 4x; `down | across << 3`), four colours, bitmap.
+- Covers (kind 1): up to 16 a VENC channel; cover n at +0x1A4 + 0x10n (mask +0x1A0): thickness, `y | x << 14`, `(y + h) | (x + w) << 14`, colour.
+- The ioctls are the other chips' create, destroy, set, bitmap, attach, detach and `0x5200` (no line regions, conversion or user-space blend).
 
 ```sh
 make -C drivers/xm_v200_rgn KDIR=... ARCH=arm CROSS_COMPILE=... RGN_CHIP=xm535

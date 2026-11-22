@@ -3,8 +3,14 @@ ifneq ($(KERNELRELEASE),)
 # open_rgn.ko: OpenIPC firmware names the open modules that replace vendor
 # blobs open_*, and the module's name is the file's.
 obj-m := open_rgn.o
+# RGN_CHIP=xm232: its own driver (no OSD engine; the encoder draws both
+# kinds of region)
+ifeq ($(RGN_CHIP),xm232)
+open_rgn-objs := xm232_rgn.o
+else
 open_rgn-objs := xm_v200_rgn.o
-# RGN_CHIP=v200 (XM530V200; default), xm533 or xm535 (XM535D1/D2/W1)
+endif
+# RGN_CHIP=v200 (XM530V200; default), xm533, xm535 (XM535D1/D2/W1) or xm232
 ifeq ($(RGN_CHIP),xm535)
 ccflags-y += -DRGN_CHIP_XM535
 endif
