@@ -53,6 +53,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 │   ├── xm533_vi/                XM533 video input: scaling, store, frame rate (/dev/vi)
 │   ├── xm535_vpss/              XM535D1/D2 VPSS: scaling, splicing, store (/dev/vpss)
 │   ├── xm535w1_vi/              XM535W1 video input on the VPSS block (/dev/vi)
+│   ├── xm232_vi_mu/             XM232 video input: two sensors on one capture path (/dev/vi)
 │   ├── xm530v200_vpss/          XM530V200 VPSS: the memory-to-memory scaler (/dev/vpss)
 │   ├── xm_v200_acodec/          V200-series audio codec (/dev/acodec)
 │   ├── xm_v200_i2s/             V200-series audio in/out (/dev/ai, /dev/ao)
