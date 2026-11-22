@@ -33,10 +33,9 @@ XM_S32 XM_MPI_SYS_Init(XM_VOID) {
  * mmz.ko takes a record of name[32], size and phys, plus a trailing word
  * on XM530: 40 bytes on XM510 (0xC0284D01 alloc, 0x80284D03 get) and 44
  * on XM530 (0xC02C4D01, 0x802C4D03). Get-by-name fills size before phys
- * on both. A module that doesn't know a command, another record size
- * included, logs "ioctl cmd error" and returns -1; a failed allocation
- * leaves the address 0. Only a 0 return with an address is success, and
- * the record size that worked is remembered.
+ * on both. A module that doesn't know a command logs "ioctl cmd error"
+ * but still returns 0, so a zero address means the call failed. The
+ * record size that worked is remembered.
  */
 #define MMZ_CMD(dir, nr, size)                                                 \
   (((XM_U32)(dir) << 30) | ((size) << 16) | ('M' << 8) | (nr))

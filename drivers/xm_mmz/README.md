@@ -27,7 +27,7 @@ The XM510 (3.0 kernel) has an older `mmz.ko`, and a build against a kernel with 
 - **Layout:** each block starts on the page after the previous one, with no overrun marker.
 - **`/proc/umap/mmz`:** the zone, then start, size and name per block, with no overrun flag and no free-space line.
 - **Interface:** the old module's is a subset of this one: ioctls 0–3 on 40-byte records, and `mmz_alloc`/`mmz_free`. It has no `mmap`, so XM510 user space maps the zone through `/dev/mem`.
-- **Commands:** only ioctls 0–3 on 40-byte records; anything else logs `ioctl cmd error` and returns −1, as the old module does.
+- **Commands:** only ioctls 0–3 on 40-byte records; anything else logs `ioctl cmd error` and returns 0, as the old module does.
 - **No CMA mode:** `allocator=cma` and `allocator=hybrid` are refused. The XM510 kernel has no CMA, and 32 MB of DDR leaves nothing to lend.
 
 ```sh
@@ -116,7 +116,7 @@ Every call takes a record `{ char name[32]; u32 size; u32 phys; u32 vaddr; }` (4
 | `_IOW('M', 5)` | Flush the CPU caches for the mapping at `vaddr` and `size` (and the outer cache by `phys`), then mark the block cached |
 | `_IOW('M', 6)` / `_IOW('M', 7)` | Mark the block at `phys` cached / uncached, for later mappings |
 
-The record goes back to the caller whether or not the call succeeded. A failed allocation or lookup returns −1 with `phys` 0. As in the vendor module, a command it does not know logs `ioctl cmd error` and returns −1. Each vendor module dispatches on the whole command word, so a known command with another record size or direction is one it does not know: the XM510's takes only 40-byte records, the XM530's and the V200 series' only 44-byte ones, the XM232's only 48-byte ones.
+The record goes back to the caller whether or not the call succeeded. A failed allocation or lookup returns −1 with `phys` 0. As in the vendor module, a command it does not know logs `ioctl cmd error` and returns 0 (−1 on the XM232, as its module does), so callers test `phys`. Each vendor module dispatches on the whole command word, so a known command with another record size or direction is one it does not know: the XM510's takes only 40-byte records, the XM530's and the V200 series' only 44-byte ones, the XM232's only 48-byte ones.
 
 `mmap` with the physical address as the offset maps it write-back for a cached block and uncached otherwise. Like the vendor module, it maps any physical address (in CMA mode, see above). It logs the first mapping outside the zone, so anything that relies on that can be found before it is refused.
 

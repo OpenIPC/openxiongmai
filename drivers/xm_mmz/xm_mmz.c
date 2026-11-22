@@ -172,7 +172,10 @@ static unsigned long reset_at; /* jiffies of the last reset */
 
 /*
  * The record size each vendor module takes, its only one: it dispatches on
- * the whole command word, size and direction included.
+ * the whole command word, size and direction included, and logs anything
+ * else as "ioctl cmd error". XM232's then returns -1, the others 0 (seen
+ * from user space on the vendor modules of XM530, XM533, XM535D1 and
+ * XM232 in qemu-bench).
  */
 #ifdef CONFIG_ARCH_XM510
 #define MMZ_MARKER 0 /* the XM510 module lays blocks with no marker */
@@ -186,6 +189,11 @@ static unsigned long reset_at; /* jiffies of the last reset */
 #else
 #define MMZ_LAST_NR 7
 #endif
+#endif
+#ifdef MMZ_XM232
+#define MMZ_BAD_CMD (-1)
+#else
+#define MMZ_BAD_CMD 0
 #endif
 
 /* The space a block takes: its size and the marker, to the next page */
@@ -704,7 +712,8 @@ static long mmz_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return 0;
 	}
 	/* A command the vendor module does not have, another record size or
-	 * direction included, is refused as it refuses it: logged, -1 */
+	 * direction included, is refused as it refuses it: logged, and 0 or
+	 * (XM232) -1 */
 	len = _IOC_SIZE(cmd);
 	if (_IOC_TYPE(cmd) != 'M' || len != MMZ_REC_LEN ||
 	    _IOC_NR(cmd) < 1 || _IOC_NR(cmd) > MMZ_LAST_NR)
@@ -781,7 +790,7 @@ static long mmz_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 bad_cmd:
 	pr_err("mmz: ioctl cmd error\n");
-	return -1;
+	return MMZ_BAD_CMD;
 }
 
 /*
