@@ -63,6 +63,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 │   ├── xm530v200_jpeg/          XM530V200 JPEG encoder (/dev/jpeg)
 │   ├── xm533_venc_mem/          XM533 encoder memory book-keeping (/dev/venc_mem)
 │   ├── xm_v200_nn/              V200-series CNN accelerator's command queue (/dev/nn)
+│   ├── xm232_vta/               XM232 VTA accelerator's interrupt (/dev/vta)
 │   ├── xm533_ive/               XM533 FFT engine's job queue (/dev/ive)
 │   ├── xm530v200_vo/            XM530V200 video output: BT656/LCD, layers, channels (/dev/vo)
 │   ├── xm533_isp/               XM533 ISP: parameter blocks to registers once a frame (/dev/isp)
