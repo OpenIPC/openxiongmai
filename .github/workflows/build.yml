@@ -530,7 +530,8 @@ jobs:
               CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH" "${var}_CHIP=xm232"
           done
           # the ones whose build variable is named for what it picks
-          for d in xm_v200_vb:VB_LAYOUT xm_v200_rgn:RGN_CHIP; do
+          for d in xm_v200_vb:VB_LAYOUT xm_v200_rgn:RGN_CHIP \
+                   xm_v200_venc:VENC_LAYOUT xm_hevc:HEVC_LAYOUT; do
             dir=${d%%:*}; var=${d##*:}
             cp -r "drivers/$dir" "$RUNNER_TEMP/$dir-xm232"
             make -C "$RUNNER_TEMP/$dir-xm232" clean
