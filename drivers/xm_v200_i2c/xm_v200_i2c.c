@@ -22,8 +22,10 @@
  * (0x20000090 + 4n) when they set it up.
  *
  * The chips differ in the timing (their I2C clock), the pins, the names
- * and the resets: I2C_CHIP=xm530v200 (default), xm533 or xm535 at build
- * time.
+ * and the resets: I2C_CHIP=xm530v200 (default), xm533, xm535 or xm232 at
+ * build time. The XM232's has the XM533's names and the XM535's timing and
+ * resets, leaves the pins as they are, and sets its buses up again after a
+ * resume.
  */
 
 #include <linux/delay.h>
@@ -32,6 +34,7 @@
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/suspend.h>
 #include <linux/uaccess.h>
 
 #define I2C_BASE 0x10000000
@@ -74,7 +77,15 @@ struct chip {
 	struct pin pins[N_BUS][2];
 };
 
-#if defined(I2C_CHIP_XM533)
+#if defined(I2C_CHIP_XM232)
+static const struct chip chip = {
+	{"xm_i2c", "xm_i2c1", "xm_i2c2"},
+	{0xa8, 0xa8, 0xa8, 0xa8, 0xa8, 0x50, 0xfc},
+	true,
+	true,
+	{{{0, 0}, {0, 0}}, {{0, 0}, {0, 0}}, {{0, 0}, {0, 0}}},
+};
+#elif defined(I2C_CHIP_XM533)
 static const struct chip chip = {
 	{"xm_i2c", "xm_i2c1", "xm_i2c2"},
 	{0xa8, 0xa8, 0xa8, 0xa8, 0xa8, 0x50, 0xfc},
@@ -240,6 +251,13 @@ static int bus_of(struct file *file)
 	return -1;
 }
 
+#ifdef I2C_CHIP_XM232
+/* the XM232's i2c.ko leaves its pins alone */
+static int i2c_open(struct inode *inode, struct file *file)
+{
+	return bus_of(file) < 0 ? -ENODEV : 0;
+}
+#else
 static int i2c_open(struct inode *inode, struct file *file)
 {
 	int bus = bus_of(file), i;
@@ -251,6 +269,7 @@ static int i2c_open(struct inode *inode, struct file *file)
 		writel(chip.pins[bus][i].val, pinmux + chip.pins[bus][i].off);
 	return 0;
 }
+#endif
 
 static int i2c_release(struct inode *inode, struct file *file)
 {
@@ -303,6 +322,25 @@ static const struct file_operations i2c_fops = {
 	.unlocked_ioctl = i2c_ioctl,
 };
 
+#ifdef I2C_CHIP_XM232
+static int i2c_pm(struct notifier_block *nb, unsigned long ev, void *p)
+{
+	int i;
+
+	if (ev != PM_POST_SUSPEND)
+		return NOTIFY_DONE;
+	mutex_lock(&i2c_lock);
+	for (i = 0; i < N_BUS; i++)
+		bus_setup(i);
+	mutex_unlock(&i2c_lock);
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block i2c_nb = {
+	.notifier_call = i2c_pm,
+};
+#endif
+
 static void i2c_unmap(void)
 {
 	int i;
@@ -346,6 +384,9 @@ static int __init xm_v200_i2c_init(void)
 	for (i = 0; i < N_BUS; i++)
 		bus_setup(i);
 	mutex_unlock(&i2c_lock);
+#ifdef I2C_CHIP_XM232
+	register_pm_notifier(&i2c_nb);
+#endif
 	pr_info("i2c: openxiongmai xm_v200_i2c init ok (%s)\n", chip.names[0]);
 	return 0;
 }
@@ -354,6 +395,9 @@ static void __exit xm_v200_i2c_exit(void)
 {
 	int i;
 
+#ifdef I2C_CHIP_XM232
+	unregister_pm_notifier(&i2c_nb);
+#endif
 	for (i = 0; i < N_BUS; i++)
 		misc_deregister(&devs[i]);
 	i2c_unmap();

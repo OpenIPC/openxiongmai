@@ -35,6 +35,14 @@
  * same span. Built with MMZ_ALLOCATOR=list it is the default, as those
  * chips' loaders pass only mmz_start and mmz_size.
  *
+ * MMZ_CHIP=xm232 is the XM232's mmz.ko, allocator=list with frame
+ * compression: its records are 48 bytes, the 44 and a compressed address,
+ * and mmz_alloc_comp() (ioctl 8) gives a block 6/8 of the size asked, at a
+ * multiple of 12 bytes, and the address the media blocks reach it by,
+ * mmz_start + 0x10000000 + (phys - comp_start) * 8 / 6, through the two
+ * decompression windows at 0x100e8000 and 0x100e9000, set up at load and
+ * after a resume.
+ *
  * allocator=cma (XM530/XM550 on a kernel with CONFIG_CMA) takes the blocks
  * from the kernel's CMA area instead, with dma_alloc_coherent(), so memory the
  * media pipeline does not use stays Linux's. Kernel blocks named in zone_names
@@ -78,6 +86,9 @@ struct mmz_rec {
 	u32 size;
 	u32 phys;
 	u32 vaddr; /* user address of a mapping, for the cache flush */
+#ifdef MMZ_XM232
+	u32 comp; /* a compressed block's address through the windows */
+#endif
 };
 
 #define MMZ_IOC_RESET _IO('M', 0)
@@ -88,6 +99,7 @@ struct mmz_rec {
 #define MMZ_IOC_FLUSH _IOW('M', 5, struct mmz_rec)
 #define MMZ_IOC_CACHED _IOW('M', 6, struct mmz_rec)
 #define MMZ_IOC_UNCACHED _IOW('M', 7, struct mmz_rec)
+#define MMZ_IOC_ALLOC_COMP _IOWR('M', 8, struct mmz_rec)
 
 struct mmz_block {
 	struct list_head list; /* in address order */
@@ -95,9 +107,12 @@ struct mmz_block {
 	u32 phys, size;
 	bool cached;
 	bool marked; /* the overrun marker was written */
+	u32 base, room; /* the span it takes: phys, guarded(size) but for
+			 * a compressed block */
+	u32 comp; /* a compressed block's address, 0 for none */
 	/* CMA blocks only */
 	void *vaddr; /* the kernel's mapping */
-	u32 room; /* what was allocated: guarded(size) when it was */
+	u32 cma_room; /* what was allocated: guarded(size) when it was */
 	bool stale; /* forgotten by a reset, not yet freed */
 	unsigned long stale_at; /* jiffies of that reset */
 	int maps; /* user mappings */
@@ -109,6 +124,9 @@ module_param(mmz_start, uint, 0444);
 MODULE_PARM_DESC(mmz_start, "memalloc start addr");
 module_param(mmz_size, uint, 0444);
 MODULE_PARM_DESC(mmz_size, "memalloc size");
+/* the zone's start down to a multiple of 12: compressed offsets count
+ * from it */
+static u32 comp_start;
 
 #ifndef MMZ_DEFAULT_ALLOCATOR
 #define MMZ_DEFAULT_ALLOCATOR "xm"
@@ -147,7 +165,11 @@ static unsigned long reset_at; /* jiffies of the last reset */
 #define MMZ_LAST_NR 3 /* and knows ioctls 0-3, on 40-byte records only */
 #else
 #define MMZ_MARKER 1
+#ifdef MMZ_XM232
+#define MMZ_LAST_NR 8
+#else
 #define MMZ_LAST_NR 7
+#endif
 #endif
 
 /* The space a block takes: its size and the marker, to the next page */
@@ -175,7 +197,7 @@ static struct mmz_block *find_cma(u32 phys)
 	struct mmz_block *b;
 
 	list_for_each_entry (b, &cma_blocks, list)
-		if (phys >= b->phys && phys - b->phys < b->room)
+		if (phys >= b->phys && phys - b->phys < b->cma_room)
 			return b;
 	return NULL;
 }
@@ -210,15 +232,29 @@ static bool guard_marker(u32 phys, u32 size, bool write)
 	return ok;
 }
 
-static int alloc_block(const char *name, u32 size, u32 *phys, bool cached)
+/*
+ * A block, or with comp a compressed one: 6/8 of the size (rounded up to
+ * 16 bytes first), at the first multiple of 12 bytes in its span, which
+ * leaves room for that and the marker.
+ */
+static int alloc_span(const char *name, u32 size, u32 *phys, bool cached,
+		      u32 *comp)
 {
 	struct mmz_block *b, *last;
 	struct list_head *next;
 	unsigned long flags;
-	u32 at;
+	u32 at, room, start;
 
 	if (!size)
 		return -1;
+	if (comp) {
+		if (size > mmz_size)
+			return -1;
+		size = ALIGN(size, 16) / 8 * 6;
+		room = ALIGN(size + sizeof(mmz_marker) + 12, PAGE_SIZE);
+	} else {
+		room = guarded(size);
+	}
 	b = kzalloc(sizeof(*b), GFP_KERNEL);
 	if (!b) {
 		pr_err("mmz: kmalloc failed\n");
@@ -240,28 +276,39 @@ static int alloc_block(const char *name, u32 size, u32 *phys, bool cached)
 	if (use_list) {
 		/* the first space between blocks it fits in */
 		list_for_each_entry (last, &blocks, list) {
-			if (last->phys - at >= guarded(size)) {
+			if (last->base - at >= room) {
 				next = &last->list;
 				break;
 			}
-			at = last->phys + guarded(last->size);
+			at = last->base + last->room;
 		}
 	} else if (!list_empty(&blocks)) {
 		last = list_entry(blocks.prev, struct mmz_block, list);
-		at = last->phys + guarded(last->size);
+		at = last->base + last->room;
 	}
 	/* Each term against what is left, so a huge size cannot wrap */
 	if (at < mmz_start || at - mmz_start > mmz_size ||
 	    size > mmz_size - (at - mmz_start) ||
-	    guarded(size) > mmz_size - (at - mmz_start)) {
+	    room > mmz_size - (at - mmz_start)) {
 		spin_unlock_irqrestore(&mmz_lock, flags);
 		pr_err("mmz: out of memory\n");
 		kfree(b);
 		return -1;
 	}
-	b->phys = at;
+	b->base = at;
+	b->room = room;
+	start = comp ? DIV_ROUND_UP(at, 12) * 12 : at;
+	b->phys = start;
+	b->size = size;
+	if (comp) {
+		b->comp = mmz_start + 0x10000000 +
+			  (start - comp_start) / 6 * 8 +
+			  (start - comp_start) % 6 * 8 / 6;
+		*comp = b->comp;
+	}
 	list_add_tail(&b->list, next); /* before next: in address order */
 	spin_unlock_irqrestore(&mmz_lock, flags);
+	at = start;
 
 	/* From locals: once the lock is dropped a reset may free b */
 	if (!MMZ_MARKER) {
@@ -279,6 +326,11 @@ static int alloc_block(const char *name, u32 size, u32 *phys, bool cached)
 	}
 	*phys = at;
 	return 0;
+}
+
+static int alloc_block(const char *name, u32 size, u32 *phys, bool cached)
+{
+	return alloc_span(name, size, phys, cached, NULL);
 }
 
 static int alloc_cma(const char *name, u32 size, u32 *phys, bool cached);
@@ -321,6 +373,20 @@ int media_mem_alloc(const char *name, u32 size, u32 *phys, int cached)
 }
 EXPORT_SYMBOL(media_mem_alloc);
 
+#ifdef MMZ_XM232
+/* A compressed block: its own address and the one the media blocks use */
+int mmz_alloc_comp(const char *name, u32 size, u32 *phys, u32 *comp)
+{
+	u32 c;
+	int ret = alloc_span(name, size, phys, false, &c);
+
+	if (!ret && comp)
+		*comp = c;
+	return ret;
+}
+EXPORT_SYMBOL(mmz_alloc_comp);
+#endif
+
 /* A user block from the CMA area: a stale one of the name if it is big
  * enough, a new one otherwise */
 static int try_alloc_cma(const char *name, u32 size, u32 *phys, bool cached,
@@ -341,13 +407,13 @@ static int try_alloc_cma(const char *name, u32 size, u32 *phys, bool cached,
 	strncpy(b->name, name, MMZ_NAME_LEN - 1);
 	b->size = size;
 	b->cached = cached;
-	b->room = room;
+	b->cma_room = room;
 
 	spin_lock_irqsave(&mmz_lock, flags);
 	if (find_name(b->name))
 		goto exists;
 	list_for_each_entry (pos, &cma_blocks, list)
-		if (pos->stale && pos->room >= room &&
+		if (pos->stale && pos->cma_room >= room &&
 		    !strncmp(pos->name, b->name, MMZ_NAME_LEN)) {
 			pos->stale = false;
 			pos->size = size;
@@ -465,7 +531,7 @@ static void reap_stale(bool all)
 			continue;
 		if (all || !time_before(jiffies, b->stale_at + hold)) {
 			list_move(&b->list, &gone);
-			cma_used -= b->room;
+			cma_used -= b->cma_room;
 		} else if (!again || time_before(b->stale_at + hold, next)) {
 			next = b->stale_at + hold;
 			again = true;
@@ -473,7 +539,7 @@ static void reap_stale(bool all)
 	}
 	spin_unlock_irqrestore(&mmz_lock, flags);
 	list_for_each_entry_safe (b, n, &gone, list) {
-		dma_free_coherent(&mmz_pdev->dev, b->room, b->vaddr, b->phys);
+		dma_free_coherent(&mmz_pdev->dev, b->cma_room, b->vaddr, b->phys);
 		kfree(b);
 	}
 	mutex_unlock(&reap_lock);
@@ -606,6 +672,12 @@ static long mmz_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		ret = (use_cma ? alloc_cma : alloc_block)(
 			r.name, r.size, &r.phys, cmd == MMZ_IOC_ALLOC_CACHED);
 		break;
+#ifdef MMZ_XM232
+	case MMZ_IOC_ALLOC_COMP:
+		ret = use_cma ? -1 : alloc_span(r.name, r.size, &r.phys, false,
+						&r.comp);
+		break;
+#endif
 	case MMZ_IOC_GET:
 		ret = mmz_get_addr(r.name, &r.size, &r.phys);
 		break;
@@ -687,7 +759,7 @@ static int cma_mmap(struct vm_area_struct *vma, u32 phys, unsigned long len)
 
 	spin_lock_irqsave(&mmz_lock, flags);
 	b = find_cma(phys);
-	if (!b || len > b->room - (phys - b->phys)) {
+	if (!b || len > b->cma_room - (phys - b->phys)) {
 		spin_unlock_irqrestore(&mmz_lock, flags);
 		pr_warn_ratelimited(
 			"mmz: mmap of %#x+%#lx is no CMA block (by %s)\n", phys,
@@ -742,6 +814,15 @@ static int mmz_mmap(struct file *file, struct vm_area_struct *vma)
 		return -EINVAL;
 	}
 
+#ifdef MMZ_XM232
+	/* the zone through the decompression windows: Sofia maps blocks by
+	 * their compressed address */
+	if (phys - 0x10000000 >= mmz_start &&
+	    phys - 0x10000000 - mmz_start < mmz_size &&
+	    len <= mmz_size - (phys - 0x10000000 - mmz_start))
+		;
+	else
+#endif
 	if (phys < mmz_start || phys - mmz_start >= mmz_size ||
 	    len > mmz_size - (phys - mmz_start))
 		pr_warn_once("mmz: mmap of %#x+%#lx outside the zone (by %s)\n",
@@ -784,8 +865,13 @@ static int mmz_seq_show(struct seq_file *s, void *unused)
 	seq_printf(s, "[%#x--------%#x]\n", mmz_start, mmz_start + mmz_size);
 	if (!MMZ_MARKER)
 		return xm510_seq_show(s);
+#ifdef MMZ_XM232
+	seq_puts(s, "--START-----------SIZE----------------COMPADDR------"
+		    "OVERFLOW----NAME---------------\n");
+#else
 	seq_puts(s, "--START-----------SIZE----------------OVERFLOW----NAME"
 		    "---------------\n");
+#endif
 
 	/* The marker check maps each guard page, which cannot happen under the
 	 * spinlock, so the records are copied first; the CMA blocks are not
@@ -822,10 +908,17 @@ static int mmz_seq_show(struct seq_file *s, void *unused)
 				      sizeof(mmz_marker));
 		else if (copy[i].marked)
 			over = !guard_marker(copy[i].phys, copy[i].size, false);
+#ifdef MMZ_XM232
+		seq_printf(s, "%#-10x\t%#-10x(%5dk)\t%#-10x\t%d\t%s\n",
+			   copy[i].phys, copy[i].size,
+			   (int)(ALIGN(copy[i].size, PAGE_SIZE) >> 10),
+			   copy[i].comp, over, copy[i].name);
+#else
 		seq_printf(s, "%#-10x\t%#-10x(%5dk)\t%d\t%s\n", copy[i].phys,
 			   copy[i].size,
 			   (int)(ALIGN(copy[i].size, PAGE_SIZE) >> 10), over,
 			   copy[i].name);
+#endif
 		if (!copy[i].vaddr)
 			used += ALIGN(copy[i].size, PAGE_SIZE);
 	}
@@ -873,6 +966,47 @@ static void umap_mkdir(void)
 	}
 	proc_mkdir("umap", NULL);
 }
+
+#ifdef MMZ_XM232
+#include <linux/suspend.h>
+
+#define COMP_WIN0 0x100e8000
+#define COMP_WIN1 0x100e9000
+
+/* Both decompression windows: the zone's addresses + 0x10000000 read
+ * through, from comp_start */
+static void comp_windows(void)
+{
+	static const u32 win[] = { COMP_WIN0, COMP_WIN1 };
+	int i;
+
+	comp_start = mmz_start / 12 * 12;
+	for (i = 0; i < ARRAY_SIZE(win); i++) {
+		void __iomem *w = ioremap(win[i], 0x20);
+
+		if (!w) {
+			pr_err("mmz: no window at %#x\n", win[i]);
+			continue;
+		}
+		writel(mmz_start + 0x10000000, w + 0x0c);
+		writel(mmz_start + mmz_size + 0x10000000, w + 0x10);
+		writel(1, w + 0x18);
+		writel(comp_start, w + 0x14);
+		iounmap(w);
+	}
+}
+
+static int comp_pm(struct notifier_block *nb, unsigned long ev, void *p)
+{
+	if (ev == PM_POST_SUSPEND)
+		comp_windows();
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block comp_nb = {
+	.notifier_call = comp_pm,
+};
+#endif
 
 static struct miscdevice mmz_misc = {
 	.minor = MISC_DYNAMIC_MINOR,
@@ -926,6 +1060,10 @@ static int __init xm_mmz_init(void)
 			platform_device_unregister(mmz_pdev);
 		return ret;
 	}
+#ifdef MMZ_XM232
+	comp_windows();
+	register_pm_notifier(&comp_nb);
+#endif
 	pr_info("mmz: openxiongmai xm_mmz init ok start=%#x, size=%#x%s\n",
 		mmz_start, mmz_size,
 		use_cma ? ", user blocks from CMA" : use_list ? ", with free" : "");
@@ -934,6 +1072,9 @@ static int __init xm_mmz_init(void)
 
 static void __exit xm_mmz_exit(void)
 {
+#ifdef MMZ_XM232
+	unregister_pm_notifier(&comp_nb);
+#endif
 	misc_deregister(&mmz_misc);
 	remove_proc_entry("umap/mmz", NULL);
 	reset_blocks();

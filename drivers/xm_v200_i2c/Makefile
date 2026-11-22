@@ -4,7 +4,10 @@ ifneq ($(KERNELRELEASE),)
 # blobs open_*, and the module's name is the file's.
 obj-m := open_i2c.o
 open_i2c-objs := xm_v200_i2c.o
-# I2C_CHIP=xm530v200 (default), xm533 or xm535 (XM535D1/D2/W1)
+# I2C_CHIP=xm530v200 (default), xm533, xm535 (XM535D1/D2/W1) or xm232
+ifeq ($(I2C_CHIP),xm232)
+ccflags-y += -DI2C_CHIP_XM232
+endif
 ifeq ($(I2C_CHIP),xm533)
 ccflags-y += -DI2C_CHIP_XM533
 endif

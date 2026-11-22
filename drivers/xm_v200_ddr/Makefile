@@ -3,7 +3,12 @@ ifneq ($(KERNELRELEASE),)
 # open_ddr.ko: OpenIPC firmware names the open modules that replace vendor
 # blobs open_*, and the module's name is the file's.
 obj-m := open_ddr.o
+# DDR_CHIP=xm232: the XM232's (a kernel timer, three ports in the PHY glue)
+ifeq ($(DDR_CHIP),xm232)
+open_ddr-objs := xm232_ddr.o
+else
 open_ddr-objs := xm_v200_ddr.o
+endif
 # DDR_CHIP=v200 for the XM530V200 (the counters stopped while read)
 ifeq ($(DDR_CHIP),v200)
 ccflags-y += -DDDR_V200

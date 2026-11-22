@@ -41,3 +41,5 @@ insmod open_i2c.ko
 ```
 
 The bus reset (`I2C_IOC_INIT`) takes no record, so a null argument works.
+
+The XM232's (`I2C_CHIP=xm232`) has the XM533's device names (`/dev/xm_i2c`, `xm_i2c1`, `xm_i2c2`) and the XM535's timing and bus resets (`0x20000090 + 4n`), resets the TX FIFO before a write, and does not touch the pin mux. It sets all three buses up at load and again after a resume (its PM notifier).

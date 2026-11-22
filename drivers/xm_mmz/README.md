@@ -100,3 +100,12 @@ The record goes back to the caller whether or not the call succeeded. A failed a
 ## `/proc/umap/mmz`
 
 It has the same layout as the vendor's: the zone, then one line per block (start, size, size in KB rounded to pages, overrun flag, name), then the free space.
+
+## XM232 (`MMZ_CHIP=xm232`)
+
+The XM232's `mmz.ko` is the V200 series' list allocator (the default with `MMZ_CHIP=xm232`) with frame compression:
+
+- Records are 48 bytes: the 44, then the compressed address.
+- `mmz_alloc_comp(name, size, &phys, &comp)`, exported, and ioctl 8 (`0xc0304d08`) take a block of 6/8 of the size (the size rounded up to 16 bytes first) at the first multiple of 12 bytes in its span, which leaves room for that and the marker. The media blocks reach it at `mmz_start + 0x10000000 + (phys - comp_start) * 8 / 6`, `comp_start` the zone's start rounded down to a multiple of 12. `vb.ko` and `vi_mu.ko` take their frame buffers this way.
+- Two decompression windows, at 0x100e8000 and 0x100e9000, are set up at load and after a resume: `+0x0c` the view's start (`mmz_start + 0x10000000`), `+0x10` its end, `+0x18` 1, `+0x14` `comp_start`.
+- `/proc/umap/mmz` has a `COMPADDR` column, and a mapping of the 0x9xxxxxxx view (Sofia maps compressed blocks by that address) is not reported as outside the zone.
