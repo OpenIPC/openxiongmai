@@ -14,11 +14,17 @@
  *   ai 0x40044107  the input's 3A state (AEC, ANS, AGC bits), shown in /proc
  *   ai 0x80844109  the capture settings /proc/umap/audio takes
  *                  ("save_chose=N", "save_path=...")
- *   ai 0x40044110  (XM535D1/D2) the sample rate, the clock set for it
+ *   ai 0x40044110  (XM535D1/D2, XM232) the sample rate, the clock set for it
+ *   ai 0x80044108  (XM232) the sample rate
  *
  * rate= the sample rate (8000, 16000, 32000): the I2S clock is set for it
  * (256 fs). gpio=N drives that GPIO high while /dev/ao is open (a speaker
- * amplifier). I2S_CHIP=v200 (XM530V200, XM533), xm535 or xm535w1.
+ * amplifier). I2S_CHIP=v200 (XM530V200, XM533), xm535, xm535w1 or xm232.
+ *
+ * XM232 (I2S_CHIP=xm232): no common block to set up, the input and output
+ * on IRQs 45 and 46, and its own clock (see i2sclk()); the module refuses
+ * to load without the audio codec (acodec.ko's get_acodec_status()), and
+ * after setting the clock takes the rate from it.
  */
 
 #include <linux/delay.h>
@@ -39,14 +45,24 @@
 #define I2S_BASE 0x10065000 /* common, input +0x1000, output +0x2000 */
 #define SYS_BASE 0x20000000
 #define GPIO_PAD 0x10020000
+#ifdef I2S_XM232
+#define AI_IRQ 45
+#define AO_IRQ 46
+#else
 #define AI_IRQ 48
 #define AO_IRQ 49
+#endif
 #define BLOCK 160 /* samples an interrupt */
 
 #define AO_GET_USED 0x80044105
 #define AI_SET_3A 0x40044107
 #define AI_GET_SAVE 0x80844109
 #define AI_SET_RATE 0x40044110
+#define AI_GET_RATE 0x80044108
+
+#ifdef I2S_XM232
+extern int get_acodec_status(void);
+#endif
 
 static int rate = 8000;
 module_param(rate, int, 0444);
@@ -95,7 +111,19 @@ static u32 i2sclk(void)
 {
 	u32 sel = (readl(sys + 0x30) >> 17) & 3, d = readl(sys + 0x64);
 	u64 f;
-#ifdef I2S_XM535
+#ifdef I2S_XM232
+	/* PLL C (0x18) or D (0x20) by +0x30 bits 17-18; +0x64 divides by its
+	 * top and bottom bytes */
+	u32 r18 = readl(sys + 0x18 + 8 * sel), r1c = readl(sys + 0x1c + 8 * sel);
+
+	f = (u64)(((r1c & 0x3ffffff) >> 16) + 16) * 24000000 +
+	    (((u64)(r1c & 0xffff) * 24000000) >> 16);
+	f >>= (r18 & 0xf) ? 2 : 1;
+	do_div(f, ((r18 & 0x7fff) >> 9) + 1);
+	do_div(f, (d >> 24) + 1);
+	do_div(f, (d & 0xff) + 1);
+	return f;
+#elif defined(I2S_XM535)
 	u32 r = readl(sys + 0x20 + 8 * sel);
 
 	f = (u64)(r & 0xfff) * 24000000;
@@ -111,12 +139,51 @@ static u32 i2sclk(void)
 	f >>= (r20 & 0xf) ? 2 : 1;
 	do_div(f, ((r20 & 0x7fff) >> 9) + 1);
 #endif
+#ifndef I2S_XM232
 	do_div(f, (d >> 24) + 1);
 	do_div(f, ((d >> 16) & 0xff) + 1);
 	return f;
+#endif
 }
 #endif
 
+#ifdef I2S_XM232
+/*
+ * XM232's i2s.ko: at 2.048 MHz and 16 kHz the divider halved, at 4.096 MHz
+ * and 8 kHz doubled: its bottom byte when that is odd, else the byte at
+ * bits 16-23, copied to bits 8-31. Any other clock is set back to 2.048
+ * MHz from 1331.2 MHz (0x19191918). Written with the SYS lock open.
+ */
+static void clock_for_rate(void)
+{
+	u32 clk = i2sclk(), d = readl(sys + 0x64), n;
+	bool faster;
+
+	if (clk == 2048000 && rate == 16000) {
+		faster = true;
+	} else if (clk == 4096000 && rate == 8000) {
+		faster = false;
+	} else {
+		if (clk != 2048000 && clk != 4096000)
+			d = 0x19191918;
+		goto out;
+	}
+	if (d & 1) {
+		n = d & 0xff;
+		n = faster ? ((n + 1) >> 1) - 1 : n * 2 + 1;
+		d = (d & ~0xffu) | (n & 0xff);
+	} else {
+		n = (d >> 16) & 0xff;
+		n = faster ? ((n + 1) >> 1) - 1 : n * 2 + 1;
+		d = (d & 0xff) | n << 8 | n << 16 | n << 24;
+	}
+out:
+	writel(1, sys);
+	writel(d, sys + 0x64);
+	writel(0, sys);
+	pr_info("Rate:%d i2s clk:%dHz\n", rate, i2sclk());
+}
+#else
 /* the divider halved (faster) or doubled for the rate, as i2s.ko does */
 static void clock_for_rate(void)
 {
@@ -155,6 +222,7 @@ out:
 	pr_info("i2s clk:%dHz\n", i2sclk());
 #endif
 }
+#endif
 
 static irqreturn_t i2s1_interrupt(int irq, void *dev)
 {
@@ -309,7 +377,12 @@ static long ai_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return copy_to_user((void __user *)arg, &save, sizeof(save)) ?
 			       -EFAULT : 0;
 #endif
-#if defined(I2S_XM535) && !defined(I2S_XM535W1)
+#ifdef I2S_XM232
+	case AI_GET_RATE:
+		return copy_to_user((void __user *)arg, &rate, sizeof(rate)) ?
+			       -EFAULT : 0;
+#endif
+#if (defined(I2S_XM535) && !defined(I2S_XM535W1)) || defined(I2S_XM232)
 	case AI_SET_RATE:
 		if (get_user(v, (u32 __user *)arg))
 			return -EFAULT;
@@ -372,9 +445,15 @@ static int ao_release(struct inode *inode, struct file *file)
 static int audio_show(struct seq_file *s, void *v)
 {
 	seq_puts(s, "[AUDIO] openxiongmai xm_v200_i2s\n\n");
+#ifdef I2S_XM232
+	seq_puts(s, "-----------AUDIO INFO--------------------\n");
+	seq_printf(s, "Rate:%d   AEC: %s   ANS: %s   AGC: %s  \n\n", rate,
+		   aec ? "Y" : "N", ans ? "Y" : "N", agc ? "Y" : "N");
+#else
 	seq_puts(s, "-----------AI 3A STATUS-----------------\n");
 	seq_printf(s, "AEC: %s       ANS: %s        AGC: %s    \n\n", aec ? "on" : "off",
 		   ans ? "on" : "off", agc ? "on" : "off");
+#endif
 	seq_puts(s, "-----------AI CHN STATUS-----------------\n");
 	seq_puts(s, "Chn  Overrun  Full  Afull  BufFull\n");
 	seq_printf(s, "%-3d  %-7u  %-4u  %-5u  %-7u\n", 0, stats.ai_overrun,
@@ -474,6 +553,12 @@ static int __init xm_v200_i2s_init(void)
 	u32 div = rate == 32000 ? 4 : rate == 8000 || rate == 16000 ? 8 : 0;
 	int ret;
 
+#ifdef I2S_XM232
+	if (!get_acodec_status()) {
+		pr_err("audio: acodec is not exist!\n");
+		return -ENODEV;
+	}
+#endif
 	i2s = ioremap(I2S_BASE, 0x3000);
 	sys = ioremap(SYS_BASE, 0x100);
 	if (!i2s || !sys) {
@@ -481,10 +566,16 @@ static int __init xm_v200_i2s_init(void)
 		goto unmap;
 	}
 	gpio_set(0x400);
+#ifndef I2S_XM232
 	block_init(i2s, 0x61f, 0xf, 0x10, 0x3c0, 0x3c0, 0xff001f, 0x200b0);
+#endif
 	block_init(AI(0), 0x605, 0xf, div, 0xa0, 0xa0, 0, 0x2c2b8);
 	block_init(AO(0), 0x1b, 0xf, div, 0xa0, 0xa0, 0, 0x2c2b8);
 	clock_for_rate();
+#ifdef I2S_XM232
+	/* the rate the clock now gives */
+	rate = i2sclk() == 4096000 ? 16000 : 8000;
+#endif
 	if (!proc_create("umap/audio", 0644, NULL, &audio_proc_fops))
 		pr_err("audio proc crate failed!\n");
 	ret = kfifo_alloc(&ai_fifo, 0x1400, GFP_KERNEL);
