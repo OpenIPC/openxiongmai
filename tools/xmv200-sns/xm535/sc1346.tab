@@ -1,0 +1,17 @@
+# name address pairs what-the-vendor-logs
+# channel 0 as frame-sync slave: the vendor's extra writes, then stream on
+xm535_sc1346_mipi_sync 0x7e67e 130 sc1346/sc134T (@20220822 mipi), frame sync slave
++ 0x3211 0x00
++ 0x3222 0x02
++ 0x3224 0x96
++ 0x322e 0x02
++ 0x322f 0xea
++ 0x3230 0x00
++ 0x3231 0x04
++ 0x0100 0x01
+xm535_sc1346_mipi 0x7e67e 130 sc1346/sc134T (@20220822 mipi), then stream on
++ 0x0100 0x01
+# the vendor's when the channel's 0xa9ecc word is 1
+xm535_sc1346_mipi_alt 0x7e4c2 111 sc1346/sc134T (@20220822 mipi), the other table, then stream on
++ 0x0100 0x01
+xm535_sc1346_dvp 0x7e886 140 sc1346/sc134T (@20230110 dvp)

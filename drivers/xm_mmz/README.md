@@ -1,6 +1,6 @@
 # xm_mmz
 
-`xm_mmz` is the media memory zone of the XM530/XM550 and the XM510, built as `open_mmz.ko`. It replaces the vendor `mmz.ko` without changes to the drivers or applications that use it.
+`xm_mmz` is the media memory zone of the XM530/XM550, the XM510 and the V200 series (XM530V200, XM533, XM535D1/D2/W1), built as `open_mmz.ko`. It replaces the vendor `mmz.ko` without changes to the drivers or applications that use it.
 
 The SDK and the video drivers take their DMA buffers from one physically contiguous region that Linux does not use. `mem=` on the kernel command line keeps it out, and the module gets it as `mmz_start` and `mmz_size`. `load_xiongmai` passes what lies between `mem=` and the end of DDR:
 
@@ -9,6 +9,17 @@ insmod open_mmz.ko mmz_start=0x85000000 mmz_size=0x3000000   # XM550: mem=80M of
 ```
 
 Load it before the drivers that use it (`open_vi`/`xm530_vi`, `xm530_rgn`).
+
+## V200 series
+
+The V200 series' `mmz.ko` keeps the same blocks and marker but frees: `mmz_free(phys, &size)` and ioctl 2 release a block, and the next block takes the first space it fits in from `mmz_start` (the vendor keeps the free spans in its list). Names may repeat, and a lookup finds the first block with the name. `allocator=list` does that, and a build with `MMZ_ALLOCATOR=list` makes it the default, since those chips' loaders pass only `mmz_start` and `mmz_size`:
+
+```sh
+make -C drivers/xm_mmz KDIR=... ARCH=arm CROSS_COMPILE=... MMZ_ALLOCATOR=list
+insmod open_mmz.ko mmz_start=0x82800000 mmz_size=0x5800000   # XM535D1: mem=40M of 128 MB
+```
+
+A cache flush (ioctl 5) leaves the block's cached flag as it is, as theirs does.
 
 ## XM510
 
@@ -105,10 +116,19 @@ Every call takes a record `{ char name[32]; u32 size; u32 phys; u32 vaddr; }` (4
 | `_IOW('M', 5)` | Flush the CPU caches for the mapping at `vaddr` and `size` (and the outer cache by `phys`), then mark the block cached |
 | `_IOW('M', 6)` / `_IOW('M', 7)` | Mark the block at `phys` cached / uncached, for later mappings |
 
-The record goes back to the caller whether or not the call succeeded. A failed allocation or lookup returns −1 with `phys` 0. As in the vendor module, a command it does not know (a record of another size included) logs `ioctl cmd error` and returns 0, so callers test `phys`.
+The record goes back to the caller whether or not the call succeeded. A failed allocation or lookup returns −1 with `phys` 0. As in the vendor module, a command it does not know logs `ioctl cmd error` and returns 0 (−1 on the XM232, as its module does), so callers test `phys`. Each vendor module dispatches on the whole command word, so a known command with another record size or direction is one it does not know: the XM510's takes only 40-byte records, the XM530's and the V200 series' only 44-byte ones, the XM232's only 48-byte ones.
 
 `mmap` with the physical address as the offset maps it write-back for a cached block and uncached otherwise. Like the vendor module, it maps any physical address (in CMA mode, see above). It logs the first mapping outside the zone, so anything that relies on that can be found before it is refused.
 
 ## `/proc/umap/mmz`
 
 It has the same layout as the vendor's: the zone, then one line per block (start, size, size in KB rounded to pages, overrun flag, name), then the free space.
+
+## XM232 (`MMZ_CHIP=xm232`)
+
+The XM232's `mmz.ko` is the V200 series' list allocator (the default with `MMZ_CHIP=xm232`) with frame compression:
+
+- Records are 48 bytes: the 44, then the compressed address.
+- `mmz_alloc_comp(name, size, &phys, &comp)`, exported, and ioctl 8 (`0xc0304d08`) take a block of 6/8 of the size (the size rounded up to 16 bytes first) at the first multiple of 12 bytes in its span, which leaves room for that and the marker. The media blocks reach it at `mmz_start + 0x10000000 + (phys - comp_start) * 8 / 6`, `comp_start` the zone's start rounded down to a multiple of 12. `vb.ko` and `vi_mu.ko` take their frame buffers this way.
+- Two decompression windows, at 0x100e8000 and 0x100e9000, are set up at load and after a resume: `+0x0c` the view's start (`mmz_start + 0x10000000`), `+0x10` its end, `+0x18` 1, `+0x14` `comp_start`.
+- `/proc/umap/mmz` has a `COMPADDR` column, and a mapping of the 0x9xxxxxxx view (Sofia maps compressed blocks by that address) is not reported as outside the zone.

@@ -1,0 +1,4 @@
+# name address pairs what-the-vendor-logs
+gc3003_mipi 0x92c18 156 GC3003 (@20230308_mipi)
+gc3003_again_step:u32 0x91fbc 25 the analog gain's steps (1/64)
+gc3003_again_regs:u8 0xacbf0 175 each step's 0xd1 0xd0 0x80 0x155 0xb8 0xb9 0x6e

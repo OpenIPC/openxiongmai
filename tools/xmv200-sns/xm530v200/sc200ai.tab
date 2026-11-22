@@ -1,0 +1,4 @@
+# name address pairs what-the-vendor-logs
+sc200ai_mipi 0x77a4a 111 sc200AI_1080P linear 25fps
+sc200ai_720p_mipi 0x7783a 132 sc200AI_720P linear 25fps
+sc200ai_dvp 0x7764e 123 sc200AI_1080P linear 30fps DVP

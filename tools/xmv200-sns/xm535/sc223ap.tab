@@ -1,0 +1,3 @@
+# name address pairs what-the-vendor-logs
+xm535_sc223ap_mipi 0x84f68 200 SC223AP (@202412_mipi)
+xm535_sc223ap_dvp 0x84c28 208 SC223AP (@202412_dvp)

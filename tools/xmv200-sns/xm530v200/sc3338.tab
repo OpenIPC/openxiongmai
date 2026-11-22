@@ -1,0 +1,3 @@
+# name address pairs what-the-vendor-logs
+sc3338_mipi 0x911a0 144 SC3338 init (no log)
+sc3338_mipi_25fps 0x913e0 144 SC3338 25 fps init, from its frame rate function (no log)

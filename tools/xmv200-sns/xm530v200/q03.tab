@@ -1,0 +1,4 @@
+# name address pairs what-the-vendor-logs
+format u8u8
+q03_mipi 0x9337c 111 Q03 3M
+q03p_mipi 0x93b48 111 Q03P 3M

@@ -1,0 +1,12 @@
+# name address pairs what-the-vendor-logs
+# the D1's with 0x3651 = 0x9d after its 80th pair; channel 0 as frame-sync
+# slave: the vendor's extra writes, then stream on
+xm535d2_sc2336p_mipi_1lane_sync 0x81964 167 SC2336P_1080P (20240305_mipi_1lane), frame sync slave
++ 0x301f 0x47
++ 0x3032 0x20
++ 0x3222 0x02
++ 0x3224 0x92
++ 0x300a 0x20
++ 0x0100 0x01
+xm535d2_sc2336p_mipi_1lane 0x81964 167 SC2336P_1080P (20240305_mipi_1lane), then stream on
++ 0x0100 0x01

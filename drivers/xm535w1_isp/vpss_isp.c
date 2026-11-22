@@ -1,0 +1,481 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * The ISP's VPSS side (the 0x34000000 window: noise reduction, sharpening,
+ * gamma, chroma; and the BPU's 0x32025000/0x32036000 parts of it):
+ * parameter blocks per group (0x49d2..0x49f0), a copy of a group's blocks
+ * taken with the BPU's snapshot (vpss_isp_sync_para), and once a frame
+ * (vpss_isp_set_val_v2, from the BPU) an image of them that goes to the
+ * registers. vpss.ko's vpss_isp_* calls do nothing on the XM535; isp.ko
+ * drives vpss.ko instead (vpss_thread_*).
+ */
+
+#include <linux/io.h>
+#include <linux/module.h>
+#include <linux/uaccess.h>
+
+#include "isp.h"
+
+#define VP_SIZE 0x614
+#define VS_SIZE 0x714
+
+/* g_vpss_isp_para[grp] and the copy synced with the BPU's snapshot */
+static u8 vp[N_CHN][VP_SIZE] __aligned(4);
+static u8 vp_sync[N_CHN][VP_SIZE] __aligned(4);
+static struct mutex vp_lock[N_CHN] = { __MUTEX_INITIALIZER(vp_lock[0]),
+					__MUTEX_INITIALIZER(vp_lock[1]),
+					__MUTEX_INITIALIZER(vp_lock[2]) };
+#define P32(p, o) (*(u32 *)((p) + (o)))
+#define P16(p, o) (*(u16 *)((p) + (o)))
+
+/* isp.ko's register image of the frame */
+static u8 vs[VS_SIZE] __aligned(4);
+#define S32(o) (*(u32 *)(vs + (o)))
+
+static void __iomem *ldc_buf[N_CHN]; /* 0x49e9's table: kept, not used */
+static u8 ldc_new;
+static u8 vs_held;     /* the parameters waited for (CM_VPSS_HOLD) and set */
+static u8 vs_en[N_CHN] = { 0xff, 0xff, 0xff };
+
+/* the image from a block: {image, block} */
+static const u16 vs_copy[][2] = {
+	{ 0x0, 0x134 },   { 0x10, 0x10 },   { 0x14, 0x14 },   { 0x18, 0x18 },
+	{ 0xc, 0x1c },    { 0x4, 0x20 },    { 0x8, 0x24 },    { 0x34, 0x84 },
+	{ 0x48, 0x98 },   { 0x38, 0x88 },   { 0x3c, 0x8c },   { 0x40, 0x90 },
+	{ 0x44, 0x94 },   { 0x4c, 0x9c },   { 0x50, 0xa0 },   { 0x54, 0xa4 },
+	{ 0x58, 0xa8 },   { 0x68, 0xb8 },   { 0x6c, 0xbc },   { 0x70, 0xc0 },
+	{ 0x74, 0xc4 },   { 0x5c, 0xac },   { 0x60, 0xb0 },   { 0x64, 0xb4 },
+	{ 0x7c, 0xcc },   { 0x78, 0xc8 },   { 0x80, 0xd0 },   { 0x84, 0xd4 },
+	{ 0x88, 0xd8 },   { 0x8c, 0xdc },   { 0x90, 0xe0 },   { 0x94, 0xe4 },
+	{ 0x98, 0xe8 },   { 0x9c, 0xec },   { 0x1c, 0x28 },   { 0x20, 0x30 },
+	{ 0x24, 0x2c },   { 0x28, 0x34 },   { 0x2c, 0x38 },   { 0x30, 0x3c },
+	{ 0x118, 0x15c }, { 0x11c, 0x160 }, { 0x120, 0x164 }, { 0x124, 0x168 },
+	{ 0xf8, 0x13c },  { 0xfc, 0x140 },  { 0x100, 0x144 }, { 0x104, 0x148 },
+	{ 0x108, 0x14c }, { 0x10c, 0x150 }, { 0x110, 0x154 }, { 0x114, 0x158 },
+	{ 0x128, 0x16c }, { 0x12c, 0x170 }, { 0x130, 0x7c },  { 0x134, 0x44 },
+	{ 0x140, 0x50 },  { 0x138, 0x48 },  { 0x13c, 0x4c },  { 0x144, 0x54 },
+	{ 0x148, 0x58 },  { 0x14c, 0x80 },  { 0x150, 0x5c },  { 0x154, 0x68 },
+	{ 0x158, 0x60 },  { 0x15c, 0x64 },  { 0x160, 0x6c },  { 0x164, 0x70 },
+	{ 0x168, 0x74 },  { 0x16c, 0x78 },
+};
+
+/* {register, image} */
+static const u16 vs_held_regs[][2] = {
+	{ 0x2370, 0x10 },  { 0x22d8, 0x1c },  { 0x2388, 0x28 },  { 0xc000, 0x134 },
+	{ 0xc008, 0x138 }, { 0xc00c, 0x13c }, { 0xc010, 0x140 }, { 0xc018, 0x144 },
+	{ 0xc01c, 0x148 }, { 0xd000, 0x150 }, { 0xd010, 0x154 }, { 0xd020, 0x158 },
+	{ 0xd024, 0x15c }, { 0xd028, 0x160 }, { 0xd02c, 0x164 },
+};
+
+/* in the 0x34000000 window */
+static const u16 vs_regs1[][2] = {
+	{ 0x2370, 0x10 },  { 0x2374, 0x18 },  { 0x22d8, 0x1c },  { 0x22dc, 0x30 },
+	{ 0x2388, 0x28 },  { 0xc000, 0x134 }, { 0xc008, 0x138 }, { 0xc00c, 0x13c },
+	{ 0xc010, 0x140 }, { 0xc018, 0x144 }, { 0xc01c, 0x148 }, { 0xd000, 0x150 },
+	{ 0xd010, 0x154 }, { 0xd020, 0x158 }, { 0xd024, 0x15c }, { 0xd028, 0x160 },
+	{ 0xd02c, 0x164 }, { 0x237c, 0x14 },  { 0x22e4, 0x20 },  { 0xd058, 0x168 },
+	{ 0xd05c, 0x16c }, { 0x205c, 0x34 },  { 0x2060, 0x38 },  { 0x20b0, 0x3c },
+	{ 0x20b4, 0x3c },  { 0x20bc, 0x40 },  { 0x20c0, 0x44 },  { 0x20c4, 0x44 },
+	{ 0x21e8, 0x48 },  { 0x2234, 0x4c },  { 0x2240, 0x50 },  { 0x22a4, 0x54 },
+	{ 0x22a8, 0x58 },  { 0x22ac, 0x5c },  { 0x22c0, 0x60 },  { 0x22c4, 0x64 },
+	{ 0x22c8, 0x68 },  { 0x22d0, 0x6c },  { 0x22f8, 0x70 },  { 0x239c, 0x74 },
+	{ 0x23a0, 0x78 },  { 0x23a4, 0x7c },  { 0x23a8, 0x80 },  { 0x2404, 0x84 },
+	{ 0x2408, 0x88 },  { 0x240c, 0x8c },  { 0x2410, 0x90 },  { 0x2470, 0x94 },
+	{ 0x2474, 0x98 },  { 0x2478, 0x9c },  { 0x2480, 0xe4 },  { 0x2484, 0xe8 },
+	{ 0x2488, 0xec },  { 0x248c, 0xf0 },  { 0x2490, 0xf4 },
+};
+
+static const u16 vs_regs2[][2] = {
+	{ 0x2780, 0xf8 },  { 0x2784, 0xfc },  { 0x2788, 0x100 }, { 0x278c, 0x104 },
+	{ 0x2790, 0x108 }, { 0x2794, 0x10c }, { 0x2798, 0x110 }, { 0x279c, 0x114 },
+	{ 0x27a0, 0x118 }, { 0x27a4, 0x11c }, { 0x27a8, 0x120 }, { 0x27ac, 0x124 },
+};
+
+static const u16 vs_regs3[][2] = {
+	{ 0x1030, 0x174 }, { 0x1034, 0x178 }, { 0x1048, 0x17c }, { 0x104c, 0x180 },
+	{ 0x1090, 0x184 }, { 0x10b0, 0x188 }, { 0x10b4, 0x18c }, { 0x10e0, 0x190 },
+	{ 0x10ec, 0x194 }, { 0x1104, 0x198 }, { 0x1108, 0x19c }, { 0x110c, 0x1a0 },
+	{ 0x1000, 0x170 }, { 0x5000, 0x1a4 }, { 0x501c, 0x1b0 }, { 0x5004, 0x1a8 },
+	{ 0x5008, 0x1ac }, { 0x6000, 0x1b4 }, { 0x6200, 0x1b8 }, { 0x6204, 0x1bc },
+	{ 0x6208, 0x1c0 }, { 0x620c, 0x1c4 }, { 0x6210, 0x1c8 }, { 0x6214, 0x1cc },
+	{ 0x6218, 0x1d0 }, { 0x621c, 0x1d4 }, { 0x6220, 0x1d8 }, { 0x6224, 0x1dc },
+	{ 0x6228, 0x1e0 }, { 0x622c, 0x1e4 }, { 0x6230, 0x1e8 }, { 0x6234, 0x1ec },
+	{ 0x6240, 0x1f0 }, { 0x6244, 0x1f4 }, { 0x6248, 0x1f8 }, { 0x624c, 0x1fc },
+	{ 0x6250, 0x200 }, { 0x6254, 0x204 }, { 0x6258, 0x208 },
+};
+
+static const u16 vs_regs4[][2] = {
+	{ 0x3020, 0x43c }, { 0x3028, 0x440 }, { 0x302c, 0x444 }, { 0x3034, 0x448 },
+	{ 0x3160, 0x44c }, { 0x3164, 0x450 }, { 0x3168, 0x454 }, { 0x316c, 0x458 },
+	{ 0x3174, 0x45c }, { 0x317c, 0x460 }, { 0x3274, 0x464 }, { 0x3278, 0x468 },
+	{ 0x327c, 0x46c }, { 0x3280, 0x470 }, { 0x3284, 0x474 }, { 0x3288, 0x478 },
+	{ 0x328c, 0x47c }, { 0x3294, 0x480 }, { 0x329c, 0x484 },
+};
+
+#define VW(r, v) isp_write_reg(0x34000000 + (r), v)
+#define WR_IMG(t)                                         \
+	do {                                              \
+		int _i;                                   \
+		for (_i = 0; _i < ARRAY_SIZE(t); _i++)    \
+			VW(t[_i][0], S32(t[_i][1]));      \
+	} while (0)
+#define WR_CONST(t)                                       \
+	do {                                              \
+		int _i;                                   \
+		for (_i = 0; _i < ARRAY_SIZE(t); _i++)    \
+			isp_write_reg(t[_i][0], t[_i][1]); \
+	} while (0)
+
+static const u32 vpss_defaults1[][2] = {
+	{ 0x34003004, 1 },     { 0x34003024, 0xff },  { 0x34003170, 0xff },
+	{ 0x340031d0, 0x41 },  { 0x340031d4, 0x32 },  { 0x340031d8, 0x2a },
+	{ 0x340031dc, 0x41 },  { 0x340031e0, 0x32 },  { 0x340031e4, 0x2a },
+	{ 0x340031e8, 0x10 },  { 0x340031ec, 0x1a },  { 0x340031f0, 0x41 },
+	{ 0x340031f4, 0x32 },  { 0x340031f8, 0x2a },  { 0x340031fc, 0xdc },
+	{ 0x34003200, 0x32 },  { 0x34003204, 0x20 },  { 0x34003208, 0x10 },
+	{ 0x3400320c, 0x10 },  { 0x34003210, 0xdc },  { 0x34003214, 0x32 },
+	{ 0x34003218, 0x2a },  { 0x3400321c, 0x41 },  { 0x34003220, 0x32 },
+	{ 0x34003224, 0x2a },  { 0x34003228, 0x10 },  { 0x3400322c, 0x10 },
+	{ 0x34003230, 0x41 },  { 0x34003234, 0x32 },  { 0x34003238, 0x2a },
+	{ 0x3400323c, 0xbe },  { 0x34003240, 0x32 },  { 0x34003244, 0x2a },
+	{ 0x34003248, 0x10 },  { 0x3400324c, 0x10 },  { 0x34003260, 0xfff },
+	{ 0x34003264, 0xfff }, { 0x34003268, 0x30 },  { 0x3400326c, 0x30 },
+	{ 0x34003270, 0xff },  { 0x34003290, 1 },     { 0x34003298, 0 },
+	{ 0x340032a0, 0x80 },  { 0x34003004, 0 },     { 0x34002020, 0x20 },
+	{ 0x34002050, 0x40 },  { 0x3400205c, 0x10 },  { 0x34002060, 0x20 },
+	{ 0x34002264, 3 },     { 0x34002278, 2 },     { 0x3400227c, 0 },
+	{ 0x34002280, 3 },     { 0x34002288, 0 },     { 0x3400228c, 0x7f },
+	{ 0x34002290, 0 },     { 0x34002294, 0x7f },  { 0x340022b0, 0x20 },
+	{ 0x340022b4, 0x18 },  { 0x340022b8, 6 },     { 0x340022bc, 0x18 },
+	{ 0x340022d4, 0x20 },  { 0x340022f0, 0 },     { 0x340022f4, 0x20 },
+	{ 0x340022fc, 0x10 },  { 0x34002300, 1 },     { 0x34002304, 1 },
+	{ 0x3400200c, 0x5a5f }, { 0x34002390, 0 },    { 0x34002394, 0x1000 },
+	{ 0x34002398, 0x1000 }, { 0x34002400, 1 },    { 0x34002024, 0xb1e3150 },
+	{ 0x34002010, 0 },     { 0x3400c04c, 0 },     { 0x3400d074, 0 },
+	{ 0x3400d054, 3 },     { 0x340027c4, 1 },     { 0x340027d0, 0x80 },
+	{ 0x34001004, 0 },     { 0x34001008, 7 },     { 0x34001040, 0 },
+	{ 0x34001044, 0 },     { 0x340010a0, 0xf },   { 0x340010a4, 0 },
+	{ 0x340010e4, 8 },     { 0x340010e8, 0 },     { 0x340010f0, 0x80 },
+};
+
+static const u32 vpss_defaults2[][2] = {
+	{ 0x32035030, 1 },     { 0x32035034, 0 },     { 0x32035050, 0xff },
+	{ 0x32035054, 10 },    { 0x32035058, 0x32 },  { 0x3203505c, 10 },
+	{ 0x32035060, 10 },    { 0x32035064, 0x32 },  { 0x32035068, 0x61a },
+	{ 0x3203506c, 0x61a }, { 0x320350e0, 0x100 },
+};
+
+static const u8 sharp_tab[16] = {
+	0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
+	0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
+};
+
+static const u8 nr3d_tab[21] = {
+	0x80, 0xc0, 0xd0, 0xe0, 0xf0, 0xf8, 0xfc, 0x20, 0x40, 0x60, 0x80,
+	0xa0, 0xc0, 0xe0, 0x4,  0x8,  0x10, 0x20, 0x40, 0x80, 0xc0,
+};
+
+static void vpss_isp_defaults(void)
+{
+	int i;
+
+	WR_CONST(vpss_defaults1);
+	for (i = 0; i < 16; i++)
+		isp_write_reg(0x34001050 + i * 4, sharp_tab[i]);
+	WR_CONST(vpss_defaults2);
+	for (i = 0; i < 21; i++)
+		isp_write_reg(0x32035080 + i * 4, nr3d_tab[i]);
+}
+
+/* vpss.ko's hooks: nothing on the XM535 */
+int vpss_isp_init(void *regs)
+{
+	return 0;
+}
+EXPORT_SYMBOL(vpss_isp_init);
+
+int vpss_isp_set_val(u32 grp, u32 w, u32 h)
+{
+	return 0;
+}
+EXPORT_SYMBOL(vpss_isp_set_val);
+
+int vpss_isp_post_deal(u32 grp, u32 w, u32 h)
+{
+	return 0;
+}
+EXPORT_SYMBOL(vpss_isp_post_deal);
+
+int vpss_isp_set_attr(u32 grp, u32 w, u32 h, u32 *attr)
+{
+	return 0;
+}
+EXPORT_SYMBOL(vpss_isp_set_attr);
+
+void vpss_isp_reset(int grp)
+{
+	if (grp == 0) {
+		isp_write_reg(0x34010020, 0);
+		isp_write_reg(0x34011040, 0);
+		isp_write_reg(0x34002008, 0);
+		isp_write_reg(0x3400d034, 0);
+		isp_write_reg(0x3400c040, 0);
+		isp_write_reg(0x34002000, 0);
+		isp_write_reg(0x32036000, 0);
+		isp_write_reg(0x32036004, 0);
+		isp_write_reg(0x32036018, 0);
+		isp_write_reg(0x3203500c, 0);
+		isp_write_reg(0x32035000, 0);
+	}
+	vs_held = 0;
+	memset(vs_en, 0xff, sizeof(vs_en));
+}
+
+void vpss_isp_exit(void)
+{
+	int c;
+
+	for (c = 0; c < N_CHN; c++) {
+		if (ldc_buf[c])
+			iounmap(ldc_buf[c]);
+		ldc_buf[c] = NULL;
+	}
+}
+
+/* with the BPU's snapshot: the blocks the frame will use */
+int vpss_isp_sync_para(u32 grp)
+{
+	if (grp >= N_CHN)
+		return -1;
+	mutex_lock(&vp_lock[grp]);
+	memcpy(vp_sync[grp], vp[grp], VP_SIZE);
+	mutex_unlock(&vp_lock[grp]);
+	return 0;
+}
+
+static void vs_fill(const u8 *p)
+{
+	u32 v;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(vs_copy); i++)
+		S32(vs_copy[i][0]) = P32(p, vs_copy[i][1]);
+	v = P32(p, 0x138);
+	S32(0xe4) = v & 0xf;
+	S32(0xe8) = (v >> 8) & 0xf;
+	S32(0xec) = (v >> 15) & 1;
+	S32(0xf0) = (v >> 16) & 0xff;
+	S32(0xf4) = v >> 24;
+	for (i = 0; i < 17; i++)
+		S32(0xa0 + i * 4) = P32(p, 0xf0 + i * 4);
+	memcpy(vs + 0x170, p + 0x174, 0x98); /* 0x170..0x204 */
+	S32(0x208) = P32(p, 0x20c);
+	for (i = 0; i < 65; i++)
+		S32(0x20c + i * 4) = P32(p, 0x210 + i * 4);
+	S32(0x310) = P32(p, 0x314);
+	for (i = 0; i < 65; i++)
+		S32(0x314 + i * 4) = P16(p, 0x318 + i * 2);
+	for (i = 0; i < 9; i++)
+		S32(0x418 + i * 4) = P16(p, 0x39a + i * 2);
+	memcpy(vs + 0x43c, p + 0x3ac, 0x50); /* 0x43c..0x488 */
+	S32(0x60c) = P32(p, 0x3fc);
+	S32(0x610) = P32(p, 0x400);
+	for (i = 0; i < 0x60; i++)
+		S32(0x48c + i * 4) = P32(p, 0x404 + i * 4);
+	S32(0x614) = P32(p, 0x584);
+	S32(0x618) = P32(p, 0x588);
+	S32(0x61c) = P32(p, 0x58c);
+}
+
+/*
+ * From the BPU, once a frame of group grp, w x h: the image of its blocks
+ * (synced: the copy taken with the BPU's snapshot) to the registers.
+ */
+int vpss_isp_set_val_v2(u32 grp, u32 w, u32 h, int synced)
+{
+	u32 i, v;
+
+	if (C32(CM_RUN) != 1)
+		return -1;
+	for (i = 0; i < N_CHN; i++)
+		if (C8(CM_VPSS_MASK) >> i & 1 && C32(CM_GRP(i) + 0x14) == grp)
+			break;
+	if (i == N_CHN || grp >= N_CHN)
+		return -2;
+	if (synced) {
+		vs_fill(vp_sync[grp]);
+	} else {
+		mutex_lock(&vp_lock[grp]);
+		vs_fill(vp[grp]);
+		P32(vp[grp], 0x1c) = 0; /* once */
+		mutex_unlock(&vp_lock[grp]);
+	}
+	if (synced)
+		P32(vp_sync[grp], 0x1c) = 0;
+	if (C32(CM_VPSS_HOLD) == 0xff) {
+		isp_write_reg(0x32036004, 0);
+		isp_write_reg(0x32036018, 0);
+		isp_write_reg(0x3400d034, 0);
+		isp_write_reg(0x3400c040, 0);
+		isp_write_reg(0x34002008, 0);
+		return 0;
+	}
+	if (C32(CM_VPSS_HOLD) == 0) {
+		vs_held = 0;
+	} else if (vs_held) {
+		if (C8(CM_MODE) == 1) {
+			WR_IMG(vs_held_regs);
+			/* isp.ko writes an image word it never sets: 0 */
+			isp_write_reg(0x32036008, 0);
+			isp_write_reg(0x3203600c, 0);
+			isp_write_reg(0x32036010, 0);
+			isp_write_reg(0x32036014, 0);
+		}
+		return 0;
+	}
+	WR_IMG(vs_regs1);
+	for (i = 0; i < 17; i++)
+		VW(0x21f0 + i * 4, S32(0xa0 + i * 4));
+	VW(0x2490, S32(0xf4));
+	VW(0x2704, S32(0x12c) & 0xff);
+	WR_IMG(vs_regs2);
+	v = S32(0x128);
+	VW(0x27b0, v & 0xff);
+	VW(0x27b4, (v >> 8) & 0xff);
+	VW(0x27b8, (v >> 16) & 0xff);
+	VW(0x27bc, v >> 24);
+	v = S32(0x12c);
+	VW(0x27c0, (v >> 8) & 0xff);
+	VW(0x27c8, (v & 0x1ffff) >> 16);
+	VW(0x27cc, (v & 0x7fffff) >> 20);
+	vs_en[grp] = S32(0);
+	if (!(S32(0) & 0xff)) {
+		VW(0x2008, 0);
+		VW(0xd034, 0);
+		VW(0xc040, 0);
+	} else {
+		VW(0xd034, S32(0x14c));
+		VW(0xc040, S32(0x130));
+		VW(0x2008, 1);
+	}
+	VW(0x2000, S32(0) & 0xff);
+	VW(0x2600, (int)S32(0) < 0 ? (S32(0) & 0x7fffffff) >> 24 : 0);
+	WR_IMG(vs_regs3);
+	for (i = 0; i < 65; i++)
+		VW(0x60e4 + i * 4, S32(0x20c + i * 4));
+	VW(0x6018, S32(0x310));
+	for (i = 0; i < 65; i++)
+		VW(0x7000 + i * 4, S32(0x314 + i * 4));
+	for (i = 0; i < 9; i++)
+		VW(0x7800 + i * 4, S32(0x418 + i * 4));
+	WR_IMG(vs_regs4);
+	v = S32(0x60c) ? (S32(0x60c) & 0xff) | 0x200 : 0;
+	isp_write_reg(0x32025014, v);
+	isp_write_reg(0x3202500c, S32(0x610));
+	for (i = 0; i < 32; i++) {
+		VW(0x3038 + i * 4, S32(0x48c + i * 4));
+		VW(0x30d0 + i * 4, S32(0x50c + i * 4));
+	}
+	for (i = 0; i < 16; i++)
+		VW(0x3180 + i * 4, S32(0x58c + i * 4));
+	VW(0x3000, S32(0x488));
+	if (C32(CM_VPSS_HOLD) & 1 << grp)
+		vs_held = 1;
+	return 0;
+}
+
+/* {cmd, size, offset in the block, bytes} of the plain copies */
+static const struct {
+	u16 cmd, size, dst, len;
+} vp_copy[] = {
+	{ 0x49db, 0x38, 0x174, 0x34 },  { 0x49dc, 0x178, 0, 0x174 },
+	{ 0x49de, 0x10, 0x1a8, 0xc },   { 0x49df, 0x88, 0x318, 0x82 },
+	{ 0x49e0, 0x18, 0x39a, 0x12 },  { 0x49e2, 0x10, 0x584, 0xc },
+	{ 0x49e4, 0x164, 0x1b8, 0x160 }, { 0x49e6, 0x1dc, 0x3ac, 0x58 },
+	{ 0x49e7, 0x54, 0x590, 0x50 },  { 0x49ea, 8, 0x1b4, 4 },
+	{ 0x49f0, 0x184, 0x404, 0x180 },
+};
+
+static void vp_init(void)
+{
+	int c, i;
+
+	memset(vp, 0, sizeof(vp));
+	for (c = 0; c < N_CHN; c++) {
+		for (i = 0; i < 9; i++)
+			P16(vp[c], 0x39a + i * 2) = 0x100;
+		P32(vp[c], 0x1a8) = 0x100;
+		P32(vp[c], 0x1ac) = 0x100;
+		P32(vp[c], 0x1b0) = 0x100;
+		P32(vp[c], 0x1b4) = 0x100;
+		P32(vp[c], 0x584) = 0x100;
+		P32(vp[c], 0x588) = 0x100;
+		P32(vp[c], 0x58c) = 0x100;
+		P32(vp[c], 0x590) = 0;
+	}
+	vpss_isp_exit();
+	ldc_new = 0;
+	if (CS8(CM_OPT) >= 0)
+		vpss_isp_defaults();
+}
+
+/* 0x49e9: the LDC's 11 words, and its 4 KiB table at word 9 */
+static void vp_ldc(u32 c, const u32 *w)
+{
+	memcpy(vp[c] + 0x5e0, &w[1], 11 * 4);
+	if (!w[1] || !w[9] || P32(vp[c], 0x60c))
+		return;
+	P32(vp[c], 0x60c) = w[9];
+	if (ldc_buf[c])
+		iounmap(ldc_buf[c]);
+	ldc_buf[c] = ioremap_cached(w[9], 0x1000);
+	if (!ldc_buf[c])
+		pr_err("IspKo:Err: ioremap_cached ldc_buf failed!\n");
+	ldc_new |= 1 << c;
+}
+
+static int vp_do(unsigned int cmd, void __user *arg, u32 *w)
+{
+	int i;
+
+	switch (cmd) {
+	case 0x49e5: /* taken and ignored, as isp.ko does */
+		return copy_from_user(w, arg, 0x110) ? -1 : 0;
+	case 0x49e9:
+		if (copy_from_user(w, arg, 0x30))
+			return -1;
+		if (w[0] >= N_CHN)
+			return 0;
+		mutex_lock(&vp_lock[w[0]]);
+		vp_ldc(w[0], w);
+		mutex_unlock(&vp_lock[w[0]]);
+		return 0;
+	}
+	for (i = 0; i < ARRAY_SIZE(vp_copy); i++) {
+		if (vp_copy[i].cmd != cmd)
+			continue;
+		if (copy_from_user(w, arg, vp_copy[i].size))
+			return -1;
+		if (w[0] >= N_CHN)
+			return 0;
+		mutex_lock(&vp_lock[w[0]]);
+		memcpy(vp[w[0]] + vp_copy[i].dst, &w[1], vp_copy[i].len);
+		mutex_unlock(&vp_lock[w[0]]);
+		return 0;
+	}
+	return -1;
+}
+
+int iw_vpss_ioctl(unsigned int cmd, void __user *arg)
+{
+	static u32 w[0x1dc / 4];
+	int ret;
+
+	if (cmd == 0x49d2) {
+		vp_init();
+		return 0;
+	}
+	mutex_lock(&iwctrl_vpss_lock);
+	ret = vp_do(cmd, arg, w);
+	mutex_unlock(&iwctrl_vpss_lock);
+	return ret;
+}

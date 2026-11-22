@@ -1,0 +1,4 @@
+# name address pairs what-the-vendor-logs
+xm533_gc1084_mipi 0x4ba00 114 GC1084 (@20230831_MIPI)
+xm533_gc1084_again:u32 0x4a920 26 the analog gain's steps, 1/64
+xm533_gc1084_again_regs:u8 0x4a988 156 0xd1, 0xd0, 0xdc1, 0x155, 0xb8, 0xb9 per step

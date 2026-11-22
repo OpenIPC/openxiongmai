@@ -1,0 +1,3 @@
+# name address pairs what-the-vendor-logs
+xm533_sc231ai_mipi 0x4faa4 151 sc231AI_1080P linear 25fps
+xm533_sc231ai_mipi_lf 0x4f848 151 SC231AI_1080P (mipi_LowFrequency)

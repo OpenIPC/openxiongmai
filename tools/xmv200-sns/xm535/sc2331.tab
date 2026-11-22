@@ -1,0 +1,7 @@
+# name address pairs what-the-vendor-logs
+xm535_sc2331_mipi_1lane 0x88f5c 140 sc2331_1080P (@20250104) MIPI_1Lane
+xm535_sc2331_mipi 0x8918c 126 sc2331_1080P (@2050104) MIPI_2Lane, then 0x440d/0x440e and stream on
++ 0x440d 0x10
++ 0x440e 0x01
++ 0x0100 0x01
+xm535_sc2331_dvp 0x88d30 139 sc2331 (@20250104) DVP

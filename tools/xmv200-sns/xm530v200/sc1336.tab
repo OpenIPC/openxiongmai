@@ -1,0 +1,4 @@
+# name address pairs what-the-vendor-logs
+sc1336_dvp 0x71144 206 SC1336 (@20230221_dvp)
+sc1336_mipi_50fps 0x7147c 199 sc1336 (@202111 mipi 72M_50fps)
+sc1336_mipi 0x71798 200 sc1336 (@202111 mipi 36M)

@@ -1,0 +1,5 @@
+# name address pairs what-the-vendor-logs
+mis4001_3m_dvp 0x978c2 176 mis4001 3M init 25fps DVP ok! (20240123)
+mis4001_3m_mipi 0x97b82 175 mis4001 3M init 25fps MIPI ok! (20240123, 20240701)
+mis4001_4m_15fps 0xacd30 178 mis4001 4M init 15fps DVP/MIPI ok! (20240911)
+mis4001_4m_20fps 0x97e3e 199 mis4001 4M init 20FPS ok!

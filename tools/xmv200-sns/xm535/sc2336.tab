@@ -1,0 +1,16 @@
+# name address pairs what-the-vendor-logs
+xm535_sc2336_mipi 0x821fc 144 SC2336_1080P (@202106_mipi), then stream on
++ 0x0100 0x01
+xm535_sc2336p_dvp 0x8294c 160 SC2336P_1080P_DVP
+# channel 0 as frame-sync slave: the vendor's extra writes, then stream on
+xm535_sc2336p_mipi_1lane_sync 0x8243c 166 SC2336P_1080P (20240305_mipi_1lane), frame sync slave
++ 0x301f 0x47
++ 0x3032 0x20
++ 0x3222 0x02
++ 0x3224 0x92
++ 0x300a 0x20
++ 0x0100 0x01
+xm535_sc2336p_mipi_1lane 0x8243c 166 SC2336P_1080P (20240305_mipi_1lane), then stream on
++ 0x0100 0x01
+xm535_sc2336p_mipi 0x826d4 148 SC2336P_1080P_MIPI, then stream on
++ 0x0100 0x01
