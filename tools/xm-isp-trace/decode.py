@@ -17,12 +17,19 @@ import struct
 import sys
 
 MAGIC = 0x54495358
-VERSIONS = (1, 2)
+VERSIONS = (1, 2, 3)
 HDR = struct.Struct("<4I")
-REC = struct.Struct("<IIHBBHH")
+REC = struct.Struct("<IIHBBHH")      # versions 1 and 2
+REC3 = struct.Struct("<IIHBBHHI")    # version 3: and the thread id
+
+
+def rec_struct(version):
+    return REC3 if version >= 3 else REC
 
 (FRAME, ISPW, ISPR, IOCTL, OPEN, CREAT, FOPEN, ACCESS, CLOSE, READ, MSGSND,
- MSGRCV, XMAP, SIGNAL, MEMW, MEMRW) = range(1, 17)
+ MSGRCV, XMAP, SIGNAL, MEMW, MEMRW, CALL) = range(1, 18)
+CALL_HDR = struct.Struct("<32s32s5IiI")  # struct isptrace_call
+CALL_SNAP = 512
 
 
 def s16(v):
@@ -111,6 +118,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("trace")
     ap.add_argument("-r", action="store_true", help="registers and frames only")
+    ap.add_argument("-t", action="store_true", help="the thread of each record (version 3)")
+    ap.add_argument("-c", action="store_true",
+                    help="ISP library calls and frames only (XM530), without snapshots")
     ap.add_argument("-f", help="frame range FIRST-LAST")
     ap.add_argument("-m", help="register map header")
     a = ap.parse_args()
@@ -123,15 +133,17 @@ def main():
     data = open(a.trace, "rb").read()
     magic, version, t0, _ = HDR.unpack_from(data)
     if magic != MAGIC or version not in VERSIONS:
-        sys.exit(f"{a.trace}: not an isptrace log (version 1 or 2)")
+        sys.exit(f"{a.trace}: not an isptrace log (version 1 to 3)")
+    rs = rec_struct(version)
     fds = {}
     frame = 0
     off = HDR.size
     out = sys.stdout
-    while off + REC.size <= len(data):
-        t, aux, _f16, typ, fd, n, aux2 = REC.unpack_from(data, off)
-        p = data[off + REC.size : off + REC.size + n]
-        off += REC.size + ((n + 3) & ~3)
+    while off + rs.size <= len(data):
+        t, aux, _f16, typ, fd, n, aux2, *tid = rs.unpack_from(data, off)
+        tid = tid[0] if tid else 0
+        p = data[off + rs.size : off + rs.size + n]
+        off += rs.size + ((n + 3) & ~3)
         if typ == FRAME:
             frame = aux
         ms = ((t - t0) & 0xFFFFFFFF) / 1000
@@ -141,8 +153,10 @@ def main():
             continue
         if a.r and typ not in (FRAME, ISPW, ISPR, MEMW, MEMRW):
             continue
+        if a.c and typ not in (FRAME, CALL):
+            continue
         dev = fds.get(fd, f"fd{fd}")
-        head = f"{ms:10.3f} f{frame:<6}"
+        head = f"{ms:10.3f} f{frame:<6}" + (f" t{tid:<5}" if a.t else "")
         if typ == FRAME:
             line = f"--- frame {aux}"
         elif typ in (ISPW, ISPR):
@@ -162,12 +176,12 @@ def main():
                 line += f"\n{'':18}out {words(after)}"
         elif typ in (OPEN, CREAT):
             name = "open" if typ == OPEN else "creat"
-            line = f"{name} {cstrs(p)[0]} {aux:#o} -> {s16(aux2)}"
+            line = f"{name} {(cstrs(p) or [''])[0]} {aux:#o} -> {s16(aux2)}"
         elif typ == FOPEN:
             path, mode = (cstrs(p) + ["", ""])[:2]
             line = f"fopen {path} {mode} -> {'ok' if aux2 else 'fail'}"
         elif typ == ACCESS:
-            line = f"access {cstrs(p)[0]} {aux} -> {s16(aux2)}"
+            line = f"access {(cstrs(p) or [''])[0]} {aux} -> {s16(aux2)}"
         elif typ == CLOSE:
             line = f"close {dev}"
             fds.pop(fd, None)
@@ -190,6 +204,23 @@ def main():
             (insn,) = struct.unpack("<I", p[:4])
             what = "partly unmapped" if insn == 0xFFFFFFFF else f"store {insn:08x}"
             line = f"untraced from here: page {aux:08x}, {what}"
+        elif typ == CALL:
+            name, frm, a0, a1, a2, a3, mask, result, has = CALL_HDR.unpack_from(p)
+            name = name.split(b"\0")[0].decode()
+            frm = frm.split(b"\0")[0].decode()
+            args = ", ".join(f"{v:#x}" for v in (a0, a1, a2, a3))
+            if aux == 0:
+                line = f"call {name}({args}) from {frm}"
+            else:
+                line = f"ret  {name}" + (f" -> {result} ({result & 0xFFFFFFFF:#x})" if has else "")
+            at = CALL_HDR.size  # the snapshots, in the payload
+            for i in range(4 if not a.c else 0):
+                if mask & (1 << i) and at + CALL_SNAP <= len(p):
+                    snap = p[at:at + CALL_SNAP]
+                    for row in range(0, CALL_SNAP, 64):
+                        tag = f"arg{i}" if row == 0 else f"+{row:#x}"
+                        line += f"\n{'':18}{tag:5} {words(snap[row:row + 64])}"
+                    at += CALL_SNAP
         elif typ == SIGNAL:
             line = f"signal {aux}" + {0: "", 1: " (wrapped)", 2: " delivered"}.get(aux2, "")
         else:

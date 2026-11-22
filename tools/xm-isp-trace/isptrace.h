@@ -9,11 +9,20 @@
 #include <stdint.h>
 
 #define ISPTRACE_MAGIC 0x54495358 /* "XSIT" */
-#define ISPTRACE_VERSION 2
+#define ISPTRACE_VERSION 3
 
 /* The XM510 /dev/isp commands, unencoded, on {u32 addr; u32 val}. */
 #define ISPTRACE_ISP_WRITE 0x101
 #define ISPTRACE_ISP_READ 0x103
+
+/* The XM530/XM550 ones, _IOW('I', n, 12) on {u32 addr; u32 val; u32 arg}:
+ * a write, two reads (the value written back), and a wait for an event
+ * (arg: 0 the Bayer frame, 1 the luma one), whose return is the frame
+ * start there: XM530 has no SIGIO. */
+#define ISPTRACE_ISP530_WRITE 0x400c4901
+#define ISPTRACE_ISP530_READ 0x400c4902
+#define ISPTRACE_ISP530_READ2 0x400c4903
+#define ISPTRACE_ISP530_WAIT 0x400c4904
 
 /* An ioctl record's snapshots of its argument. */
 #define ISPTRACE_BEFORE 1
@@ -40,10 +49,14 @@ struct isptrace_rec {
   uint8_t fd;
   uint16_t len;  /* payload bytes */
   uint16_t aux2; /* by type: usually the low 16 bits of the result */
+  uint32_t tid;  /* version 3: the thread that made it; 0 for an XM510
+                    frame start, counted in the SIGIO handler */
 };
 
 enum {
-  ISPTRACE_FRAME = 1, /* aux: frame count; t_us: when the SIGIO came */
+  ISPTRACE_FRAME = 1, /* aux: frame count; t_us: when the SIGIO came, or
+                         (XM530) when the wait for the Bayer frame event
+                         returned */
   ISPTRACE_ISPW,      /* aux: register; payload: u32 value */
   ISPTRACE_ISPR,      /* aux: register; payload: u32 value read */
   ISPTRACE_IOCTL,     /* aux: cmd; aux2: result or -errno; payload:
@@ -68,6 +81,23 @@ enum {
   ISPTRACE_MEMRW,  /* a store it can't decode: aux: the page's physical
                       address; payload: the instruction (0 for Thumb).
                       The page is writable, and untraced, from then on */
+  ISPTRACE_CALL,   /* a call into the ISP library (XM530 libisp_XM530.so):
+                      aux: 0 on the way in, 1 on the way out; payload:
+                      struct isptrace_call, then ISPTRACE_CALL_SNAP bytes
+                      at each argument whose bit is set in mask, as copied
+                      then (in or out) */
+};
+
+#define ISPTRACE_CALL_NAME 32
+#define ISPTRACE_CALL_SNAP 512
+
+struct isptrace_call {
+  char name[ISPTRACE_CALL_NAME]; /* NUL-padded */
+  char from[ISPTRACE_CALL_NAME]; /* the caller's module, its file name */
+  uint32_t arg[4];               /* r0-r3 */
+  uint32_t mask; /* bit i: arg[i] pointed at readable memory, snapped */
+  int32_t result;      /* on the way out, if has_result */
+  uint32_t has_result; /* 0 on the way in, and for a void function */
 };
 
 #endif

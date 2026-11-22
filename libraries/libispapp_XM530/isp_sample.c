@@ -1612,10 +1612,10 @@ static void GetProductInfo() {
     stComboDevAttr.mipi_attr.delay = 0x00000000; // mipi内部delay
     break;
   case SENSOR_CHIP_SC5332:
-    if (gstParamIn.enRslt == 4)
-      gstProductInfo.u8RsltType = 4;
-    else
-      gstProductInfo.u8RsltType = 5;
+    // 5M only: the sensor library has the 5M init table alone, so a 4M
+    // request (enRslt 4, a 2560x1440 picture) would set
+    // the receiver below for a timing the sensor never runs.
+    gstProductInfo.u8RsltType = 5;
     gstProductInfo.u8SensorClk = SENSORCLK_27M;
     gstProductInfo.SnsBwide = 1;
     gstProductInfo.bHsyncRecEn = 1;
@@ -1634,7 +1634,7 @@ static void GetProductInfo() {
       stComboDevAttr.mipi_attr.bAllPixs = 3840;
     } else {
       stComboDevAttr.mipi_attr.snsAllPixs = 3000;
-      stComboDevAttr.mipi_attr.snsAllLine = 2640;
+      stComboDevAttr.mipi_attr.snsAllLine = 3300;
       stComboDevAttr.mipi_attr.snsActivePixs = 2600;
       stComboDevAttr.mipi_attr.snsActiveLine = 1952;
       stComboDevAttr.mipi_attr.bMpDvpclk = 118800000;

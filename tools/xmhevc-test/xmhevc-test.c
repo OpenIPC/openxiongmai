@@ -60,7 +60,8 @@ static int mvb(uint32_t cmd, const void *payload, uint32_t size,
     return -1;
   }
   if (rep->status[0] || rep->status[1]) {
-    last_status = rep->status[0] ? rep->status[0] : ~0u;
+    /* a second status word is an error whatever the first says */
+    last_status = rep->status[1] || !rep->status[0] ? ~0u : rep->status[0];
     if (rep->status[0] != quiet_status || rep->status[1])
       fprintf(stderr, "mv500 command %u: status %#x %#x\n", cmd, rep->status[0],
               rep->status[1]);
@@ -94,7 +95,8 @@ static int fw_msg(uint32_t cmd, uint32_t size, int n, const uint32_t *w) {
       fprintf(stderr, "mv500 command %u: session never switched in\n", cmd);
       return -1;
     }
-    if (mvb(MVB_GET_EVENT, &timeout, sizeof(timeout), 0) < 0)
+    if (mvb(MVB_GET_EVENT, &timeout, sizeof(timeout), MVB_STATUS_TIMEOUT) < 0 &&
+        last_status != MVB_STATUS_TIMEOUT)
       return -1;
   }
 }
@@ -307,8 +309,13 @@ int main(int argc, char **argv) {
     struct mvb_event ev;
     struct mvb_buf b;
 
-    if ((n = mvb(MVB_GET_EVENT, &timeout, sizeof(timeout), 0)) < 0)
-      goto close_mv;
+    /* status 9 is no event within the timeout */
+    if ((n = mvb(MVB_GET_EVENT, &timeout, sizeof(timeout),
+                 MVB_STATUS_TIMEOUT)) < 0) {
+      if (last_status != MVB_STATUS_TIMEOUT)
+        goto close_mv;
+      n = 0;
+    }
     if (n < (int)sizeof(ev)) {
       if (++idle == 10) {
         fprintf(stderr, "no events for 2 s: %d of %d frames out\n", done,

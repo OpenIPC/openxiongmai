@@ -31,6 +31,7 @@
 #include <sys/msg.h>
 #include <time.h>
 #include <ucontext.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include "isptrace.h"
@@ -72,6 +73,8 @@ static void (*app_handler[NSIG])(int);
 /* Set once one of them runs: every record is written out at once, since the
  * process may be gone before the next flush. */
 static volatile int sync_out;
+/* ISPTRACE_CALLS=all: log the register helpers' calls too (XM530). */
+static int calls_all;
 
 static uint32_t now_us(void) {
   struct timespec ts;
@@ -114,9 +117,19 @@ static void flush_locked(void) {
   used = 0;
 }
 
+/* The calling thread's id, looked up once per thread. */
+static uint32_t my_tid(void) {
+  static __thread uint32_t tid;
+  if (!tid)
+    tid = (uint32_t)syscall(SYS_gettid);
+  return tid;
+}
+
+/* tid: the thread the record is of; 0 for a frame start the SIGIO handler
+ * counted, logged later by whichever thread logs next. */
 static void put_locked(uint8_t type, uint8_t fd, uint32_t aux, uint16_t aux2,
-                       uint32_t t_us, const void *p1, size_t n1, const void *p2,
-                       size_t n2) {
+                       uint32_t t_us, uint32_t tid, const void *p1, size_t n1,
+                       const void *p2, size_t n2) {
   if (n1 > PAYLOAD_MAX)
     n1 = PAYLOAD_MAX, n2 = 0;
   else if (n1 + n2 > PAYLOAD_MAX)
@@ -141,6 +154,7 @@ static void put_locked(uint8_t type, uint8_t fd, uint32_t aux, uint16_t aux2,
       .fd = fd,
       .len = (uint16_t)len,
       .aux2 = aux2,
+      .tid = tid,
   };
   memcpy(buf + used, &r, sizeof(r));
   if (n1)
@@ -176,14 +190,31 @@ static void emit(uint8_t type, int fd, uint32_t aux, uint16_t aux2,
   lock_nosig(&lock, &old);
   const uint32_t f = frame;
   if (f != frame_logged) {
-    put_locked(ISPTRACE_FRAME, 0, f, 0, frame_us, NULL, 0, NULL, 0);
+    put_locked(ISPTRACE_FRAME, 0, f, 0, frame_us, 0, NULL, 0, NULL, 0);
     frame_logged = f;
   }
-  put_locked(type, (uint8_t)fd, aux, aux2, t, p1, n1, p2, n2);
+  put_locked(type, (uint8_t)fd, aux, aux2, t, my_tid(), p1, n1, p2, n2);
   /* At most 100 ms of records lost if the daemon is killed. */
   if (sync_out || t - flushed_us > 100000) {
     flush_locked();
     flushed_us = t;
+  }
+  unlock_nosig(&lock, &old);
+  errno = err;
+}
+
+/* XM530: a frame start logged as it happens, in thread context, so a run
+ * of waits with nothing else traced between them keeps every frame (the
+ * XM510's SIGIO, taken in a handler, can't take the lock: emit() logs its
+ * frames). */
+static void frame_record(void) {
+  const int err = errno;
+  sigset_t old;
+  lock_nosig(&lock, &old);
+  const uint32_t f = frame;
+  if (f != frame_logged) {
+    put_locked(ISPTRACE_FRAME, 0, f, 0, frame_us, my_tid(), NULL, 0, NULL, 0);
+    frame_logged = f;
   }
   unlock_nosig(&lock, &old);
   errno = err;
@@ -237,6 +268,8 @@ static void init(void) {
   real_access = dlsym(RTLD_NEXT, "access");
   real_msgsnd = dlsym(RTLD_NEXT, "msgsnd");
   real_msgrcv = dlsym(RTLD_NEXT, "msgrcv");
+  const char *calls = getenv("ISPTRACE_CALLS");
+  calls_all = calls && !strcmp(calls, "all");
 
   const char *path = getenv("ISPTRACE");
   const char *max = getenv("ISPTRACE_MAX");
@@ -344,14 +377,35 @@ int ioctl(int fd, int req, ...) {
   const unsigned cmd = (unsigned)req;
 
   if (fd >= 0 && fd < MAX_FDS && isp_fd[fd] &&
-      (cmd == ISPTRACE_ISP_WRITE || cmd == ISPTRACE_ISP_READ)) {
+      (cmd == ISPTRACE_ISP_WRITE || cmd == ISPTRACE_ISP_READ ||
+       cmd == ISPTRACE_ISP530_WRITE || cmd == ISPTRACE_ISP530_READ ||
+       cmd == ISPTRACE_ISP530_READ2)) {
+    const int write =
+        cmd == ISPTRACE_ISP_WRITE || cmd == ISPTRACE_ISP530_WRITE;
     uint32_t rec[2] = {0, 0};
     safe_copy(rec, arg, sizeof(rec));
     const int r = real_ioctl(fd, req, arg);
-    if (cmd == ISPTRACE_ISP_READ)
+    const int err = errno;
+    if (!write)
       safe_copy(rec, arg, sizeof(rec));
-    emit(cmd == ISPTRACE_ISP_WRITE ? ISPTRACE_ISPW : ISPTRACE_ISPR, fd, rec[0],
-         (uint16_t)r, &rec[1], 4, NULL, 0);
+    emit(write ? ISPTRACE_ISPW : ISPTRACE_ISPR, fd, rec[0],
+         (uint16_t)(r < 0 ? -err : r), &rec[1], 4, NULL, 0);
+    errno = err;
+    return r;
+  }
+
+  /* XM530: the Bayer frame event's wait returning is a frame start. */
+  if (fd >= 0 && fd < MAX_FDS && isp_fd[fd] && cmd == ISPTRACE_ISP530_WAIT) {
+    uint32_t rec[3] = {0, 0, 0};
+    safe_copy(rec, arg, sizeof(rec));
+    const int r = real_ioctl(fd, req, arg);
+    const int err = errno;
+    if (r == 0 && rec[2] == 0) {
+      frame_us = now_us();
+      frame++;
+      frame_record();
+    }
+    errno = err;
     return r;
   }
 
@@ -620,3 +674,125 @@ void (*signal(int sig, void (*h)(int)))(int) {
     return prev;
   return old.sa_handler;
 }
+
+/* XM530/XM550: calls into the vendor ISP library, libisp_XM530.so, from
+ * majestic, libispapp and the sensor library, each logged on the way in and
+ * out between the register traffic it causes. The wrappers take the place
+ * of the library's own symbols (LD_PRELOAD comes before it) and pass r0-r3
+ * on: every call site seen takes at most three integer or pointer
+ * arguments. An argument that points at readable memory is snapped, up to
+ * ISPTRACE_CALL_SNAP bytes, before and after the call, and the caller's
+ * module is named. The register helpers (Read_IspReg, Write_IspReg,
+ * ispMemnCpy) run thousands of times a second, mostly for the AWB
+ * statistics, and their traffic is in the register records already: they
+ * are logged only with ISPTRACE_CALLS=all. */
+#define ISPTRACE_API(X, V)                                                     \
+  X(ispMemnCpy) X(IspSetSlowFrameRate) X(Mipi_check_init) X(Mipi_check_run)    \
+  X(Read_IspReg) V(SysDelay_ms) X(Write_IspReg) X(XM_MPI_ISP_Get3DNrAttr)      \
+  X(XM_MPI_ISP_Get3DNrV2Attr) X(XM_MPI_ISP_GetAntiFalseColorAttr)              \
+  X(XM_MPI_ISP_GetBlackLevelAttr) X(XM_MPI_ISP_GetChnAttr)                     \
+  X(XM_MPI_ISP_GetChromaAttr) X(XM_MPI_ISP_GetCSCAttr) X(XM_MPI_ISP_GetDCIAttr) \
+  X(XM_MPI_ISP_GetDeFogAttr) X(XM_MPI_ISP_GetDRCAttr)                          \
+  X(XM_MPI_ISP_GetDyDefectPixelAttr) X(XM_MPI_ISP_GetGammaAttr)                \
+  X(XM_MPI_ISP_GetNRAttr) X(XM_MPI_ISP_GetNrInfo) X(XM_MPI_ISP_GetPubAttr)     \
+  X(XM_MPI_ISP_GetRegister) X(XM_MPI_ISP_GetSaturationAttr)                    \
+  X(XM_MPI_ISP_GetSharpenAttr) X(XM_MPI_ISP_GetSharpenV2Attr)                  \
+  X(XM_MPI_ISP_Init) X(XM_MPI_ISP_MemInit) X(XM_MPI_ISP_Memncpy)               \
+  V(XM_MPI_ISP_Memset) X(XM_MPI_ISP_Run) X(XM_MPI_ISP_SensorRegCallBack)       \
+  X(XM_MPI_ISP_SensorUnRegCallBack) X(XM_MPI_ISP_Set3DNrAttr)                  \
+  X(XM_MPI_ISP_Set3DNrV2Attr) X(XM_MPI_ISP_SetAntiFalseColorAttr)              \
+  X(XM_MPI_ISP_SetBlackLevelAttr) X(XM_MPI_ISP_SetChnAttr)                     \
+  X(XM_MPI_ISP_SetChromaAttr) X(XM_MPI_ISP_SetCSCAttr) X(XM_MPI_ISP_SetDCIAttr) \
+  X(XM_MPI_ISP_SetDeFogAttr) X(XM_MPI_ISP_SetDRCAttr)                          \
+  X(XM_MPI_ISP_SetDyDefectPixelAttr) X(XM_MPI_ISP_SetGammaAttr)                \
+  X(XM_MPI_ISP_SetNRAttr) X(XM_MPI_ISP_SetPubAttr) X(XM_MPI_ISP_SetRegister)   \
+  X(XM_MPI_ISP_SetSaturationAttr) X(XM_MPI_ISP_SetSharpenAttr)                 \
+  X(XM_MPI_ISP_SetSharpenV2Attr) X(XM_MPI_ISP_SetVsyncIntEn)                   \
+  V(XM_MPI_VDA_CreatChn) V(XM_MPI_VDA_GetMovAttr) X(XM_MPI_VDA_GetMovData)     \
+  X(XM_MPI_VDA_GetShAttr) V(XM_MPI_VDA_GetShdMark) X(XM_MPI_VDA_SetMovAttr)    \
+  X(XM_MPI_VDA_SetShAttr)
+
+typedef uint32_t (*api_fn)(uint32_t, uint32_t, uint32_t, uint32_t);
+
+/* Off the stack, as the ioctl snapshots are: the header, and a slot per
+ * argument, filled on the way in and again on the way out. */
+static __thread struct {
+  struct isptrace_call c;
+  unsigned char snap[4][ISPTRACE_CALL_SNAP];
+} call_in, call_out;
+
+/* Snaps the arguments that point at readable user memory into b, sets its
+ * mask from the copies that succeeded, and logs it: the payload is exactly
+ * the snapped slots, in argument order. */
+static void call_log(uint32_t way, int32_t result, int has_result,
+                     const char *name, const char *from, const uint32_t a[4],
+                     void *bv) {
+  struct isptrace_call *c = bv;
+  unsigned char(*snap)[ISPTRACE_CALL_SNAP] =
+      (unsigned char(*)[ISPTRACE_CALL_SNAP])((char *)bv + sizeof(*c));
+  memset(c, 0, sizeof(*c));
+  strncpy(c->name, name, sizeof(c->name) - 1);
+  strncpy(c->from, from, sizeof(c->from) - 1);
+  c->result = result;
+  c->has_result = (uint32_t)has_result;
+  size_t n = 0;
+  for (int i = 0; i < 4; i++) {
+    c->arg[i] = a[i];
+    if (a[i] >= 0x10000 && a[i] < 0xc0000000u &&
+        safe_copy(snap[n / ISPTRACE_CALL_SNAP], (const void *)(uintptr_t)a[i],
+                  ISPTRACE_CALL_SNAP)) {
+      c->mask |= 1u << i;
+      n += ISPTRACE_CALL_SNAP;
+    }
+  }
+  emit(ISPTRACE_CALL, 0, way, 0, c, sizeof(*c), snap, n);
+}
+
+static int call_quiet(const char *name) {
+  return !calls_all &&
+         (!strcmp(name, "Read_IspReg") || !strcmp(name, "Write_IspReg") ||
+          !strcmp(name, "ispMemnCpy"));
+}
+
+static uint32_t call_api(const char *name, api_fn *real, int has_result,
+                         void *caller, uint32_t a0, uint32_t a1, uint32_t a2,
+                         uint32_t a3) {
+  pthread_once(&once, init);
+  /* dlsym is thread-safe; two first calls may both resolve it, to the same
+   * address, and the pointer is published atomically. */
+  api_fn fn = __atomic_load_n(real, __ATOMIC_ACQUIRE);
+  if (!fn) {
+    fn = (api_fn)dlsym(RTLD_NEXT, name);
+    if (!fn)
+      return (uint32_t)-1;
+    __atomic_store_n(real, fn, __ATOMIC_RELEASE);
+  }
+  if (call_quiet(name))
+    return fn(a0, a1, a2, a3);
+  char from[ISPTRACE_CALL_NAME] = "";
+  Dl_info di;
+  if (dladdr(caller, &di) && di.dli_fname) {
+    const char *b = strrchr(di.dli_fname, '/');
+    strncpy(from, b ? b + 1 : di.dli_fname, sizeof(from) - 1);
+  }
+  const uint32_t a[4] = {a0, a1, a2, a3};
+  call_log(0, 0, 0, name, from, a, &call_in);
+  const uint32_t r = fn(a0, a1, a2, a3);
+  const int err = errno;
+  call_log(1, (int32_t)r, has_result, name, from, a, &call_out);
+  errno = err;
+  return r;
+}
+
+#define ISPTRACE_WRAP(name)                                                    \
+  uint32_t name(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {          \
+    static api_fn real;                                                        \
+    return call_api(#name, &real, 1, __builtin_return_address(0), a0, a1, a2,  \
+                    a3);                                                       \
+  }
+#define ISPTRACE_WRAP_VOID(name)                                               \
+  void name(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3) {              \
+    static api_fn real;                                                        \
+    call_api(#name, &real, 0, __builtin_return_address(0), a0, a1, a2, a3);    \
+  }
+ISPTRACE_API(ISPTRACE_WRAP, ISPTRACE_WRAP_VOID)

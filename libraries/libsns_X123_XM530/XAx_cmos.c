@@ -10,6 +10,17 @@
 #include "xm_print.h"
 #include "xm_sns_ctrl.h"
 #include "xm_type.h"
+
+/* The open ISP library (OpenIPC/openxiongmai libisp_XM530) runs AE and AWB
+ * itself when asked to, on the sensor's callbacks, which it takes here too.
+ * Absent with the vendor's ISP library. */
+extern XM_S32 libisp_ae_sensor_register(ISP_DEV IspDev, SENSOR_ID SensorId,
+                                        const AE_SENSOR_REGISTER_S *pstRegister)
+    __attribute__((weak));
+extern XM_S32
+libisp_awb_sensor_register(ISP_DEV IspDev, SENSOR_ID SensorId,
+                           const AWB_SENSOR_REGISTER_S *pstRegister)
+    __attribute__((weak));
 XM_U16 gu16FullLines = 750;
 
 XM_U32 gu32MaxAGainInit;
@@ -606,6 +617,8 @@ int sensor_register_callback(ISP_DEV IspDev) {
   if (s32Ret) {
     return s32Ret;
   }
+  if (libisp_ae_sensor_register)
+    libisp_ae_sensor_register(IspDev, (SENSOR_ID)gSensorChip, &stAeRegister);
 
   stLib.s32Id = (XM_S32)gSensorChip;
   XM_MPI_ISP_Memncpy((XM_U8 *)stLib.acLibName, (XM_U8 *)XM_AWB_LIB_NAME,
@@ -615,6 +628,8 @@ int sensor_register_callback(ISP_DEV IspDev) {
   if (s32Ret) {
     return s32Ret;
   }
+  if (libisp_awb_sensor_register)
+    libisp_awb_sensor_register(IspDev, (SENSOR_ID)gSensorChip, &stAwbRegister);
   return 0;
 }
 

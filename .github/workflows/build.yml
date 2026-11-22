@@ -115,10 +115,19 @@ jobs:
           make -C tools/xm-isp-trace CROSS_COMPILE="$CROSS_COMPILE"
           ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/isptrace.so | grep -q 'Type:.*DYN'
           ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/isptrace.so | grep -q 'Machine:.*ARM'
-          for s in open ioctl xmap munmap signal msgrcv; do
+          for s in open ioctl xmap munmap signal msgrcv XM_MPI_ISP_MemInit Write_IspReg; do
             ${CROSS_COMPILE}nm -D --defined-only tools/xm-isp-trace/isptrace.so | grep -qw "$s" ||
               { echo "isptrace.so does not export $s" >&2; exit 1; }
           done
+          ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/3aprobe.so | grep -q 'Type:.*DYN'
+          ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/chromasweep.so | grep -q 'Type:.*DYN'
+          ${CROSS_COMPILE}readelf -h tools/xm-isp-trace/statfake.so | grep -q 'Type:.*DYN'
+          for s in XM_MPI_ISP_MemInit ioctl; do
+            ${CROSS_COMPILE}nm -D --defined-only tools/xm-isp-trace/statfake.so | grep -qw "$s" ||
+              { echo "statfake.so does not export $s" >&2; exit 1; }
+          done
+          ${CROSS_COMPILE}nm -D --defined-only tools/xm-isp-trace/3aprobe.so | grep -qw XM_MPI_ISP_MemInit ||
+            { echo "3aprobe.so does not export XM_MPI_ISP_MemInit" >&2; exit 1; }
           python3 -m py_compile tools/xm-isp-trace/decode.py
           echo "::endgroup::"
           # tools/xmispd builds libraries/libxmisp first
@@ -131,6 +140,12 @@ jobs:
           python3 -m py_compile tools/xm-isp-trace/extract.py
           # the SoC-independent 3A layers, on the host
           make -C libraries/libxmisp test HOSTCC=gcc
+          echo "::endgroup::"
+          echo "::group::libisp_XM530 geometry, on the host"
+          make -C libraries/libisp_XM530 test HOSTCC=gcc
+          bash -n tools/xm-isp-trace/hold530.sh
+          python3 -m py_compile tools/xm-isp-trace/extract530.py \
+            tools/xm-isp-trace/start530.py tools/xm-isp-trace/compare530.py
           echo "::endgroup::"
           echo "::group::tools/xm-isp-tune"
           make -C tools/xm-isp-tune CROSS_COMPILE="$CROSS_COMPILE"
@@ -154,6 +169,7 @@ jobs:
               libraries/libsns_X50_XM530/libsns_X50_XM530.so \
               libraries/libsns_X123_XM530/libsns_X123_XM530.so \
               libraries/libispapp_XM530/libispapp_XM530.so \
+              libraries/libisp_XM530/libisp_XM530.so \
               libraries/libmpi/libopenmpi.a \
               libraries/libxmvenc/libxmvenc.a \
               libraries/libxmv200/libxmv200.a \
@@ -189,6 +205,34 @@ jobs:
                 cmos_init_ae_exp_function_sc2239 cmos_init_awb_exp_function_sc2239
           check libraries/libispapp_XM530/libispapp_XM530.so \
                 XM_I2C_Ioctl SysGetProductInfo
+          # what majestic, libispapp and the sensor libraries import
+          check libraries/libisp_XM530/libisp_XM530.so \
+                XM_MPI_ISP_MemInit XM_MPI_ISP_Init XM_MPI_ISP_Run \
+                XM_MPI_ISP_SensorRegCallBack XM_MPI_ISP_SensorUnRegCallBack \
+                XM_MPI_ISP_SetPubAttr XM_MPI_ISP_GetPubAttr \
+                XM_MPI_ISP_SetVsyncIntEn XM_MPI_ISP_SetRegister \
+                XM_MPI_ISP_GetRegister XM_MPI_ISP_Memncpy XM_MPI_ISP_Memset \
+                XM_MPI_ISP_SetChnAttr XM_MPI_ISP_GetChnAttr XM_MPI_ISP_GetNrInfo \
+                XM_MPI_ISP_SetGammaAttr XM_MPI_ISP_GetGammaAttr \
+                XM_MPI_ISP_SetBlackLevelAttr XM_MPI_ISP_GetBlackLevelAttr \
+                XM_MPI_ISP_SetSaturationAttr XM_MPI_ISP_GetSaturationAttr \
+                XM_MPI_ISP_SetDyDefectPixelAttr XM_MPI_ISP_GetDyDefectPixelAttr \
+                XM_MPI_ISP_SetSharpenAttr XM_MPI_ISP_GetSharpenAttr \
+                XM_MPI_ISP_SetSharpenV2Attr XM_MPI_ISP_GetSharpenV2Attr \
+                XM_MPI_ISP_SetNRAttr XM_MPI_ISP_GetNRAttr \
+                XM_MPI_ISP_Set3DNrAttr XM_MPI_ISP_Get3DNrAttr \
+                XM_MPI_ISP_Set3DNrV2Attr XM_MPI_ISP_Get3DNrV2Attr \
+                XM_MPI_ISP_SetCSCAttr XM_MPI_ISP_GetCSCAttr \
+                XM_MPI_ISP_SetAntiFalseColorAttr XM_MPI_ISP_GetAntiFalseColorAttr \
+                XM_MPI_ISP_SetChromaAttr XM_MPI_ISP_GetChromaAttr \
+                XM_MPI_ISP_SetDRCAttr XM_MPI_ISP_GetDRCAttr \
+                XM_MPI_ISP_SetDeFogAttr XM_MPI_ISP_GetDeFogAttr \
+                XM_MPI_ISP_SetDCIAttr XM_MPI_ISP_GetDCIAttr \
+                XM_MPI_VDA_CreatChn XM_MPI_VDA_SetMovAttr XM_MPI_VDA_GetMovAttr \
+                XM_MPI_VDA_GetMovData XM_MPI_VDA_SetShAttr XM_MPI_VDA_GetShAttr \
+                XM_MPI_VDA_GetShdMark Read_IspReg Write_IspReg ispMemnCpy \
+                SysDelay_ms IspSetSlowFrameRate Mipi_check_init Mipi_check_run \
+                libisp_ae_sensor_register libisp_awb_sensor_register
           check libraries/libmpi/libopenmpi.a \
                 XM_MPI_SYS_Init XM_MPI_SYS_MmzAlloc XM_MPI_VI_INIT \
                 XM_MPI_VENC_CreateChn XM_MPI_RGN_INIT

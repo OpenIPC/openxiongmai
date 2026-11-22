@@ -86,6 +86,10 @@ void xmisp_ae_flicker(struct xmisp_ae *ae, float flicker_lines) {
   ae->replan = 1;
 }
 
+uint32_t xmisp_ae_lines_most(const struct xmisp_ae *ae) {
+  return lines_for(&ae->cfg, lines_top(&ae->cfg));
+}
+
 void xmisp_ae_init(struct xmisp_ae *ae, const struct xmisp_ae_cfg *cfg,
                    uint32_t lines, float gain) {
   ae->cfg = *cfg;
