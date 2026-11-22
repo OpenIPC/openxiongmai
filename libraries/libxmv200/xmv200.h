@@ -49,6 +49,8 @@ struct xmv200_vb_pool {
   uint32_t count; /* blocks */
 };
 int xmv200_vb_init(const struct xmv200_vb_pool *pools, int n);
+/* XM232's pools (vb.ko's 0x184-byte table), compressed if comp */
+int xmv200_vb_init_comp(const struct xmv200_vb_pool *pools, int n, int comp);
 
 /*
  * A board's whole pipeline: sensors, ISP, VPSS (or VI's scaler), the VENC
@@ -215,7 +217,7 @@ struct xmv200_frame {
   uint32_t chn; /* the VENC channel its VPSS channel is bound to */
   uint32_t y, c, width, height, stride;
   uint64_t pts;
-  uint32_t priv[10];
+  uint32_t priv[12];
 };
 int xmv200_frame_get(struct xmv200_frame *f); /* waits up to 2 s */
 void xmv200_frame_release(struct xmv200_frame *f);

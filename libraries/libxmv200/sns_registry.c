@@ -3,6 +3,7 @@
  * tools/xmv200-capture/gen_all.sh. Do not edit. */
 #include "sns_tuning.h"
 
+extern const struct xmv200_sns_tuning xmv200_tuning_sc2336_xm232;
 extern const struct xmv200_sns_tuning xmv200_tuning_f37p;
 extern const struct xmv200_sns_tuning xmv200_tuning_gc3003;
 extern const struct xmv200_sns_tuning xmv200_tuning_h63;
@@ -100,6 +101,7 @@ extern const struct xmv200_sns_tuning xmv200_tuning_sc3338_xm535w1;
 extern const struct xmv200_sns_tuning xmv200_tuning_sc500ai_xm535w1;
 
 const struct xmv200_sns xmv200_sensors[] = {
+    {0xcb3a, "SC2336", &xmv200_tuning_sc2336_xm232},
     {0x0841, "F37P", &xmv200_tuning_f37p},
     {0x3003, "GC3003", &xmv200_tuning_gc3003},
     {0x0a63, "H63", &xmv200_tuning_h63},

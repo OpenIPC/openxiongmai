@@ -68,6 +68,15 @@ struct xmv200_chip {
    * pixel format; no VENC configuration */
   int vi_scaler;
   uint32_t vi_format;
+  /* XM232: vi_mu.ko, one capture path time-multiplexed between the
+   * sensors, each with its outputs spliced into one picture per stream
+   * and the main one handed to VENC online; the VICU registers of each
+   * sensor's input every vicu_step from vicu; isp.ko started as its
+   * vendor ISP does (0x495f, 0x4912 from the tuning, n_chn_enable
+   * channels), its channel's capture by 0x4959 */
+  int vi_mu;
+  uint32_t vicu_step;
+  int n_chn_enable;
 };
 const struct xmv200_chip *xmv200_chip_of(const struct xmv200_sns_tuning *t);
 
@@ -162,5 +171,11 @@ void xmv200_h264_set_fps(struct h264enc *e, uint32_t fps);
 void xmv200_h264_set_cabac(struct h264enc *e, int on);
 int xmv200_h264_encode(struct h264enc *e, const struct xmv200_frame *f,
                        int idr, int qp, uint8_t *out, int cap);
+/* venc.c: the XM232's encoder (jpeg.c's snapshots ride on its pictures) */
+int xmv200_venc_xm232(void);
+/* an IDR picture of f, with a JPEG of it (quantisers q, natural order) into
+ * phys (room bytes); the scan's length, or -1 */
+int xmv200_venc_jpeg232(struct xmv200_venc *v, const struct xmv200_frame *f,
+                        const uint8_t q[2][64], uint32_t phys, uint32_t room);
 
 #endif

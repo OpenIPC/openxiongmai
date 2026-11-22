@@ -100,6 +100,20 @@ static const struct xmv200_chip chips[] = {
         .comm_n = 10,
         .vi_scaler = 1,
     },
+    {
+        /* XM232: its own isp.ko (XM210V200_ISP) and VI (vi_mu.ko); the
+         * vendor ISP answers each frame; the PLL through /dev/mem */
+        .name = "xm232",
+        .engine = "xm232",
+        .frame_answer = 1,
+        .vi_sync2 = 1,
+        .hevc_reset = 0x05000508,
+        .rx = 0x0000,
+        .vicu = 0x2000,
+        .vi_mu = 1,
+        .vicu_step = 0x1000,
+        .n_chn_enable = 3,
+    },
 };
 
 const struct xmv200_chip *xmv200_chip_of(const struct xmv200_sns_tuning *t) {
@@ -120,6 +134,7 @@ static const struct xmv200_model models[] = {
      * product (X9-WE2Q) runs its sensors frame-synced on two lanes */
     {"xm535d2", "xm535", "xm535d2", 1, 2},
     {"xm535w1", "xm535w1", NULL, 0, 0},
+    {"xm232", "xm232", NULL, 0, 0},
 };
 
 const struct xmv200_model *xmv200_model_of(const char *chip) {

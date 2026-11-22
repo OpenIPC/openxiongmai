@@ -142,6 +142,16 @@ struct mmz_rec {
 #define MMZ_ALLOC _IOWR('M', 1, struct mmz_rec)
 #define MMZ_ALLOC_CACHED _IOWR('M', 4, struct mmz_rec)
 #define MMZ_FREE _IOW('M', 2, struct mmz_rec)
+/* XM232's mmz.ko: the same commands on a 48-byte record (the compressed
+ * view's address after it) */
+struct mmz_rec48 {
+  struct mmz_rec r;
+  uint32_t comp;
+};
+#define MMZ_ALLOC48 _IOWR('M', 1, struct mmz_rec48)
+#define MMZ_ALLOC48_CACHED _IOWR('M', 4, struct mmz_rec48)
+#define MMZ_FREE48 _IOW('M', 2, struct mmz_rec48)
+static int mmz48; /* the 44-byte commands were refused or did nothing */
 
 static int mmz_fd = -1;
 
@@ -169,7 +179,13 @@ void xmv200_mmz_free(struct xmv200_buf *b) {
       r.size = b->size;
       /* the list allocator (the V200 series') frees it; the vendor's and
        * the sequential one keep it until the next reset */
-      ioctl(mmz_fd, MMZ_FREE, &r);
+      if (mmz48) {
+        struct mmz_rec48 r48 = {r, 0};
+
+        ioctl(mmz_fd, MMZ_FREE48, &r48);
+      } else {
+        ioctl(mmz_fd, MMZ_FREE, &r);
+      }
       mmz_live[i] = 0;
       break;
     }
@@ -185,7 +201,18 @@ int xmv200_mmz_alloc(struct xmv200_buf *b, const char *name, uint32_t size,
   memset(&r, 0, sizeof(r));
   strncpy(r.name, name, sizeof(r.name) - 1);
   r.size = size;
-  if (ioctl(mmz_fd, cached ? MMZ_ALLOC_CACHED : MMZ_ALLOC, &r) < 0 || !r.phys)
+  /* a 44-byte command refused, or taken without a block (an mmz.ko of
+   * 48-byte records answers 0 to it, having done nothing) */
+  if (mmz48 || ioctl(mmz_fd, cached ? MMZ_ALLOC_CACHED : MMZ_ALLOC, &r) < 0 ||
+      !r.phys) {
+    struct mmz_rec48 r48 = {r, 0};
+
+    if (ioctl(mmz_fd, cached ? MMZ_ALLOC48_CACHED : MMZ_ALLOC48, &r48) < 0)
+      return -1;
+    mmz48 = 1;
+    r = r48.r;
+  }
+  if (!r.phys)
     return -1;
   /* the vendor library maps the block through /dev/mmz itself */
   b->phys = r.phys;
@@ -217,6 +244,33 @@ struct vb_conf {
 #define VB_INIT _IO('B', 0)
 
 static int vb_fd = -1;
+
+/* XM232's vb.ko: each pool also says whether its blocks are compressed
+ * (mmz_alloc_comp) */
+struct vb_conf_comp {
+  uint32_t count;
+  struct {
+    uint32_t size, count, comp;
+  } pool[32];
+};
+#define VB_SET_CONF_COMP _IOW('B', 1, struct vb_conf_comp)
+
+int xmv200_vb_init_comp(const struct xmv200_vb_pool *pools, int n, int comp) {
+  struct vb_conf_comp c;
+
+  if (n < 1 || n > 32 || open_once(&vb_fd, "/dev/vb") < 0)
+    return -1;
+  memset(&c, 0, sizeof(c));
+  c.count = n;
+  for (int i = 0; i < n; i++) {
+    c.pool[i].size = pools[i].size;
+    c.pool[i].count = pools[i].count;
+    c.pool[i].comp = comp;
+  }
+  if (ioctl(vb_fd, VB_SET_CONF_COMP, &c) < 0)
+    return -1;
+  return ioctl(vb_fd, VB_INIT, 0);
+}
 
 int xmv200_vb_init(const struct xmv200_vb_pool *pools, int n) {
   struct vb_conf c;

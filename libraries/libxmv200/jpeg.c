@@ -38,6 +38,7 @@
 #include <unistd.h>
 
 #include "xmv200.h"
+#include "xmv200_priv.h"
 
 #define JPEG_WAIT 0x80044a02
 #define JPEG_SET_REGS 0x400c4a03
@@ -65,6 +66,11 @@ struct xmv200_jpeg {
   struct xmv200_buf buf;
   struct jreg t[N_REG];
   int n; /* writes queued, from entry 1 */
+  /* XM232: no JPEG engine of its own; the scan rides on a picture of its
+   * encoder (venc.c), made at the snapshot's size */
+  int xm232;
+  struct xmv200_venc *v;
+  uint32_t vw, vh;
 };
 
 #include "jpeg_tables.h"
@@ -99,8 +105,9 @@ int xmv200_jpeg_create(struct xmv200_jpeg **pj, uint32_t max_width,
 
   if (!j)
     return -1;
-  j->fd = open("/dev/jpeg", O_RDWR);
-  if (j->fd < 0) {
+  j->xm232 = xmv200_venc_xm232();
+  j->fd = j->xm232 ? -1 : open("/dev/jpeg", O_RDWR);
+  if (!j->xm232 && j->fd < 0) {
     unsigned long base = 0;
     unsigned int size = 0;
     int mem;
@@ -127,7 +134,7 @@ int xmv200_jpeg_create(struct xmv200_jpeg **pj, uint32_t max_width,
     xmv200_jpeg_destroy(j);
     return -1;
   }
-  if (!j->h1)
+  if (!j->h1 && !j->xm232)
     ioctl(j->fd, JPEG_RESET, 0);
   *pj = j;
   return 0;
@@ -138,6 +145,7 @@ void xmv200_jpeg_destroy(struct xmv200_jpeg *j) {
     return;
   if (j->hw)
     munmap((void *)j->hw, j->hw_size);
+  xmv200_venc_destroy(j->v);
   if (j->fd >= 0)
     close(j->fd);
   xmv200_mmz_free(&j->buf);
@@ -167,9 +175,10 @@ static uint8_t *put16(uint8_t *p, uint32_t v) {
   return p;
 }
 
-/* SOI, JFIF, DQT, SOF0, DHT, SOS */
+/* SOI, JFIF, DQT, SOF0, DHT, SOS; luma sampled 2x2 (4:2:0) or, the
+ * XM232's, 2x1 (4:2:2) */
 static int header(uint8_t *out, int cap, uint8_t q[2][64], uint32_t w_,
-                  uint32_t h) {
+                  uint32_t h, int y422) {
   static const uint8_t jfif[] = {0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J',
                                  'F',  'I',  'F',  0x00, 0x01, 0x01, 0x00,
                                  0x00, 0x01, 0x00, 0x01, 0x00, 0x00};
@@ -189,7 +198,9 @@ static int header(uint8_t *out, int cap, uint8_t q[2][64], uint32_t w_,
   *p++ = 8;
   p = put16(put16(p, h), w_);
   *p++ = 3;
-  static const uint8_t comps[] = {1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1};
+  uint8_t comps[] = {1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1};
+  if (y422)
+    comps[1] = 0x21;
   memcpy(p, comps, sizeof(comps));
   p += sizeof(comps);
   memcpy(p, dht, sizeof(dht));
@@ -269,10 +280,35 @@ int xmv200_jpeg_encode(struct xmv200_jpeg *j, const struct xmv200_frame *f,
       q[t][i] = v < 1 ? 1 : v > 255 ? 255 : v;
     }
   if (f->width * f->height + SCAN_ROOM > j->buf.size ||
-      (n = header(out, cap, q, f->width, f->height)) < 0)
+      (n = header(out, cap, q, f->width, f->height, j->xm232)) < 0)
     return -1;
   if (j->h1)
     return h1_encode(j, f, q, out, n, cap);
+  if (j->xm232) {
+    int len;
+
+    if (j->v && (j->vw != f->width || j->vh != f->height)) {
+      xmv200_venc_destroy(j->v);
+      j->v = NULL;
+    }
+    if (!j->v &&
+        xmv200_venc_create(&j->v, f->width, f->height, 12, 35, 1) == 0) {
+      j->vw = f->width;
+      j->vh = f->height;
+    }
+    if (!j->v)
+      return -1;
+    len = xmv200_venc_jpeg232(j->v, f, (const uint8_t(*)[64])q,
+                              j->buf.phys + SCAN_ROOM,
+                              (j->buf.size - SCAN_ROOM) & ~0x3fu);
+    if (len < 0 || n + len + 2 > cap)
+      return -1;
+    memcpy(out + n, (uint8_t *)j->buf.virt + SCAN_ROOM, len);
+    n += len;
+    out[n++] = 0xff;
+    out[n++] = 0xd9;
+    return n;
+  }
 
   if (ioctl(j->fd, JPEG_TAKE, 0) < 0)
     return -1;

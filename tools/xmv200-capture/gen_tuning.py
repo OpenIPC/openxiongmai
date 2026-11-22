@@ -16,7 +16,7 @@ libxmv200's tuning for one sensor mode on one chip family:
 - the shared parameter page image and the lens-correction table.
 
 FAMILY is the chip family the capture ran on: xm530v200, xm535 (XM535D1/D2),
-xm535w1 or xm533. Without it, xm535 if the PLL went through sys.ko, else
+xm535w1, xm533 or xm232. Without it, xm535 if the PLL went through sys.ko, else
 xm530v200. Families differ in where VI's blocks are, and in what libxmv200
 fills in (its chip table, chip.c).
 
@@ -36,7 +36,10 @@ family = sys.argv[5] if len(sys.argv) > 5 else None
 # where each family's VI blocks are, from VI's base (0x30000000): the MIPI
 # receiver and the first VICU
 VI_LAYOUT = {'xm530v200': (0x4000, 0x40000), 'xm535': (0x4000, 0x40000),
-             'xm535w1': (0x4000, 0x40000), 'xm533': (0x0000, 0x10000)}
+             'xm535w1': (0x4000, 0x40000), 'xm533': (0x0000, 0x10000),
+             # XM232: one window (xm-vimu): the receivers at +0 and +0x1000,
+             # each sensor's input at 0x2000 + 0x1000 n
+             'xm232': (0x0000, 0x2000)}
 # isp.ko commands libxmv200 issues from its own code
 NAMED = {0x49e9: 'XMV200_OP_LDC', 0x4908: 'XMV200_OP_CHN_ATTR',
          0x4964: 'XMV200_OP_AE_INIT', 0x4965: None,
@@ -53,6 +56,9 @@ def chn_buf(name):
     # an ISP channel buffer (isp_nr_alpha_ch0, bpu_defog_ch1, ...): its name
     # without the channel, and the channel
     m = re.match(r'^(\w+_ch)(\d+)$', name)
+    # (XM232's isp_nr_Alpha0, isp_nr_Alpha1: no "_ch")
+    m = m or (re.match(r'^(isp_nr_Alpha)(\d+)$', name)
+              if len(sys.argv) > 5 and sys.argv[5] == 'xm232' else None)
     return (m.group(1), int(m.group(2))) if m else None
 
 
@@ -87,6 +93,20 @@ if family is None:
             family = 'xm535'
             break
 RX, VICU = VI_LAYOUT[family]
+XM232 = family == 'xm232'
+# the trace's name for VI's registers, and how far the receiver table goes
+VI_DEV = 'vimu' if XM232 else 'isp2.vi'
+RX_SPAN = 0x2000 if XM232 else 0x400
+if XM232:
+    # XM232's isp.ko: 0x4959 {chn} starts the channel's capture (its
+    # 0x495e suspends); 0x4909 switches the sensor input (XMV200_OP_SEL);
+    # 0x490e and 0x4964/0x4965 as elsewhere; no 0x4908, LDC or 0x4980 in
+    # the program (0x4980 is a per-frame command there)
+    NAMED = {0x4964: 'XMV200_OP_AE_INIT', 0x4965: None,
+             0x490e: 'XMV200_OP_CHN_INIT', 0x4959: 'XMV200_OP_VICU_RUN'}
+    START_CMD = 0x4959
+else:
+    START_CMD = 0x495e
 REG_OP = {RX: 'XMV200_OP_MIPI_CTRL', RX + 0x30c: 'XMV200_OP_VI_SYNC',
           VICU + 0x98: 'XMV200_OP_VI_WINDOW'}
 
@@ -104,34 +124,45 @@ for f in lines:
 mode_w = {}
 sysw, mipi = [], []
 mipi_on = None  # None: before the receiver table, True: in it, False: after
+isp_seen = False  # (XM232) the isp process has begun its isp.ko setup
 for f in lines:
     if f and f[0] == 'IOCTL':
         cmd, d = int(f[3], 16), payload(f)
+        isp_seen = isp_seen or f[2] == 'isp'
         if f[2] == 'sys' and cmd in (0x40085301, 0x40085302):
             # the clocks through sys.ko, {register, value} (get: an end)
             sysw.append(struct.unpack_from('<II', d) + ('sys' if cmd & 1 else 'get',))
             continue
         if f[2] != 'isp':
             continue
-        if d[:1] not in (b'\0', b'') and cmd not in (0x4962,):
+        if d[:1] not in (b'\0', b'') and cmd not in (0x4962, 0x4912):
             continue
         w = [struct.unpack_from('<I', d, i)[0] for i in range(0, len(d) - 3, 4)]
         key = {0x4962: 'comm', 0x490e: 'chn_init', 0x4908: 'chn_attr',
-               0x4964: 'dgain', 0x4965: 'gain', 0x49e9: 'ldc', 0x4980: 'size'}.get(cmd)
+               0x4964: 'dgain', 0x4965: 'gain', 0x49e9: 'ldc', 0x4980: 'size',
+               0x4912: 'sel' if XM232 else None}.get(cmd)
         if key and key not in mode_w:
             mode_w[key] = w
-        if cmd == 0x495e:
+        if cmd == START_CMD:
             break
     elif len(f) == 5 and f[1] == 'U':
         dev, off, val = f[2], int(f[3], 16), int(f[4], 16)
         if dev == 'sysctl':
             sysw.append((off, val, 'mem'))
             continue
-        if dev != 'isp2.vi':
+        if dev != VI_DEV:
+            continue
+        # XM232: every VI write before the isp.ko setup (the receivers, the
+        # capture block's enable, the inputs' windows) is the table
+        if XM232:
+            if not isp_seen:
+                mipi.append((0x30000000 + off, val))
+            elif off == RX + 0x30c and 'vi_sync' not in mode_w:
+                mode_w['vi_sync'] = [val]
             continue
         # the receiver table: its writes in order, up to the first VI write
         # outside the receiver
-        rx = RX <= off < RX + 0x400
+        rx = RX <= off < RX + RX_SPAN
         if mipi_on is None and rx:
             mipi_on = True
         elif mipi_on and not rx:
@@ -152,9 +183,12 @@ for off, val, how in sysw:
         if cur and any(r == 0x10 for r, v in cur):
             pll.append(cur)
         cur = [] if val == 1 else None
-    elif how == 'mem' and cur is not None and 0x10 <= off <= 0x54:
+    elif how == 'mem' and cur is not None and (0x10 <= off <= 0x54 or
+                                                (XM232 and 0x300 <= off <= 0x31c)):
+        # (XM232's program also sets 0x318 and 0x31c)
         cur.append((off, val))
-    elif how == 'mem' and off in (0x74, 0x78):
+    elif how == 'mem' and off in (0x74, 0x78) and not XM232:
+        # (XM232's 0x74 is the encoder's clock, not a sensor's)
         mode_w.setdefault('sns_clk', {})[off] = val
     elif how == 'sys' and off == 0x10:
         cur = [(off, val)]
@@ -197,15 +231,16 @@ def find_patches(cmd, d):
         return None
 
     def addr(w, sh):
-        if sh and not 0x100000 <= w < 0x8000000:
+        if sh and not 0x1000000 <= w << sh < 0x80000000:
             return None
-        return (w << 4) + 0x80000000 if sh else w
+        return (w << sh) + 0x80000000 if sh else w
 
     d1 = first.get((cmd, 1))
     out = []
     for off in range(4, len(d) - 3, 4):
         w = struct.unpack_from('<I', d, off)[0]
-        for sh in (4, 0):
+        # XM232's isp.ko takes (phys - 0x80000000) >> 3
+        for sh in ((3, 0) if XM232 else (4, 0)):
             a = addr(w, sh)
             i = owner(a, 0) if a is not None else None
             if i is None:
@@ -244,8 +279,17 @@ for f in lines:
             if n in bufs:
                 prog.append('XMV200_OP_ALLOC(%d)' % bufs.index(n))
             continue
+        # XM232's sensor input switch, {chn << 16 | v} or 0x80000000:
+        # channel 0's, by value
+        if XM232 and dev == 'isp' and cmd == 0x4909:
+            v = struct.unpack_from('<I', d)[0]
+            if v == 0x80000000:
+                prog.append('XMV200_OP_SEL_ALL')
+            elif not (v >> 16) & 0xff:
+                prog.append('XMV200_OP_SEL(%d)' % (v & 0xff))
+            continue
         # the BPU's WDR mode, {chn << 24 | mode}: channel 0's
-        if dev == 'isp' and cmd == 0x4959:
+        if dev == 'isp' and cmd == 0x4959 and not XM232:
             if len(d) >= 4 and d[3] == 0:
                 prog.append('XMV200_OP_WDR(%d)' % d[0])
             continue
@@ -259,7 +303,7 @@ for f in lines:
         if cmd in NAMED:
             if NAMED[cmd]:
                 prog.append(NAMED[cmd])
-            if cmd == 0x495e:
+            if cmd == START_CMD:
                 break
             continue
         cn = 'p%03d_%04x' % (len(blocks), cmd)
@@ -273,8 +317,8 @@ for f in lines:
                        ', 1' if raw else ''))
     elif on and len(f) == 5 and f[1] == 'U':
         o_, v_ = int(f[3], 16), int(f[4], 16)
-        op = REG_OP.get(o_) if f[2] == 'isp2.vi' else None
-        if f[2] == 'isp2.vi' and o_ == VICU + 0x7050:
+        op = REG_OP.get(o_) if f[2] == VI_DEV else None
+        if f[2] == VI_DEV and o_ == VICU + 0x7050:
             op = 'XMV200_OP_VICU_IRQ(%d)' % v_
         if op and (not prog or prog[-1] != op):
             prog.append(op)
@@ -418,10 +462,14 @@ for i in (0, 1):
     o += ['    {0x%x, 0x%x},' % r for r in p]
     o += ['};', '']
 sc = mode_w.get('sns_clk', {})
-sz = mode_w['size']
+sz = mode_w.get('size', [])
 # 0x4980: {chn, x0 | y0 << 16, w | h << 16}, or the longer form with the
-# window at words 4..7 (XM535)
-w_, h_ = (sz[2] & 0xffff, sz[2] >> 16) if len(sz) == 3 else (sz[6], sz[7])
+# window at words 4..7 (XM535); XM232's program has none: 0x490e word 3,
+# the active picture
+if XM232:
+    w_, h_ = mode_w['chn_init'][3] & 0xffff, mode_w['chn_init'][3] >> 16
+else:
+    w_, h_ = (sz[2] & 0xffff, sz[2] >> 16) if len(sz) == 3 else (sz[6], sz[7])
 o += ['const struct xmv200_sns_tuning xmv200_tuning_%s = {' % name,
       '    .chip = "%s",' % family,
       '    .width = %d,' % w_,
@@ -442,6 +490,7 @@ o += ['const struct xmv200_sns_tuning xmv200_tuning_%s = {' % name,
       '    .dgain = 0x%x,' % (mode_w.get('dgain') or [0, 0x100])[1],
       '    .gain = %s,' % words('gain', 4),
       '    .ldc = %s,' % words('ldc', 12),
+      ] + (['    .sel = %s,' % words('sel', 7)] if XM232 else []) + [
       '    .bufs = bufs,',
       '    .n_bufs = sizeof(bufs) / sizeof(bufs[0]),',
       '    .runs = runs,',

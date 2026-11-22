@@ -33,6 +33,8 @@ def physread(ph,sz):
 pend={}; cnt={}; blocks={}; runs=0; n=0; pages=8; stop_at=None
 # the isp binary's pointer to its mapping of the shared pages
 PAGEPTR=int(os.environ.get('CAP_PAGEPTR','0xadbb4'),0)
+# the isp.ko command that starts a channel's capture (XM232: 0x4959)
+START=int(os.environ.get('CAP_START','0x495e'),0)
 # or CAP_MMAP: isp.ko's mmap handler, whose vma (r1) gives the mapping
 MMAP=int(os.environ.get('CAP_MMAP','0'),0); maps=[]
 if MMAP: gdb.execute('hbreak *%#x'%MMAP,to_string=True)
@@ -41,9 +43,9 @@ while True:
     except Exception as e: out.write('END %s\n'%e); break
     pc=int(gdb.parse_and_eval('$pc'))&0xffffffff; sp=int(gdb.parse_and_eval('$sp'))&0xffffffff
     if sp in pend and pend[sp][0]==pc:
-        lr,arg,bp=pend.pop(sp); bp.delete(); d=rd(arg,44)
+        lr,arg,bp,rlen=pend.pop(sp); bp.delete(); d=rd(arg,rlen)
         if d:
-            out.write('R mmz c02c4d01 ret=0 %s\n'%d.hex()); nm=d[:32].split(b'\0')[0].decode(errors='replace')
+            out.write('R mmz %08x ret=0 %s\n'%(0xc0004d01|rlen<<16,d.hex())); nm=d[:32].split(b'\0')[0].decode(errors='replace')
             blocks[nm]=struct.unpack_from('<II',d,32)
         continue
     if MMAP and pc==MMAP:
@@ -59,12 +61,14 @@ while True:
         sz=0x600 if (dev,cmd)==('sys',0x400c5300) else (cmd>>16)&0x3fff or (ISZ.get(cmd,0x40) if dev=='isp' else 0x40)
         d=rd(arg,sz) if 0x1000<arg<0xc0000000 else b''
         out.write('IOCTL %d %s %08x %08x %s\n'%(n,dev,cmd,arg,d.hex() if d is not None else '<unreadable>'))
-    if dev=='mmz' and cmd in (0xc02c4d01,0xc02c4d04):
+    # the allocations' returned records: 44 bytes, XM232's 48 (+ the
+    # compressed view's address)
+    if dev=='mmz' and cmd in (0xc02c4d01,0xc02c4d04,0xc0304d01,0xc0304d04,0xc0304d08):
         lr=int(gdb.parse_and_eval('$lr'))&0xffffffff
-        pend[sp]=(lr,arg,gdb.Breakpoint('*%#x'%lr,type=gdb.BP_HARDWARE_BREAKPOINT,internal=True))
+        pend[sp]=(lr,arg,gdb.Breakpoint('*%#x'%lr,type=gdb.BP_HARDWARE_BREAKPOINT,internal=True),(cmd>>16)&0x3fff)
     if dev=='isp' and cmd==0x400c490c and d:
         pages=struct.unpack_from('<I',d,4)[0] or 8
-    if dev=='isp' and cmd==0x495e:
+    if dev=='isp' and cmd==START:
         runs+=1
         if runs==NCH:
             fit=[a for a,e in maps if e-a==pages*4096]

@@ -82,6 +82,20 @@ The capture needs `CAP_H`, `CAP_ISZ` and `CAP_PAGEPTR` for the chip's modules an
 
 (`CAP_H` is the dict of those addresses to `'isp'`, `'vpss'`/`'vi'`, ...; XM530V200's are cap.py's defaults, its `isp_mmap` at 0xbf025000+0x3b4.)
 
+### XM232
+
+The XM232 (X6S-WEQ-H, V5.03.C01) runs under `-M xm232` (64 MiB: no `-m 128M`) with its two SC2336, and its `isp.ko` differs in three ways the capture and the generator know about:
+
+- a channel's capture starts with `0x4959 {chn}` (its `0x495e` suspends): `CAP_START=0x4959`;
+- `mmz.ko` allocates with 48-byte records (`0xc0304d01`): cap.py waits for those too;
+- the VI and ISP registers are one window, qemu-bench's `vimu` in the write log; `gen_tuning.py ... xm232` takes every VI write before the `isp.ko` setup as the receiver table and finds buffer addresses as `(phys - 0x80000000) >> 3`.
+
+| family (board) | isp | vi | vb | hevc | mmz | sys | venc | rgn | `CAP_MMAP` |
+|---|---|---|---|---|---|---|---|---|---|
+| xm232 (X6S-WEQ-H) | 0xbf01a000+0x211c | vi_mu 0xbf035000+0x1a10 | 0xbf009000+0xb4c | 0xbf05d000+0x7e0 | 0xbf004000+0xf24 | 0xbf00e000+0x158 | 0xbf054000+0x2c4 | 0xbf046000+0x94 | 0xbf01a000+0x2000 |
+
+Its `isp.ko` commands carry no size, so `CAP_ISZ` lists them from the module's `copy_from_user` calls. Its console does not print the `isp` daemon's `SC2336! Chn:0`, so `gen_all.sh` cannot name the sensor: run `gen_tuning.py` with the name and add the line to `sensors_xm232.list` (`cb3a SC2336 sc2336_xm232`).
+
 A tuning holds the mode, not the board: the program is channel 0's, and libxmv200 builds what depends on the layout from the board's description. That covers the channel index and input, the receiver, the VI device and the windows.
 
 ## Other modes
