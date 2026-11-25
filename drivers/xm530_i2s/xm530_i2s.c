@@ -129,21 +129,27 @@ static ssize_t ao_write(struct file *file, const char __user *buf, size_t len,
 
 	if (len > size)
 		len = size;
-	if (file->f_flags & O_NONBLOCK) {
-		if (fifo_len(&ao_fifo) >= size)
-			return -EAGAIN;
-	} else if (wait_event_interruptible(ao_wq, size - fifo_len(&ao_fifo) >=
-							   len)) {
-		return -ERESTARTSYS;
-	}
+	if (!len)
+		return 0;
 	k = memdup_user(buf, len);
 	if (IS_ERR(k))
 		return PTR_ERR(k);
-	spin_lock_irqsave(&audio_lock, flags);
-	n = kfifo_in(&ao_fifo, k, len);
-	spin_unlock_irqrestore(&audio_lock, flags);
+	for (;;) {
+		spin_lock_irqsave(&audio_lock, flags);
+		n = 0;
+		if (file->f_flags & O_NONBLOCK || kfifo_avail(&ao_fifo) >= len)
+			n = kfifo_in(&ao_fifo, k, len);
+		spin_unlock_irqrestore(&audio_lock, flags);
+		if (n || file->f_flags & O_NONBLOCK)
+			break;
+		if (wait_event_interruptible(
+			    ao_wq, size - fifo_len(&ao_fifo) >= len)) {
+			kfree(k);
+			return -ERESTARTSYS;
+		}
+	}
 	kfree(k);
-	return n;
+	return n ? n : -EAGAIN;
 }
 
 static ssize_t ai_read(struct file *file, char __user *buf, size_t len,
@@ -156,19 +162,28 @@ static ssize_t ai_read(struct file *file, char __user *buf, size_t len,
 
 	if (len > size)
 		len = size;
-	if (file->f_flags & O_NONBLOCK) {
-		if (!fifo_len(&ai_fifo))
-			return -EAGAIN;
-	} else if (wait_event_interruptible(ai_wq, fifo_len(&ai_fifo) >= len)) {
-		return -ERESTARTSYS;
-	}
+	if (!len)
+		return 0;
 	k = kmalloc(len, GFP_KERNEL);
 	if (!k)
 		return -ENOMEM;
-	spin_lock_irqsave(&audio_lock, flags);
-	n = kfifo_out(&ai_fifo, k, len);
-	spin_unlock_irqrestore(&audio_lock, flags);
-	ret = copy_to_user(buf, k, n) ? -EFAULT : n;
+	for (;;) {
+		spin_lock_irqsave(&audio_lock, flags);
+		n = 0;
+		if (file->f_flags & O_NONBLOCK || kfifo_len(&ai_fifo) >= len)
+			n = kfifo_out(&ai_fifo, k, len);
+		spin_unlock_irqrestore(&audio_lock, flags);
+		if (n || file->f_flags & O_NONBLOCK)
+			break;
+		if (wait_event_interruptible(ai_wq, fifo_len(&ai_fifo) >= len)) {
+			kfree(k);
+			return -ERESTARTSYS;
+		}
+	}
+	if (n)
+		ret = copy_to_user(buf, k, n) ? -EFAULT : n;
+	else
+		ret = -EAGAIN;
 	kfree(k);
 	return ret;
 }
@@ -329,6 +344,7 @@ static int __init xm530_i2s_init(void)
 	return 0;
 irq:
 	pr_err("audio: register device failed\n");
+	writel(readl(i2s + I2S_CTRL) & ~7, i2s + I2S_CTRL);
 	free_irq(I2S_IRQ, NULL);
 ao:
 	kfifo_free(&ao_fifo);
@@ -348,6 +364,8 @@ static void __exit xm530_i2s_exit(void)
 		remove_proc_entry("umap/audio", NULL);
 	misc_deregister(&ai_misc);
 	misc_deregister(&ao_misc);
+	/* off, so that nothing interrupts without a handler */
+	writel(readl(i2s + I2S_CTRL) & ~7, i2s + I2S_CTRL);
 	free_irq(I2S_IRQ, NULL);
 	kfifo_free(&ai_fifo);
 	kfifo_free(&ao_fifo);
