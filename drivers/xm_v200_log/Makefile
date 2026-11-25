@@ -4,11 +4,15 @@ ifneq ($(KERNELRELEASE),)
 # blobs open_*, and the module's name is the file's.
 obj-m := open_log.o
 open_log-objs := xm_v200_log.o
+# LOG_CHIP=xm530 (XM530, XM550); the V200 series otherwise
+ifeq ($(LOG_CHIP),xm530)
+ccflags-y += -DLOG_XM530
+endif
 else
 KDIR ?= $(HOME)/projects/cameras/sdk/XM530/os/kernel/linux-xm530
 
 all:
-	$(MAKE) -C $(KDIR) M=$$PWD modules
+	$(MAKE) -C $(KDIR) M=$$PWD LOG_CHIP=$(LOG_CHIP) modules
 
 clean:
 	-rm -f *.ko *.o modules.order Module.symvers *.mod.c .*.cmd

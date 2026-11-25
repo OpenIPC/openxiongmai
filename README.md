@@ -202,7 +202,7 @@ To add a sensor:
 | `xm_v200_i2s` | V200-series audio input and output through the I2S blocks' FIFOs (`/dev/ai`, `/dev/ao`, `/proc/umap/audio`) | Builds `open_i2s.ko`; same devices, ioctls and clock setup as the vendor `i2s.ko` |
 | `xm_v200_adc` | V200-series ADC (`/dev/adc`) | Builds `open_adc.ko` |
 | `xm_v200_ddr` | V200-series DDR bandwidth monitor (`/proc/umap/ddr`) | Builds `open_ddr.ko` |
-| `xm_v200_log` | V200-series media log FIFO and log levels (`/dev/log`, `/proc/umap/logmpp`) | Builds `open_log.ko` |
+| `xm_v200_log` | V200-series and, with `LOG_CHIP=xm530`, XM530/XM550 media log FIFO and log levels (`/dev/log`, `/proc/umap/logmpp`) | Builds `open_log.ko` |
 | `xm533_mipi_io` | XM533 MIPI lanes 6..9 as GPIOs (`/dev/mipi_io`) | Builds `open_mipi_io.ko` |
 | `xm530v200_jpeg` | XM530V200 JPEG encoder: ownership, register table, wait for the picture (`/dev/jpeg`) | Builds `open_jpeg.ko`; same ioctls as the vendor `jpeg.ko`, answered as it does in qemu-bench |
 | `xm533_venc_mem` | XM533 encoder memory: parts of each VENC channel's MMZ block, with guards (`/dev/venc_mem`, `/proc/umap/venc_mem`) | Builds `open_venc_mem.ko`; same ioctls, allocations and `/proc` as the vendor `venc_mem.ko` in qemu-bench |
