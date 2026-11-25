@@ -1004,7 +1004,8 @@ static void proc_start(void)
 	venc_proc = proc_create("umap/venc", 0444, NULL, &venc_proc_fops);
 	h264_proc = proc_create("umap/h264", 0444, NULL, &h264_proc_fops);
 	if (!venc_proc || !h264_proc)
-		pr_warn("hx280enc: no /proc/umap/venc or h264, MMZ not loaded?\n");
+		pr_warn("hx280enc: no /proc/umap/venc or h264, "
+			"MMZ not loaded?\n");
 }
 
 static void proc_stop(void)
