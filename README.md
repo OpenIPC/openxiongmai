@@ -10,7 +10,7 @@ The goal is to replace the proprietary SDK that Xiongmai ships with its camera b
 |-----|--------|-------------|
 | XM530 | Primary target | Sensor libraries, ISP application library, MPI reimplementation |
 | XM530V200, XM533, XM535D1/D2/W1 | Streams on the vendor kernel modules | `libxmv200`: sensors, ISP bring-up, VPSS, H.265, AE/AWB |
-| XM510 | Kernel modules | `hx280enc`, `xm_mmz`, `xm510_vi`, `xm510_isp`, `xm510_rgn` and `xm_i2c` build against the XM510 kernel |
+| XM510 | Kernel modules | `hx280enc`, `xm_mmz`, `xm510_vi`, `xm510_isp`, `xm510_rgn` and `xm530_i2s` build against the XM510 kernel |
 | XM322 / XM350 / XM520 / XM540 / XM550 | Headers only | Register maps in `libraries/isp/include/xm/` |
 
 ## How the Xiongmai SDK works
@@ -46,7 +46,6 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 │   ├── xm530_mve/               XM530/XM550 H.265 encoder device (/dev/mv500)
 │   ├── xm530_rgn/               XM530/XM550 region (OSD) driver (/dev/rgn)
 │   ├── xm_hevc/                 V200-series H.265 engine (/dev/h265)
-│   ├── xm_i2c/                  /dev/xm_i2c misc-device (stub)
 │   ├── xm_mmz/                  XM530/XM550/XM510 and V200-series media memory zone (/dev/mmz)
 │   ├── xm_v200_i2c/             V200-series I2C masters (/dev/i2c0..2)
 │   ├── xm_v200_sys/             V200-series system module: bind table, clocks (/dev/sys)
@@ -128,7 +127,6 @@ make -C libraries CHIPARCH=xm530 CC=arm-openipc-linux-musleabi-gcc STRIP=arm-ope
 
 # Kernel modules: point KDIR at a configured kernel tree
 make -C drivers/hx280enc KDIR=/path/to/linux
-make -C drivers/xm_i2c   KDIR=/path/to/linux
 make -C drivers/xm_vi    KDIR=/path/to/linux   # XM530 kernel only
 make -C drivers/xm510_vi KDIR=/path/to/linux   # XM510 kernel only
 make -C drivers/xm510_isp KDIR=/path/to/linux  # XM510 kernel only
@@ -194,7 +192,6 @@ To add a sensor:
 | Module | Function | Status |
 |--------|----------|--------|
 | `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder, built as `open_h264.ko`; `H264_CHIP=v200` for the XM533's and XM535s' (0x21100000, IRQ 78, the encoder's clock turned on) | Same `/dev/h264` ABI and `/proc/umap/venc` and `h264` as the vendor `xm530_h264.ko`, without its leak on every read of them; ran majestic on an XM550 in place of it, and on an XM510 in place of `xm510_h264.ko`; with `H264_CHIP=v200` answers as the V200 series' `h264.ko` in qemu-bench |
-| `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
 | `xm_hevc` | V200-series H.265 encoder engine: runs the register lists user space builds (`/dev/h265`) | Builds `open_hevc.ko`. Same ioctls and records as the vendor `hevc.ko`, both engines (v3: XM530V200/XM533, v1: XM535); ran libxmv200 on all five V200-series chips in qemu-bench in place of it |
 | `xm_mmz` | XM530/XM550 and V200-series media memory zone: the named, physically contiguous DMA buffers the SDK and video drivers share (`/dev/mmz`) | Builds `open_mmz.ko`. Same parameters, ioctls, exports and `/proc/umap/mmz` as the vendor `mmz.ko`; ran majestic on an XM550 in place of it, and libxmv200 on all five V200-series chips in qemu-bench (`allocator=list`) |
 | `xm_v200_i2c` | V200-series I2C masters, the sensor buses (`/dev/i2c0..2`, `/dev/xm_i2c*` on XM533) | Builds `open_i2c.ko`. Same devices, record and ioctls as the vendor `i2c.ko`, per-chip timing, pins and resets; ran libxmv200 (sensor writes and chip-ID probes) on all five V200-series chips in qemu-bench in place of it |
@@ -482,7 +479,7 @@ XMV200_IMAGE=60,55,40,50,70,1,0,0,50 xmv200-test run x6c-weq 100   # image contr
 Every push and pull request to `main` runs these jobs, each using the OpenIPC musl toolchain for its SoC (`toolchain.xiongmai-xm5x0`).
 
 - **Libraries cross-compile (XM530):** builds all four userspace libraries and libxmv200 (with `tools/xmv200-test`), checks that the expected entry points are exported (`sensor_register_callback`, `XM_I2C_Ioctl`, `XM_MPI_*`, ...), and checks that the shared objects depend only on libc.
-- **Kernel modules (xm510 / xm530):** builds the modules against the OpenIPC kernels `openipc/linux@xiongmai-xm510` (3.0.101) and `@xiongmai-xm530` (3.10.103), the same way the firmware does: with the firmware's `<soc>.generic.config` and its generic kernel patches. `xm_i2c`, `hx280enc`, `xm_mmz` and `xm_hevc` build for both; the XM530/XM550 and V200-series modules (every `xm_v200_*`, `xm53*`, `dwc2`, `hx280enc` with `H264_CHIP=v200`) for the 3.10 kernel, which the V200 series runs. Each module's vermagic is checked.
+- **Kernel modules (xm510 / xm530):** builds the modules against the OpenIPC kernels `openipc/linux@xiongmai-xm510` (3.0.101) and `@xiongmai-xm530` (3.10.103), the same way the firmware does: with the firmware's `<soc>.generic.config` and its generic kernel patches. `hx280enc`, `xm_mmz`, `xm_hevc` and `xm530_i2s` build for both; the XM530/XM550 and V200-series modules (every `xm_v200_*`, `xm53*`, `dwc2`, `hx280enc` with `H264_CHIP=v200`) for the 3.10 kernel, which the V200 series runs. Each module's vermagic is checked.
 - **libxmv200 sensor drivers against their tunings:** `tools/xmv200-sns` runs every sensor driver on the build machine against each chip family's tunings; a driver has to make exactly the sensor writes its tuning recorded.
 
 All external inputs are pinned: the kernel commits, the firmware commit, and the toolchain sha256 checksums. OpenIPC rebuilds its toolchain tarballs in place, so a checksum failure means upstream published a new build and the checksum in `build.yml` needs updating.
