@@ -939,8 +939,13 @@ const struct xmv200_sns_drv xmv200_sns_sc2337p_xm533 = {
  * Exposure, gain and its steps are the SC2337P's; mirror is 0x06 and flip
  * 0x60 in 0x3221, no channel turned round.
  *
- * The attribute byte, sync and sync setting the X6S-WEQ-H's capture shows:
- * 0x11, on, 2 (1 would give the same trigger).
+ * Its record's attribute byte and sync setting come from Isp.json's
+ * U8CamNum, the board's camera count: the isp daemon makes the attribute
+ * byte 0x11 for two cameras (0x19 for three) and passes the count itself as
+ * the sync setting, which the slaves' trigger choice divides by (the board
+ * sets it from its layout; the modes below carry the X6S-WEQ-H's 2). Its
+ * frame-length function is empty: frame length moves only with the frame
+ * rate.
  */
 extern const struct xmv200_sns_reg xm232_sc2336_mipi_1lane[153],
     xm232_sc2336_dvp[162];
@@ -1030,6 +1035,14 @@ static void xm232_set_fps(const struct xmv200_sns_dev *d,
     st[d->chn].vts = vts;
 }
 
+/* the vendor's frame-length function does nothing */
+static void xm232_set_vts(const struct xmv200_sns_dev *d, uint32_t vts,
+                          struct xmv200_sns_ae *ae) {
+  (void)d;
+  (void)vts;
+  (void)ae;
+}
+
 static void xm232_set_flip(const struct xmv200_sns_dev *d, int mirror,
                            int flip) {
   uint32_t v = r(d, 0x3221);
@@ -1047,7 +1060,7 @@ const struct xmv200_sns_drv xmv200_sns_sc2336_xm232 = {
     .init = xm232_init,
     .ae_default = xm232_ae_default,
     .set_fps = xm232_set_fps,
-    .set_vts = set_vts,
+    .set_vts = xm232_set_vts,
     .set_exposure = set_exposure,
     .again_calc = again_calc,
     .dgain_calc = dgain_calc,

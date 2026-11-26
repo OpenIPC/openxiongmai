@@ -627,6 +627,11 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
       if (l->sensor[c].efsync)
         b->isp.attr.sync_cfg = l->sensor[c].efsync > 0 ? 0x11 : 0;
     }
+    /* XM232: the sync setting is the camera count, as its isp daemon takes
+     * it from Isp.json's U8CamNum (the slaves' trigger divides by it) */
+    if (b->isp.attr.sync && b->isp.drv->family &&
+        !strcmp(b->isp.drv->family, "xm232") && l->n_sensors > 0)
+      b->isp.attr.sync_cfg = (uint32_t)l->n_sensors;
     /* synced on two lanes with no master named: the last sensor, as the
      * vendor's X9-WE2Q (SensorSync 0x100) */
     if (b->isp.attr.sync && b->isp.attr.lanes == 2 &&
