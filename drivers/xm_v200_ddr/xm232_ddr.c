@@ -48,7 +48,8 @@ static int ddr_show(struct seq_file *s, void *v)
 	for (i = 0; i < PORTS; i++)
 		seq_printf(s, "%-4d  %-5llu  %-5llu\n", i, bytes[i][0] >> 20,
 			   bytes[i][1] >> 20);
-	seq_printf(s, "Total %u\n", peak);
+	/* no newline after it, as XM232's ddr.ko */
+	seq_printf(s, "Total %u", peak);
 	return 0;
 }
 

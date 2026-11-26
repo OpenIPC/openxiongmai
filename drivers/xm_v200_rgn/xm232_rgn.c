@@ -109,7 +109,6 @@ static struct osd_block osd[N_HANDLE];
 static struct win_block win[N_HANDLE];
 static int osd_venc[VENC_CHNS][OSD_PER_CHN];
 static int win_venc[WIN_VENC_CHNS][WIN_PER_CHN];
-static u32 calls;
 static DEFINE_MUTEX(osd_lock);
 static DEFINE_MUTEX(win_lock);
 static void __iomem *comp;
@@ -184,7 +183,6 @@ int comp_osd_process(u32 *pic, u32 *bind)
 
 	if (bind[0] != MOD_VENC)
 		return 0;
-	calls++;
 	mutex_lock(&osd_lock);
 	for (i = 0; chn < VENC_CHNS && i < OSD_PER_CHN; i++) {
 		int h = osd_venc[chn][i];
@@ -571,7 +569,6 @@ static int rgn_show(struct seq_file *s, void *v)
 	int h;
 
 	seq_puts(s, "[RGN] openxiongmai xm232_rgn\n\n");
-	seq_printf(s, "comp_osd_process calls: %u\n", calls);
 	seq_puts(s, "-----REGION CHN STATUS OF OVERLAY---------------------------------------------\n");
 	seq_puts(s, "Handle  En  X     Y     W     H     Type  Alpha  Up  Addr     Mod  Dev  Chn\n");
 	mutex_lock(&osd_lock);

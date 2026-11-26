@@ -541,6 +541,68 @@ static void show_list(struct seq_file *s, struct list_head *l)
 #define SHOWN_LISTS N_LISTS
 #endif
 
+#ifdef VB_LAYOUT_XM232
+/* XM232's vb.ko lists every buffer with OverFlow: 1 when the 16 bytes at
+ * Addr - 16 + ALIGN(Size + 0x10 + 0x1f, 32) are not the marker */
+struct all_row {
+	void *node;
+	u32 w[10];
+};
+
+static void show_all_xm232(struct seq_file *s)
+{
+	struct all_row *rows;
+	unsigned long flags;
+	struct vb_buf *b;
+	int i, n = 0, max = 0;
+
+	seq_puts(s, "Node      Addr      PhysAddr  Size      Stride  Width  Height  BindId  BindDev  BindChn  Reference  OverFlow\n");
+	spin_lock_irqsave(&vb_lock, flags);
+	list_for_each_entry (b, &all_bufs, all)
+		max++;
+	spin_unlock_irqrestore(&vb_lock, flags);
+	rows = kcalloc(max ? max : 1, sizeof(*rows), GFP_KERNEL);
+	if (!rows)
+		return;
+	spin_lock_irqsave(&vb_lock, flags);
+	list_for_each_entry (b, &all_bufs, all) {
+		if (n == max)
+			break;
+		rows[n].node = b;
+		rows[n].w[0] = WORD(b, W_ADDR);
+		rows[n].w[1] = WORD(b, W_PHYS);
+		rows[n].w[2] = WORD(b, W_SIZE);
+		rows[n].w[3] = WORD(b, W_STRIDE);
+		rows[n].w[4] = WORD(b, W_STRIDE + 1);
+		rows[n].w[5] = WORD(b, W_STRIDE + 2);
+		rows[n].w[6] = WORD(b, W_BIND);
+		rows[n].w[7] = WORD(b, W_BIND + 1);
+		rows[n].w[8] = WORD(b, W_BIND + 2);
+		rows[n].w[9] = WORD(b, W_REF);
+		n++;
+	}
+	spin_unlock_irqrestore(&vb_lock, flags);
+	for (i = 0; i < n; i++) {
+		const u32 *w = rows[i].w;
+		char got[sizeof(marker)];
+		void __iomem *m;
+		int over = 1;
+
+		m = ioremap(w[0] - 0x10 + ((w[2] + 0x2f) & ~0x1fu),
+			    sizeof(marker));
+		if (m) {
+			memcpy_fromio(got, m, sizeof(got));
+			iounmap(m);
+			over = memcmp(got, marker, sizeof(marker)) != 0;
+		}
+		seq_printf(s, "%-8p  %-8x  %-8x  %-8x  %-6d  %-5d  %-6d  %-6d  %-7d  %-7d  %-9d  %-8d\n",
+			   rows[i].node, w[0], w[1], w[2], w[3], w[4], w[5],
+			   w[6], w[7], w[8], w[9], over);
+	}
+	kfree(rows);
+}
+#endif
+
 static int vb_show(struct seq_file *s, void *v)
 {
 	static const char *const names[N_LISTS] = {"FREE", "VPSS", "VENC",
@@ -575,13 +637,11 @@ static int vb_show(struct seq_file *s, void *v)
 #endif
 	seq_puts(s, RULE "VB ALL LIST STATUS--------------------------------------------------------\n");
 #ifdef VB_LAYOUT_XM232
-	seq_puts(s, "Node      Addr      PhysAddr  Size      Stride  Width  Height  BindId  BindDev  BindChn  Reference\n");
-	list_for_each_entry (b, &all_bufs, all)
-		seq_printf(s, "%-8p  %-8x  %-8x  %-8x  %-6d  %-5d  %-6d  %-6d  %-7d  %-7d  %-9d\n",
-			   b, WORD(b, W_ADDR), WORD(b, W_PHYS), WORD(b, W_SIZE),
-			   WORD(b, W_STRIDE), WORD(b, W_STRIDE + 1),
-			   WORD(b, W_STRIDE + 2), WORD(b, W_BIND),
-			   WORD(b, W_BIND + 1), WORD(b, W_BIND + 2), WORD(b, W_REF));
+	/* the rows, then the overrun check, which maps memory: outside the
+	 * lock */
+	spin_unlock_irqrestore(&vb_lock, flags);
+	show_all_xm232(s);
+	spin_lock_irqsave(&vb_lock, flags);
 #else
 	seq_puts(s, "Node      PhysAddr  Size      Stride  Width  Height  BindId  BindDev  BindChn  Reference\n");
 	list_for_each_entry (b, &all_bufs, all)

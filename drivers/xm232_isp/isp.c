@@ -1046,9 +1046,9 @@ static int isp_proc_show(struct seq_file *m, void *v)
 	for (i = 0; i < C8(CM_CHNNUM) && i < N_CHN; i++) {
 		a = CM_CHN(i);
 		seq_printf(m, "vicu\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n", i, 1,
-			   C16(a), C16(a + 2), C16(a + 4), C16(a + 6), "");
+			   C16(a), C16(a + 2), C16(a + 4), C16(a + 6), "  ");
 		seq_printf(m, "h_d\t%d\t%d\t \t \t%d\t%d\t%s\n", i, 1,
-			   C16(a + 8), C16(a + 0xa), "");
+			   C16(a + 8), C16(a + 0xa), "  ");
 		seq_printf(m, "hv_gen\t%d\t%d\t%d\t%d\t%d\t%d\t[%d %d]\n", i, 1,
 			   C16(a + 0xc), C16(a + 0xe), C16(a + 0x10),
 			   C16(a + 0x12), C16(a + 0x14), C16(a + 0x16));
@@ -1056,7 +1056,7 @@ static int isp_proc_show(struct seq_file *m, void *v)
 			   C16(a + 0x18), C16(a + 0x1a), C16(a + 0x1c),
 			   C16(a + 0x1e), "UnUse");
 		seq_printf(m, "vpss_in\t%d\t%d\t \t \t%d\t%d\t%s\n", i, 1,
-			   C16(a + 0x20), C16(a + 0x22), "");
+			   C16(a + 0x20), C16(a + 0x22), "  ");
 		seq_puts(m, "\n");
 	}
 	ib_proc_show(m, &k);
