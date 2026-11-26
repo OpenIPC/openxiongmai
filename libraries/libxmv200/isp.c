@@ -379,6 +379,15 @@ static int run_program(const struct xmv200_isp_cfg *cfg,
       /* (XM232: the picture's sizes stay the vendor's; vi_mu.ko scales) */
       if (!chip->vi_mu)
         a[out] = a[out + 1] = c->out_width | c->out_height << 16;
+      /* The XM535's isp.ko reads 76 bytes, word 14 the sensor's frame
+       * period in 100 us and twice it: the window its offline BPU takes a
+       * time-shared pair's frames in (a quarter to one period after the
+       * frame), and how long a frame may take to be done. The vendor daemon
+       * sends 0x3200190 at 25 fps; a tuning captured as 52 bytes has none,
+       * and isp.ko then assumes 25 fps, which drops every frame of an
+       * XM535D2 pair running slower (12 fps: 41.7 ms apart, past 40 ms). */
+      if (t->n_chn_init < 15 && !a[14] && cfg->attr.fps)
+        a[14] = 10000 / cfg->attr.fps | (20000 / cfg->attr.fps) << 16;
       r = isp_cmd(ISP_CHN_INIT, a);
       break;
     }
