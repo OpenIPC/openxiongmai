@@ -42,6 +42,7 @@ Xiongmai's SDK is a set of closed-source userspace libraries plus kernel modules
 │   ├── xm510_rgn/               XM510 region (OSD) driver (/dev/rgn)
 │   ├── xm510_vi/                XM510 video input driver (/dev/vi)
 │   ├── xm530_isp/               XM530/XM550 ISP device (/dev/isp)
+│   ├── xm530_i2s/               XM530/XM550 audio in/out (/dev/ai, /dev/ao)
 │   ├── xm530_mve/               XM530/XM550 H.265 encoder device (/dev/mv500)
 │   ├── xm530_rgn/               XM530/XM550 region (OSD) driver (/dev/rgn)
 │   ├── xm_hevc/                 V200-series H.265 engine (/dev/h265)
@@ -222,6 +223,7 @@ To add a sensor:
 | `xm533_vi` | XM533 video input: the three channels' scaling and store into VB buffers, frame-rate control, covers (`/dev/vi`) | Builds `open_vi.ko`. Same ioctls and records as the vendor `vi.ko`; in qemu-bench its pictures match the vendor module's |
 | `xm_v200_rgn` | V200-series regions: overlays the OSD engine blends into VENC pictures (`osd_process`), covers and (XM535) lines through VI/VPSS, the XM535's encoder OSD (`/dev/rgn`) | Builds `open_rgn.ko`. Same ioctls as the vendor `rgn.ko`; overlays checked pixel by pixel in qemu-bench on the XM530V200, XM533 and XM535D1 |
 | `xm_v200_venc` | V200-series VENC frame queue: the pictures bound to VENC, with their OSD, for the encoder (`/dev/venc_info`) | Builds `open_venc.ko`. Same ioctls and records as the vendor `venc.ko` (not yet the XM535's `/dev/venc_mem`); ran libxmv200 on all five V200-series chips in qemu-bench in place of it |
+| `xm530_i2s` | XM530/XM550 audio input and output (`/dev/ai`, `/dev/ao`, `/proc/umap/audio`) | Builds `open_i2s.ko`. Same devices as the vendor `xm_i2s.ko`, without its leak on `/proc/umap/audio` |
 | `xm530_mve` | XM530/XM550 H.265 encoder device, an Arm Mali-V550 (`/dev/mv500`, `/proc/umap/h265`), on the vendor `mve_rsrc.ko` | Builds `open_mve.ko`. Same ABI as the vendor `mve_base.ko` for H.265 from NV12 in MMZ, the rest refused; ran majestic on an XM550 in place of it, its streams byte for byte the vendor module's |
 | `xm530_rgn` | XM530/XM550 regions (OSD): bitmap overlays and coloured covers that VI draws over each channel (`/dev/rgn`) | Builds `open_rgn.ko`. Same ABI as the vendor `xm530_rgn.ko`, with its inputs checked; drew overlays and covers into an XM550's streams under majestic |
 | `xm510_isp` | XM510 ISP device: register access, a shared page and the frame-start signal for the vendor `isp` daemon (`/dev/isp`) | Builds `open_isp.ko`. Same ABI as the vendor `xm510_isp.ko`, without its `Bad page state` on unload or its hang after a bad address; ran majestic on an XM510 in place of it |
