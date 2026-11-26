@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * The V200 series' media log (/dev/log, /proc/umap/logmpp): a drop-in for
- * the vendor log.ko.
+ * The V200 series' and the XM530/XM550's media log (/dev/log,
+ * /proc/umap/logmpp): a drop-in for the vendor log.ko.
  *
  * /dev/log is a 32 KB FIFO of text: writes append (the oldest dropped when
  * it is full), reads wait for some. Each media module has a log level
  * (1..7, 3 to start): /proc/umap/logmpp shows them and takes
  * "<module> <level>", and ioctl 0x800c4c00 returns the table, 13 entries
- * of {level, name[8]}.
+ * of {level, name[8]} (10 on the XM530/XM550, LOG_CHIP=xm530: no vb, vpss
+ * or var).
+ *
+ * The XM530's vendor module opens /proc/umap/logmpp with seq_open() and
+ * never releases it, 4 KiB lost each time (OpenIPC/firmware#2956).
  */
 
 #include <linux/fs.h>
@@ -24,18 +28,23 @@
 
 #define LOG_FIFO (32 * 1024)
 #define LOG_GET_LEVELS 0x800c4c00
-#define N_MOD 13
 
 struct level {
 	s32 level;
 	char name[8];
 };
 
-static struct level levels[N_MOD] = {
+static struct level levels[] = {
+#ifdef LOG_XM530
+	{3, "sys"}, {3, "ai"},	 {3, "ao"},   {3, "aenc"}, {3, "adec"},
+	{3, "rgn"}, {3, "vi"},	 {3, "vo"},   {3, "venc"}, {3, "vdec"},
+#else
 	{3, "sys"}, {3, "vb"},	{3, "ai"},   {3, "ao"},	 {3, "aenc"},
 	{3, "adec"}, {3, "rgn"}, {3, "vi"},   {3, "vo"},	 {3, "venc"},
 	{3, "vdec"}, {3, "vpss"}, {3, "var"},
+#endif
 };
+#define N_MOD ARRAY_SIZE(levels)
 
 static DEFINE_KFIFO(fifo, char, LOG_FIFO);
 static DEFINE_SPINLOCK(fifo_lock);
@@ -113,7 +122,7 @@ static int levels_show(struct seq_file *s, void *v)
 {
 	int i;
 
-	seq_puts(s, "[LOG] openxiongmai xm_v200_log\n\n");
+	seq_puts(s, "[LOG] openxiongmai xm_log\n\n");
 	seq_puts(s, "-------------------------------------------------------------\n");
 	for (i = 0; i < N_MOD; i++)
 		seq_printf(s, "%-8s = %d\n", levels[i].name, levels[i].level);
