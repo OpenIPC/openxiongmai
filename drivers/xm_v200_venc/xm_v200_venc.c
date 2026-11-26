@@ -425,6 +425,219 @@ static int venc_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+#ifdef VENC_LAYOUT_XM232
+/*
+ * XM232's venc.ko prints its /proc/umap/venc and /proc/umap/h26x from the
+ * channel settings user space hands it (0x41a04901, kept here as
+ * chn_cfg), the VB FIFO counters, fifo_depth and the 16 bytes of 0x40104904
+ * (the encoder thread's status). Word n of a channel's settings: rec[n].
+ */
+#define REC_W (CFG_MAX / 4)
+#define T_H264 0x60
+#define T_H265 0x109
+#define T_JPEG 0x1a
+
+static bool chn_rec(u32 c, u32 *rec)
+{
+	memcpy(rec, chn_cfg[c], CFG_MAX);
+	return rec[1] != 0;
+}
+
+static u8 rec_b(const u32 *rec, u32 off)
+{
+	return ((const u8 *)rec)[off];
+}
+
+static const char *venc_type(u32 t)
+{
+	switch (t) {
+	case T_H264:
+		return "H264";
+	case T_H265:
+		return "H265";
+	case T_JPEG:
+		return "JPEG";
+	}
+	pr_info("unknow venc type %d\n", t);
+	return "unknow";
+}
+
+static void venc_row(struct seq_file *s, u32 c, const u32 *v, int n)
+{
+	int i;
+
+	seq_printf(s, "%-2d  ", c);
+	for (i = 0; i < n; i++)
+		seq_printf(s, "%-8d ", v[i]);
+	seq_puts(s, "\n");
+}
+
+static void venc_names(struct seq_file *s, const char *const *names, int n,
+		       int cols)
+{
+	int i;
+
+	seq_puts(s, "NO. ");
+	for (i = 0; i < cols; i++)
+		seq_printf(s, "%-8s ", i < n ? names[i] : "Res");
+	seq_puts(s, "\n");
+}
+
+static int venc_show(struct seq_file *s, void *v)
+{
+	static const char *const hw1[] = {
+		"KnlTO", "ItfTO", "Floss", "NBslossV", "NBslossJ", "RBslossJ",
+		"RBslossJ", "RDDV", "HostFS", "HostFS", "HostBsL"};
+	static const char *const hw2[] = {"StLate", "EndLate", "TimeOut",
+					  "EncSlow", "MulMatch"};
+	static const char *const hw3[] = {"EndSta", "Halt"};
+	static u32 rec[REC_W];
+	u32 c;
+	int i;
+
+	seq_puts(s, "\n\n[VENC] openxiongmai xm_v200_venc\n");
+	seq_puts(s, "-------VIBUF FIFO STATUS----------------------------------------------------------\n");
+	seq_puts(s, "VbFail  FifoFull  FifoEmpty  FifoDepth  MaxDepth\n");
+	seq_printf(s, "%-6d  %-8d  %-9d  %-9d  %-8d\n", state.vb_fail,
+		   state.fifo_full, state.fifo_empty, state.count, fifo_depth);
+	seq_puts(s, "-------THREAD STATUS----------------------------------------------------------\n");
+	seq_puts(s, "     --264--            --jpg--                                               \n");
+	seq_puts(s, "Count      Line     Count      Line     \n");
+	seq_printf(s, "%-10u %-8d %-10u %-8d \n", set4[0], set4[1], set4[2],
+		   set4[3]);
+	seq_puts(s, "-------VENC CHN ATTR--------------------------------------------------------------\n");
+	seq_puts(s, "NO. Width  Height  Type  Field  VIField  StreamType  Sequence  FreeBytes  BusyBytes\n");
+	for (c = 0; c < N_CHN; c++)
+		if (chn_rec(c, rec))
+			seq_printf(s, "%-2d  %-5d  %-6d  %-4s  %-5d  %-7d  %-10d  %-8d  %-9d  %-9d\t\n",
+				   c, rec[3], rec[4], venc_type(rec[5]),
+				   rec_b(rec, 0x18), rec_b(rec, 0x19),
+				   rec_b(rec, 0x1a), rec[7], rec[8], rec[9]);
+	seq_puts(s, "-------VENC STREAM STATE--------------------------------------------------------------\n");
+	seq_puts(s, "NO. Start  SucCnt   ErrCnt  BufErr  FreeCnt  BusyCnt  UserGet  UserRls  GetTimes  Interval(us)  Min(us)  Max(us)  Ave(us)  FramRate\n");
+	for (c = 0; c < N_CHN; c++)
+		if (chn_rec(c, rec))
+			seq_printf(s, "%-2d  %-5s  %-8d %-6d  %-6d  %-7d  %-7d  %-7d  %-7d  %-8d  %-12d  %-7d  %-7d  %-7d  %-8d\n",
+				   c, rec[0x16] ? "Y" : "N", rec[0x14],
+				   rec[0x15], rec[0x18], rec[0xa], rec[0xb],
+				   rec[0xc], rec[0xd], rec[0xe], rec[0xf],
+				   rec[0x11], rec[0x10], rec[0x12], rec[0x13]);
+	seq_puts(s, "-------VENC DEBUG STATUS--------------------------------------------------------------\n");
+	seq_puts(s, "NO. MaxLast   MaxNow    CntNF     BoostNF   RcNf      ErrNF     SchedTO   7\n");
+	for (c = 0; c < N_CHN; c++) {
+		if (!chn_rec(c, rec))
+			continue;
+		seq_printf(s, "%-2d", c);
+		for (i = 0; i < 8; i++)
+			seq_printf(s, "  %-8d", rec[0x19 + i]);
+		seq_puts(s, " \n");
+	}
+	seq_puts(s, "-------VENC HW STATUS--------------------------------------------------------------\n");
+	venc_names(s, hw1, ARRAY_SIZE(hw1), 16);
+	for (c = 0; c < N_CHN; c++)
+		if (chn_rec(c, rec))
+			venc_row(s, c, rec + 0x29, 16);
+	venc_names(s, hw2, ARRAY_SIZE(hw2), 8);
+	for (c = 0; c < N_CHN; c++)
+		if (chn_rec(c, rec))
+			venc_row(s, c, rec + 0x39, 8);
+	venc_names(s, hw3, ARRAY_SIZE(hw3), 8);
+	for (c = 0; c < N_CHN; c++)
+		if (chn_rec(c, rec))
+			venc_row(s, c, rec + 0x41, 8);
+	return 0;
+}
+
+static int h26x_show(struct seq_file *s, void *v)
+{
+	static u32 rec[REC_W];
+	const u32 *r = rec + 1; /* the vendor's view: r[-1] the channel */
+	u32 c;
+
+	seq_puts(s, "\n\n[H26X] openxiongmai xm_v200_venc\n");
+	seq_puts(s, "----------------------------------CHN ATTR------------------------------------\n");
+	seq_puts(s, "ID  Width  Height  InLBase     InCbBase    InCrBase    MainStr  H26X+    1/4PixelMv  Ltr  Rfc  Rfw  Sb  Prv  Hcs  Fb\n");
+	for (c = 0; c < N_CHN; c++) {
+		if (!chn_rec(c, rec) || (r[1] != T_H265 && r[1] != T_H264))
+			continue;
+		seq_printf(s, "%-2d  %-5d  %-6d  0x%-8x  0x%-8x  0x%-8x  %-7s  %-7s  %-10s  %-3d  %-3d  %-3d  %-2d  %-3d  %-3d  %-2d\n",
+			   r[-1], r[0x48], r[0x49], r[0x4a], r[0x4b], r[0x4c],
+			   c ? "NO" : "YES", rec_b(r, 0x134) ? "enable" : "disable",
+			   r[0x4e] ? "NO" : "YES", rec_b(r, 0x13c),
+			   rec_b(r, 0x13d), rec_b(r, 0x13e), rec_b(r, 0x13f),
+			   rec_b(r, 0x140), rec_b(r, 0x141), rec_b(r, 0x142));
+	}
+	seq_puts(s, "-------------------------------STREAM BUFFER----------------------------------\n");
+	seq_puts(s, "ID  OutBase     Size      OverFlow  streamType\n");
+	for (c = 0; c < N_CHN; c++) {
+		if (!chn_rec(c, rec) || (r[1] != T_H265 && r[1] != T_H264))
+			continue;
+		seq_printf(s, "%-2d  0x%-8x  %-8d  %-8d %-10s\n", r[-1], r[0x51],
+			   r[0x52], r[0x53],
+			   rec_b(r, 0x150) == 1 ? " BYTE" : " NAL");
+	}
+	seq_puts(s, "-------------------------------RC  INFO -----------------------------------\n");
+	seq_puts(s, "ID  CamMode  CusId  Qp  IQpMin  IQpMax  PQpMin  PQpMax  GOPLen  FrameCnt  GopBitCnt  IFrameBit  FrameBit  RcMod  BitRate  SrcFR  DstFR\n");
+	for (c = 0; c < N_CHN; c++) {
+		static const char *const rc[] = {"VBR", "CBR", "FIXQP", "ADVBR"};
+		const char *mode;
+
+		if (!chn_rec(c, rec) || (r[1] != T_H265 && r[1] != T_H264))
+			continue;
+		if (r[0x61] < ARRAY_SIZE(rc)) {
+			mode = rc[r[0x61]];
+		} else {
+			pr_info("unknow rcMode %d\n", r[0x61]);
+			mode = "unknow";
+		}
+		seq_printf(s, "%-2d  %-7d  %-5d  %-2d  %-6d  %-6d  %-6d  %-6d  %-6d  %-8d  %-9d  %-9d  %-8d  %-5s  %-8d %-5d  %-5d\n",
+			   r[-1], r[0x5a], r[0x5b], r[0x55], r[0x56], r[0x57],
+			   r[0x58], r[0x59], r[0x5c], r[0x5d], r[0x5e], r[0x5f],
+			   r[0x60], mode, r[0x62], r[0x63], r[0x64]);
+	}
+	seq_puts(s, "\n\n[JPEG] openxiongmai xm_v200_venc\n");
+	seq_puts(s, "-------------------------------JPEG INFO -----------------------------------\n");
+	seq_puts(s, "ID  Width  Height  Rotation\tCodingType  CodedSize  UseJpeg422  Prv\n");
+	for (c = 0; c < N_CHN; c++) {
+		const char *rot;
+
+		if (!chn_rec(c, rec) || r[1] != T_JPEG)
+			continue;
+		switch (r[0x4a]) {
+		case 0:
+			rot = "NONE";
+			break;
+		case 1:
+			rot = "270";
+			break;
+		case 2:
+			rot = "90";
+			break;
+		default:
+			pr_info("unknow rotate type %d\n", r[0x4a]);
+			rot = "unknow";
+		}
+		seq_printf(s, "%-2d  %-5d  %-6d  %-8s\t%-10s  %-9d  %-10s  %-3d\n",
+			   r[-1], r[0x48], r[0x49], rot,
+			   r[0x4b] == 1 ? "SLICE" : "WHOLE", r[0x4c],
+			   r[0x4d] ? "TRUE" : "FALSE", rec_b(r, 0x138));
+	}
+	return 0;
+}
+
+static int h26x_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, h26x_show, NULL);
+}
+
+static const struct file_operations h26x_proc_fops = {
+	.owner = THIS_MODULE,
+	.open = h26x_proc_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+#else
 static int venc_show(struct seq_file *s, void *v)
 {
 	u32 c, w[6];
@@ -444,6 +657,7 @@ static int venc_show(struct seq_file *s, void *v)
 	}
 	return 0;
 }
+#endif
 
 static int venc_proc_open(struct inode *inode, struct file *file)
 {
@@ -471,17 +685,46 @@ static struct miscdevice venc_misc = {
 	.fops = &venc_fops,
 };
 
+#ifdef VENC_LAYOUT_XM535
+/* The XM535's venc.ko also carries the encoder memory book-keeping
+ * (/dev/venc_mem), the XM533's venc_mem.ko: the same code, started first */
+#define VENC_MEM_EMBEDDED
+#include "../xm533_venc_mem/xm533_venc_mem.c"
+#endif
+
+#ifdef VENC_LAYOUT_XM232
+#define XM232_REMOVE_H26X() remove_proc_entry("umap/h26x", NULL)
+#else
+#define XM232_REMOVE_H26X() do { } while (0)
+#endif
+#ifdef VENC_LAYOUT_XM535
+#define XM535_VENC_MEM_EXIT() xm533_venc_mem_exit()
+#else
+#define XM535_VENC_MEM_EXIT() do { } while (0)
+#endif
+
 static int __init xm_v200_venc_init(void)
 {
 	int ret;
 
+#ifdef VENC_LAYOUT_XM535
+	ret = xm533_venc_mem_init();
+	if (ret)
+		return ret;
+#endif
 	venc_start();
+#ifdef VENC_LAYOUT_XM232
+	if (!proc_create("umap/h26x", 0444, NULL, &h26x_proc_fops))
+		pr_err("venc: create h26x proc fail!\n");
+#endif
 	if (!proc_create("umap/venc", 0444, NULL, &venc_proc_fops))
 		pr_err("venc: create venc proc fail!\n");
 	ret = misc_register(&venc_misc);
 	if (ret) {
 		pr_err("venc: register device failed!\n");
 		remove_proc_entry("umap/venc", NULL);
+		XM232_REMOVE_H26X();
+		XM535_VENC_MEM_EXIT();
 		return ret;
 	}
 	thread = kthread_run(venc_thread, NULL, "venc_thread");
@@ -489,6 +732,8 @@ static int __init xm_v200_venc_init(void)
 		thread = NULL;
 		misc_deregister(&venc_misc);
 		remove_proc_entry("umap/venc", NULL);
+		XM232_REMOVE_H26X();
+		XM535_VENC_MEM_EXIT();
 		return -ENOMEM;
 	}
 	pr_info("venc: openxiongmai xm_v200_venc init ok\n");
@@ -501,6 +746,8 @@ static void __exit xm_v200_venc_exit(void)
 		kthread_stop(thread);
 	misc_deregister(&venc_misc);
 	remove_proc_entry("umap/venc", NULL);
+	XM232_REMOVE_H26X();
+	XM535_VENC_MEM_EXIT();
 }
 
 module_init(xm_v200_venc_init);

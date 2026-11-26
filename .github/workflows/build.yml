@@ -437,6 +437,15 @@ jobs:
         run: |
           make -C drivers/xm_v200_venc KDIR="$KDIR" ARCH=arm \
             CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH"
+          # the XM535's, with the XM533's venc_mem built in: a copy beside
+          # drivers/, so the include of ../xm533_venc_mem resolves
+          mkdir -p "$RUNNER_TEMP/venc-xm535/drivers"
+          cp -r drivers/xm_v200_venc drivers/xm533_venc_mem "$RUNNER_TEMP/venc-xm535/drivers/"
+          make -C "$RUNNER_TEMP/venc-xm535/drivers/xm_v200_venc" clean
+          make -C "$RUNNER_TEMP/venc-xm535/drivers/xm_v200_venc" KDIR="$KDIR" ARCH=arm \
+            CROSS_COMPILE="$CROSS_COMPILE" PATH="$PATH" VENC_LAYOUT=xm535
+          modinfo -F description "$RUNNER_TEMP/venc-xm535/drivers/xm_v200_venc/open_venc.ko"
+          strings "$RUNNER_TEMP/venc-xm535/drivers/xm_v200_venc/open_venc.ko" | grep -q umap/venc_mem
 
       - name: Build xm_v200_rgn
         if: matrix.soc == 'xm530'

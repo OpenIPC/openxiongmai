@@ -1,6 +1,6 @@
 # xm533_venc_mem
 
-`xm533_venc_mem` is the XM533's encoder memory book-keeping, at `/dev/venc_mem`, and builds as `open_venc_mem.ko`. It replaces the vendor `venc_mem.ko`.
+`xm533_venc_mem` is the XM533's encoder memory book-keeping, at `/dev/venc_mem`, and builds as `open_venc_mem.ko`. It replaces the vendor `venc_mem.ko`. The XM535's `venc.ko` carries the same code; `xm_v200_venc` with `VENC_LAYOUT=xm535` builds this file into `open_venc.ko` (`VENC_MEM_EMBEDDED`).
 
 User space allocates one block of MMZ per VENC channel and has the driver hand out parts of it: 4 KB aligned, first fit, freed neighbours merged. Each part has a 16-byte guard after it ("MEMORY BARRIERS"), which `/proc/umap/venc_mem` checks along with the channel's use.
 
