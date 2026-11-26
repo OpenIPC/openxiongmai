@@ -230,8 +230,11 @@ static long venc_mem_ioctl(struct file *file, unsigned int cmd,
 			ret = part_free(a.virt);
 		else {
 			ret = part_alloc(&a);
-			if (copy_to_user(u, &a, sizeof(a)))
+			/* a part the caller was not told of goes back */
+			if (copy_to_user(u, &a, sizeof(a)) && !ret) {
+				part_free(a.virt);
 				ret = -EFAULT;
+			}
 		}
 		break;
 	default:

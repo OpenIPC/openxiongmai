@@ -40,6 +40,7 @@
 #include <linux/list.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
 #include <linux/seq_file.h>
@@ -127,6 +128,15 @@ static struct {
 } state;
 static u8 chn_cfg[N_CHN][CFG_MAX];
 static u32 chn_cfg_size;
+#ifdef VENC_LAYOUT_XM232
+/* the settings: written by the ioctl, read whole for /proc */
+static DEFINE_MUTEX(cfg_lock);
+#define CFG_LOCK() mutex_lock(&cfg_lock)
+#define CFG_UNLOCK() mutex_unlock(&cfg_lock)
+#else
+#define CFG_LOCK() do { } while (0)
+#define CFG_UNLOCK() do { } while (0)
+#endif
 static u32 set4[4];
 static atomic_t opens = ATOMIC_INIT(0);
 static volatile int wait_init;
@@ -222,7 +232,9 @@ static void venc_start(void)
 	INIT_LIST_HEAD(&fifo);
 	memset(&state, 0, sizeof(state));
 	spin_unlock_irqrestore(&fifo_lock, flags);
+	CFG_LOCK();
 	memset(chn_cfg, 0, sizeof(chn_cfg));
+	CFG_UNLOCK();
 	memset(set4, 0, sizeof(set4));
 	memset(out, 0, sizeof(out));
 	wait_init = 0;
@@ -398,11 +410,13 @@ static long venc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			pr_err("venc: chn %u is invalid\n", chn);
 			return 0;
 		}
+		CFG_LOCK();
 		chn_cfg_size = size;
 		if (on)
 			memcpy(chn_cfg[chn], c, size);
 		else
 			memset(chn_cfg[chn] + 4, 0, 4);
+		CFG_UNLOCK();
 		return 0;
 	}
 	pr_err("venc: command error %x\n", cmd);
@@ -432,14 +446,16 @@ static int venc_close(struct inode *inode, struct file *file)
  * chn_cfg), the VB FIFO counters, fifo_depth and the 16 bytes of 0x40104904
  * (the encoder thread's status). Word n of a channel's settings: rec[n].
  */
-#define REC_W (CFG_MAX / 4)
 #define T_H264 0x60
 #define T_H265 0x109
 #define T_JPEG 0x1a
 
+/* a copy of channel c's settings, whole */
 static bool chn_rec(u32 c, u32 *rec)
 {
+	CFG_LOCK();
 	memcpy(rec, chn_cfg[c], CFG_MAX);
+	CFG_UNLOCK();
 	return rec[1] != 0;
 }
 
@@ -491,10 +507,12 @@ static int venc_show(struct seq_file *s, void *v)
 	static const char *const hw2[] = {"StLate", "EndLate", "TimeOut",
 					  "EncSlow", "MulMatch"};
 	static const char *const hw3[] = {"EndSta", "Halt"};
-	static u32 rec[REC_W];
+	u32 *rec = kmalloc(CFG_MAX, GFP_KERNEL); /* each reader its own */
 	u32 c;
 	int i;
 
+	if (!rec)
+		return -ENOMEM;
 	seq_puts(s, "\n\n[VENC] openxiongmai xm_v200_venc\n");
 	seq_puts(s, "-------VIBUF FIFO STATUS----------------------------------------------------------\n");
 	seq_puts(s, "VbFail  FifoFull  FifoEmpty  FifoDepth  MaxDepth\n");
@@ -545,15 +563,19 @@ static int venc_show(struct seq_file *s, void *v)
 	for (c = 0; c < N_CHN; c++)
 		if (chn_rec(c, rec))
 			venc_row(s, c, rec + 0x41, 8);
+	kfree(rec);
 	return 0;
 }
 
 static int h26x_show(struct seq_file *s, void *v)
 {
-	static u32 rec[REC_W];
-	const u32 *r = rec + 1; /* the vendor's view: r[-1] the channel */
+	u32 *rec = kmalloc(CFG_MAX, GFP_KERNEL); /* each reader its own */
+	const u32 *r; /* the vendor's view: r[-1] the channel */
 	u32 c;
 
+	if (!rec)
+		return -ENOMEM;
+	r = rec + 1;
 	seq_puts(s, "\n\n[H26X] openxiongmai xm_v200_venc\n");
 	seq_puts(s, "----------------------------------CHN ATTR------------------------------------\n");
 	seq_puts(s, "ID  Width  Height  InLBase     InCbBase    InCrBase    MainStr  H26X+    1/4PixelMv  Ltr  Rfc  Rfw  Sb  Prv  Hcs  Fb\n");
@@ -622,6 +644,7 @@ static int h26x_show(struct seq_file *s, void *v)
 			   r[0x4b] == 1 ? "SLICE" : "WHOLE", r[0x4c],
 			   r[0x4d] ? "TRUE" : "FALSE", rec_b(r, 0x138));
 	}
+	kfree(rec);
 	return 0;
 }
 
