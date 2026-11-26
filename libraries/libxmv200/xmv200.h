@@ -255,7 +255,8 @@ int xmv200_venc_encode(struct xmv200_venc *v, const struct xmv200_frame *f,
  * The bit formats' colours are 0xAAYYUUVV (xmv200_osd_color); alpha 0 is
  * transparent. x and y are rounded down to even.
  * XM232: no OSD engine; its encoder draws ARGB1555 and the bit formats (as
- * the ENC ones), x and y in 16-pixel steps, up to 8 a stream; no ARGB8888.
+ * the ENC ones: 1 bit a width a multiple of 8), x and y in 16-pixel steps,
+ * up to 8 a stream; no ARGB8888.
  */
 #define XMV200_OSD_MAX 256
 

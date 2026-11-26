@@ -52,6 +52,10 @@ static int attr(const struct xmv200_osd *o, uint32_t w[13]) {
       w[0] = XMV200_OSD_ENC_1BIT;
     else if (o->format == XMV200_OSD_2BIT)
       w[0] = XMV200_OSD_ENC_2BIT;
+    /* a 1-bit row is copied in whole bytes: the region driver's create
+     * checks it as 2 bits and would take a width of 4 */
+    if (w[0] == XMV200_OSD_ENC_1BIT && (o->width & 7))
+      return -1;
   }
   w[1] = o->x & ~1u; /* chroma pairs */
   w[2] = o->y & ~1u;
