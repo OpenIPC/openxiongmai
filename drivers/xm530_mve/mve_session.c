@@ -164,6 +164,8 @@ struct mve_session {
 	struct mve_mmu *mmu;
 	struct mve_fw *fw;
 	bool activated;
+	bool registered; /* with the scheduler; under lock */
+	struct mutex config_lock; /* one option and its answer at a time */
 	int state;
 	u32 fw_state, fw_want;
 	int idle;
@@ -337,6 +339,8 @@ static bool schedule_session(struct mve_session *s)
 {
 	bool ok = true;
 
+	if (!s->registered)
+		return false;
 	if (s->state == OUT)
 		ok = mver_scheduler_execute(s);
 	return s->state != OUT && s->state != GOING_OUT && ok;
@@ -492,7 +496,8 @@ int mve_session_unregister(struct mve_session *s, u64 handle)
 		ret = MVE_BUSY;
 	} else {
 		drop_buffer(s, b);
-		mver_scheduler_flush_tlb(s);
+		if (s->registered)
+			mver_scheduler_flush_tlb(s);
 	}
 	mutex_unlock(&s->lock);
 	return ret;
@@ -521,12 +526,20 @@ static int write_frame(struct mve_session *s, struct buffer *b,
 	u32 mf = q->filled ? q->mve_flags | 4 : q->mve_flags & ~0xcu;
 	struct msg_frame f;
 	s16 stride;
+	u32 aligned;
 
 	if (q->mve_flags & 1) /* interlaced */
 		return MVE_NOT_IMPLEMENTED;
-	if (align & (align - 1))
+	/* the firmware's stride is 16 bits, and both planes must lie in what
+	 * was mapped */
+	if (align & (align - 1) || align > 4096)
 		return MVE_BAD_PARAM;
-	stride = ALIGN(u->stride, align);
+	aligned = ALIGN(u->stride, align);
+	if (aligned > S16_MAX || (u64)aligned * u->height +
+					 (u64)aligned * DIV_ROUND_UP(u->height, 2) >
+					 u->size)
+		return MVE_BAD_PARAM;
+	stride = aligned;
 	memset(&f, 0, sizeof(f));
 	f.handle = (u16)b->id;
 	f.tag = q->timestamp;
@@ -549,6 +562,8 @@ static int write_bitstream(struct mve_session *s, struct buffer *b,
 {
 	struct msg_bitstream m;
 
+	if (q->filled > b->user.size)
+		return MVE_BAD_PARAM;
 	memset(&m, 0, sizeof(m));
 	m.handle = (u16)b->id;
 	m.tag = q->timestamp;
@@ -1135,7 +1150,10 @@ static void watch_session(struct mve_session *s)
 	    s->wd_state != WD_HUNG &&
 	    time_after(jiffies, s->wd_time + msecs_to_jiffies(WD_PERIOD))) {
 		if (s->wd_pings > 2) {
-			hung = true;
+			/* out of the scheduler once: close does not do it again,
+			 * and nothing schedules it any more */
+			hung = s->registered;
+			s->registered = false;
 			s->wd_state = WD_HUNG;
 			mve_queue_add(&s->events, EV_HUNG, 0, NULL);
 			list_for_each_entry(b, &s->buffers, node)
@@ -1253,6 +1271,7 @@ int mve_session_create(struct file *file, const char *role)
 		return MVE_NOMEM;
 	kref_init(&s->kref);
 	mutex_init(&s->lock);
+	mutex_init(&s->config_lock);
 	s->file = file;
 	s->no_output_yet = true;
 	s->next_id = 1;
@@ -1307,6 +1326,7 @@ fail:
 void mve_session_destroy(struct file *file)
 {
 	struct mve_session *s;
+	bool registered;
 
 	mutex_lock(&sessions_lock);
 	list_for_each_entry(s, &sessions, node)
@@ -1314,8 +1334,14 @@ void mve_session_destroy(struct file *file)
 			list_del_init(&s->node);
 			num_sessions--;
 			mutex_unlock(&sessions_lock);
-			mver_scheduler_stop(s);
-			mver_scheduler_unregister_session(s);
+			mutex_lock(&s->lock);
+			registered = s->registered;
+			s->registered = false;
+			mutex_unlock(&s->lock);
+			if (registered) {
+				mver_scheduler_stop(s);
+				mver_scheduler_unregister_session(s);
+			}
 			mver_pm_request_suspend();
 			mve_session_put(s);
 			return;
@@ -1345,11 +1371,17 @@ int mve_session_activate(struct mve_session *s, u32 *version)
 		    s, mve_mmu_ctrl(s->mmu), ncores, false, irq_callback,
 		    has_work, switchout_callback, switchin_callback,
 		    switchout_completed_callback, buffers_callback)) {
+		/* as before activation, so that it can be tried again */
 		mutex_lock(&s->lock);
 		s->activated = false;
+		s->fw = NULL;
+		mve_fw_unload(s->mmu, fw);
 		mutex_unlock(&s->lock);
 		return MVE_NOT_READY;
 	}
+	mutex_lock(&s->lock);
+	s->registered = true;
+	mutex_unlock(&s->lock);
 	return MVE_OK;
 }
 
@@ -1413,18 +1445,33 @@ struct mve_event *mve_session_event(struct mve_session *s, u32 timeout)
 
 /* A firmware message from user space: an option, which the firmware answers,
  * or a parameter in the input queue, which it does not */
+static int config(struct mve_session *s, u32 code, const void *data, u32 size,
+		  u32 *fw_error);
+
 int mve_session_config(struct mve_session *s, const void *data, u32 size,
 		       u32 *fw_error)
 {
-	struct mve_event *ev;
-	u32 code, answer;
-	int before, ret;
+	u32 code;
+	int ret;
 
 	if (size < 4 || size > 0x300)
 		return MVE_BAD_PARAM;
 	memcpy(&code, data, 4);
 	if (code != REQ_SET_OPTION && code != BUF_PARAM)
 		return MVE_BAD_PARAM;
+	mutex_lock(&s->config_lock);
+	ret = config(s, code, data, size, fw_error);
+	mutex_unlock(&s->config_lock);
+	return ret;
+}
+
+static int config(struct mve_session *s, u32 code, const void *data, u32 size,
+		  u32 *fw_error)
+{
+	struct mve_event *ev;
+	u32 answer;
+	int before, ret;
+
 	if (s->wd_state == WD_HUNG)
 		return MVE_HW;
 	if (!s->activated || !schedule_session(s))

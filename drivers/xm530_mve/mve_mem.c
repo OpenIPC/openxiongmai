@@ -366,7 +366,7 @@ struct mve_fw *mve_fw_load(struct mve_mmu *mmu, struct device *dev, int ncores,
 			per_core++;
 	}
 	nbss = per_core * ncores;
-	fw->ntext = DIV_ROUND_UP(blob->size, PAGE_SIZE);
+	fw->ntext = text; /* what is mapped; the rest of the file is not */
 	fw->text = alloc_mve_pages(fw->ntext);
 	if (!fw->text)
 		goto fail;
