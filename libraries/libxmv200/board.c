@@ -259,7 +259,8 @@ const char *xmv200_chip_name(void) {
     return name;
   f = fopen("/proc/cpuinfo", "r");
   while (f && fgets(line, sizeof(line), f)) {
-    char *m = strstr(line, "xm5");
+    /* "xm530v200", "xm533", "xm535d1"..., "xm232" */
+    char *m = strstr(line, "xm5") ? strstr(line, "xm5") : strstr(line, "xm2");
 
     if (strncmp(line, "Hardware", 8) || !m)
       continue;
