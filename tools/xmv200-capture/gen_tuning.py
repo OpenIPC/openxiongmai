@@ -463,6 +463,14 @@ for i in (0, 1):
     o += ['};', '']
 sc = mode_w.get('sns_clk', {})
 sz = mode_w.get('size', [])
+# The XM535's isp.ko takes 0x4980's long form (12 words) only; one captured
+# with the XM530V200's size (CAP_ISZ without 0x4980: 0x30) is its first 3
+# words, whose third is the interface's flags, not the picture. Its window
+# is 0x4962's picture, as in every complete XM535 capture.
+if family == 'xm535' and len(sz) == 3 and mode_w.get('comm'):
+    cw, ch = mode_w['comm'][0], mode_w['comm'][1]
+    sz = sz + [0xfff00000, 1, 0, cw, ch, 0, 0, 1, 1]
+    mode_w['size'] = sz
 # 0x4980: {chn, x0 | y0 << 16, w | h << 16}, or the longer form with the
 # window at words 4..7 (XM535); XM232's program has none: 0x490e word 3,
 # the active picture
