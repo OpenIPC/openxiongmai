@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * The XM530/XM550's audio input and output (/dev/ai, /dev/ao): a drop-in for
- * the vendor xm_i2s.ko.
+ * The XM530/XM550's and XM510's audio input and output (/dev/ai, /dev/ao): a
+ * drop-in for the vendor xm_i2s.ko.
  *
- * The codec (acodec.ko) talks I2S to one block at 0x10067000 (IRQ 49), both
- * ways. Its interrupt moves 160 16-bit samples a time between the block's
- * FIFO (+0x38) and a FIFO in memory, read from /dev/ai and written to
- * /dev/ao. Reads and writes wait unless O_NONBLOCK. There are no ioctls.
+ * The codec (acodec.ko) talks I2S to one block at 0x10067000 (IRQ 49), on
+ * the XM510 at 0x10060000 (IRQ 9), both ways. Its interrupt moves 160
+ * 16-bit samples a time between the block's FIFO (+0x38) and a FIFO in
+ * memory, read from /dev/ai and written to /dev/ao. Reads and writes wait
+ * unless O_NONBLOCK. There are no ioctls.
  * /proc/umap/audio counts the interrupts, and the bytes that did not fit
  * (BufFull) or were not there (BufEmpty).
  *
@@ -35,10 +36,28 @@
 #include <linux/uaccess.h>
 #include <linux/wait.h>
 
+#define PAD_BASE 0x10020000
+#ifdef CONFIG_ARCH_XM510
+#define I2S_BASE 0x10060000
+#define PAD_SIZE 0x24 /* the I2S function of pad register 0, and +0x20 */
+#define I2S_IRQ 9
+#define I2S_0C 0x60
+/*
+ * The XM510's vendor driver holds the reset for 250 ms and leaves bit 3 of
+ * I2S_CTRL clear. With the bit set the receiver runs with no codec on the
+ * bus, so it is taken to make the SoC drive the I2S clock; on the XM510 the
+ * vendor leaves that to the codec, and so does this.
+ */
+#define I2S_CTRL_ON 0x2c2b0
+#define RESET_MS 250
+#else
 #define I2S_BASE 0x10067000
-#define PAD_BASE 0x10020000 /* pads 0 to 4 are the I2S pins */
-#define PADS 5
+#define PAD_SIZE (4 * 5) /* pads 0 to 4 are the I2S pins */
 #define I2S_IRQ 49
+#define I2S_0C 8
+#define I2S_CTRL_ON 0x2c2b8
+#define RESET_MS 10
+#endif
 #define BLOCK 160 /* samples an interrupt */
 #define FIFO_BYTES 3200 /* as the vendor asks; kfifo makes it 2048 */
 
@@ -239,6 +258,19 @@ static int ao_release(struct inode *inode, struct file *file)
 static int audio_show(struct seq_file *s, void *v)
 {
 	seq_puts(s, "[AUDIO] openxiongmai xm530_i2s\n\n");
+#ifdef CONFIG_ARCH_XM510
+	/* the vendor module's layout there */
+	seq_printf(s, "-----------AI---------\n");
+	seq_printf(s, "overrun_int %d\n", stats.ai_overrun);
+	seq_printf(s, "full_int %d\n", stats.ai_full);
+	seq_printf(s, "afull_int %d\n", stats.ai_afull);
+	seq_printf(s, "ai_full_cnt %d\n", stats.ai_buffull);
+	seq_printf(s, "-----------AO---------\n");
+	seq_printf(s, "underrun_int %d\n", stats.ao_underrun);
+	seq_printf(s, "empty_int %d\n", stats.ao_empty);
+	seq_printf(s, "aempty_int %d\n", stats.ao_aempty);
+	seq_printf(s, "fifo_empty_cnt %d\n", stats.ao_bufempty);
+#else
 	seq_puts(s, "-----------AI CHN STATUS-----------------\n");
 	seq_puts(s, "Chn  Overrun  Full  Afull  BufFull\n");
 	seq_printf(s, "%-3d  %-7d  %-4d  %-5d  %-7d\n", 0, stats.ai_overrun,
@@ -247,6 +279,7 @@ static int audio_show(struct seq_file *s, void *v)
 	seq_puts(s, "Chn  Underrun  Empty  AEmpty  BufEmpty\n");
 	seq_printf(s, "%-3d  %-8d  %-5d  %-6d  %-8d\n", 0, stats.ao_underrun,
 		   stats.ao_empty, stats.ao_aempty, stats.ao_bufempty);
+#endif
 	return 0;
 }
 
@@ -291,20 +324,25 @@ static struct miscdevice ao_misc = {
 
 static void i2s_setup(void __iomem *pads)
 {
+#ifdef CONFIG_ARCH_XM510
+	writel((readl(pads) & 0xffb0) | 0x4f00, pads);
+	writel(1, pads + 0x20);
+#else
 	int i;
 
-	for (i = 0; i < PADS; i++)
+	for (i = 0; i < PAD_SIZE / 4; i++)
 		writel(0, pads + 4 * i);
+#endif
 	writel(0x30, i2s + I2S_CTRL);
-	mdelay(10);
+	msleep(RESET_MS);
 	writel(0, i2s + I2S_TX);
 	writel(0, i2s + I2S_RX);
 	writel(0x61f, i2s + 0x04);
 	writel(0xf, i2s + 0x08);
-	writel(8, i2s + 0x0c);
+	writel(I2S_0C, i2s + 0x0c);
 	writel(160, i2s + 0x18);
 	writel(160, i2s + 0x2c);
-	writel(0x2c2b8, i2s + I2S_CTRL);
+	writel(I2S_CTRL_ON, i2s + I2S_CTRL);
 }
 
 static int __init xm530_i2s_init(void)
@@ -313,7 +351,7 @@ static int __init xm530_i2s_init(void)
 	int ret = -ENOMEM;
 
 	i2s = ioremap(I2S_BASE, 0x1000);
-	pads = ioremap(PAD_BASE, 4 * PADS);
+	pads = ioremap(PAD_BASE, PAD_SIZE);
 	if (!i2s || !pads)
 		goto unmap;
 	ret = kfifo_alloc(&ai_fifo, FIFO_BYTES, GFP_KERNEL);
@@ -375,4 +413,4 @@ static void __exit xm530_i2s_exit(void)
 module_init(xm530_i2s_init);
 module_exit(xm530_i2s_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("XM530/XM550 audio input and output, compatible with xm_i2s.ko");
+MODULE_DESCRIPTION("XM530/XM550/XM510 audio input and output, compatible with xm_i2s.ko");
