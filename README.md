@@ -192,7 +192,7 @@ To add a sensor:
 
 | Module | Function | Status |
 |--------|----------|--------|
-| `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder, built as `open_h264.ko`; `H264_CHIP=v200` for the XM533's and XM535s' (0x21100000, IRQ 78, the encoder's clock turned on) | Same `/dev/h264` ABI as the vendor `xm530_h264.ko`; ran majestic on an XM550 in place of it, and on an XM510 in place of `xm510_h264.ko`; with `H264_CHIP=v200` answers as the V200 series' `h264.ko` in qemu-bench |
+| `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder, built as `open_h264.ko`; `H264_CHIP=v200` for the XM533's and XM535s' (0x21100000, IRQ 78, the encoder's clock turned on) | Same `/dev/h264` ABI and `/proc/umap/venc` and `h264` as the vendor `xm530_h264.ko`, without its leak on every read of them; ran majestic on an XM550 in place of it, and on an XM510 in place of `xm510_h264.ko`; with `H264_CHIP=v200` answers as the V200 series' `h264.ko` in qemu-bench |
 | `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
 | `xm_hevc` | V200-series H.265 encoder engine: runs the register lists user space builds (`/dev/h265`) | Builds `open_hevc.ko`. Same ioctls and records as the vendor `hevc.ko`, both engines (v3: XM530V200/XM533, v1: XM535); ran libxmv200 on all five V200-series chips in qemu-bench in place of it |
 | `xm_mmz` | XM530/XM550 and V200-series media memory zone: the named, physically contiguous DMA buffers the SDK and video drivers share (`/dev/mmz`) | Builds `open_mmz.ko`. Same parameters, ioctls, exports and `/proc/umap/mmz` as the vendor `mmz.ko`; ran majestic on an XM550 in place of it, and libxmv200 on all five V200-series chips in qemu-bench (`allocator=list`) |

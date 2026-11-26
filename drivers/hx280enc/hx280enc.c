@@ -26,7 +26,10 @@
 #include <linux/signal.h>
 #include <linux/slab.h>
 #include <linux/types.h>
+#include <linux/mutex.h>
 #include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#include <linux/string.h>
 #include <linux/uaccess.h>
 #include <linux/printk.h>
 
@@ -579,21 +582,6 @@ struct H264ProcType {
 	u32 overFlowCnt;
 };
 
-/*
- * The record behind HX280ENC_IOCSJPEGPROC. Only the fields the vendor
- * module's /proc/umap/h264 JPEG section prints are known; the rest is kept
- * as padding so the size matches the ioctl.
- */
-struct JpegProcType {
-	struct stream_s stream;		/* 0x000 */
-	struct preProcess_s preProcess;	/* 0x030: size, rotation */
-	u32 rsvd0[29];			/* 0x06c */
-	u32 codedSize;			/* 0x0e0 */
-	u32 rsvd1[294];			/* 0x0e4 */
-	u32 codingType;			/* 0x57c: 1 = slice */
-	u32 rsvd2[45];			/* 0x580 */
-};
-
 static struct hx280enc_t hx280enc_data;
 static DECLARE_WAIT_QUEUE_HEAD(hx280enc_wait);
 /* A finished frame not yet claimed by HX280ENC_IOCWAITDONE: at most one is
@@ -602,14 +590,16 @@ static atomic_t hx280enc_done = ATOMIC_INIT(0);
 static atomic_t hx280enc_users = ATOMIC_INIT(0);
 static bool hx280enc_irq_requested;
 /*
- * struct H264ProcType (2568 bytes, ChannelNum at 0xa00) and struct VencInfo
- * (84 bytes) don't match the records xm530_h264.ko takes (2572 bytes with the
- * channel at 0xa04, and 76 bytes), so those are stored as raw bytes.
+ * The statistics records user space pushes, kept raw: the structs above are
+ * close to but not the records the vendor modules take. /proc/umap shows the
+ * fields the vendor modules print (see venc_show and h264_show).
  */
-#define H264PROC_CHANNEL_OFFSET 0xa04
+/* the last two words: the channel, its overflow count */
+#define H264PROC_CHANNEL_OFFSET (H264PROC_SIZE - 8)
 static u8 H264Proc[3][_IOC_SIZE(HX280ENC_IOCSH264PROC)];
-static struct JpegProcType JpegProc;
+static u8 JpegProc[_IOC_SIZE(HX280ENC_IOCSJPEGPROC)];
 static u8 VencProc[4][_IOC_SIZE(HX280ENC_IOCSVENCINFO)];
+static DEFINE_MUTEX(proc_lock); /* the three above */
 static int hx280enc_major;
 
 static int ReserveIO(void);
@@ -657,6 +647,14 @@ static int hx280enc_mmap(struct file *filp, struct vm_area_struct *vma)
 	return result;
 }
 
+static u32 rec32(const u8 *rec, unsigned int off)
+{
+	u32 v;
+
+	memcpy(&v, rec + off, sizeof(v));
+	return v;
+}
+
 static long hx280enc_ioctl(struct file *filp, unsigned int cmd,
 			   unsigned long arg)
 {
@@ -695,33 +693,46 @@ static long hx280enc_ioctl(struct file *filp, unsigned int cmd,
 		break;
 
 	case HX280ENC_IOCSH264PROC: {
-		void __user *p = (void __user *)arg;
+		u8 *rec = memdup_user((void __user *)arg, sizeof(H264Proc[0]));
 		u32 ch;
 
-		if (get_user(ch, (u32 __user *)(p + H264PROC_CHANNEL_OFFSET)))
-			return -EFAULT;
+		if (IS_ERR(rec))
+			return PTR_ERR(rec);
+		ch = rec32(rec, H264PROC_CHANNEL_OFFSET);
 		/* the vendor module ignores out-of-range channels */
-		if (ch < ARRAY_SIZE(H264Proc) &&
-		    copy_from_user(H264Proc[ch], p, sizeof(H264Proc[ch])))
-			return -EFAULT;
+		if (ch < ARRAY_SIZE(H264Proc)) {
+			mutex_lock(&proc_lock);
+			memcpy(H264Proc[ch], rec, sizeof(H264Proc[ch]));
+			mutex_unlock(&proc_lock);
+		}
+		kfree(rec);
 		break;
 	}
 
-	case HX280ENC_IOCSJPEGPROC:
-		if (copy_from_user(&JpegProc, (void __user *)arg,
-				   sizeof(JpegProc)))
-			return -EFAULT;
+	case HX280ENC_IOCSJPEGPROC: {
+		u8 *rec = memdup_user((void __user *)arg, sizeof(JpegProc));
+
+		if (IS_ERR(rec))
+			return PTR_ERR(rec);
+		mutex_lock(&proc_lock);
+		memcpy(JpegProc, rec, sizeof(JpegProc));
+		mutex_unlock(&proc_lock);
+		kfree(rec);
 		break;
+	}
 
 	case HX280ENC_IOCSVENCINFO: {
-		void __user *p = (void __user *)arg;
+		u8 rec[sizeof(VencProc[0])];
 		u32 idx;
 
-		if (get_user(idx, (u32 __user *)p))
+		if (copy_from_user(rec, (void __user *)arg, sizeof(rec)))
 			return -EFAULT;
-		if (idx < ARRAY_SIZE(VencProc) &&
-		    copy_from_user(VencProc[idx], p, sizeof(VencProc[idx])))
-			return -EFAULT;
+		idx = rec32(rec, 0);
+		if (idx < ARRAY_SIZE(VencProc)) {
+			mutex_lock(&proc_lock);
+			memcpy(VencProc[idx], rec, sizeof(rec));
+			mutex_unlock(&proc_lock);
+		}
 		break;
 	}
 
@@ -780,6 +791,240 @@ static const struct file_operations hx280enc_fops = {
 	.fasync = hx280enc_fasync,
 };
 
+/*
+ * /proc/umap/venc and /proc/umap/h264, in the vendor modules' layout, from
+ * what user space last pushed. The vendor modules open these files with
+ * seq_open() and never release them, so each open leaks a 4 KiB buffer that
+ * not even rmmod returns: majestic's /metrics reads venc, and a scrape every
+ * 30 s took 18 MB of an XM550 in 20 h (OpenIPC/firmware#2956).
+ *
+ * The V200 series' encoder has no such tables here: their umap/venc is
+ * drivers/xm_v200_venc's.
+ */
+#ifndef H264_V200
+#define VENC_CNT (HX280ENC_VENC_ERRCNT ? 4 : 0) /* words after ErrCnt move */
+
+static int venc_show(struct seq_file *s, void *unused)
+{
+	unsigned int i;
+
+	mutex_lock(&proc_lock);
+	seq_puts(s, "\n\n-------VENC CHN ATTR--------------------------------"
+		    "------------------------------\n");
+	seq_puts(s, "NO. Width  Height  Type  Field  VIField  StreamType  "
+		    "Sequence  freeBytes  busyBytes\n");
+	for (i = 0; i < ARRAY_SIZE(VencProc); i++) {
+		const u8 *r = VencProc[i];
+
+		seq_printf(s,
+			   "%-2d  %-5d  %-6d  %-4d  %-5d  %-7d  %-10d  %-8d  "
+			   "%-9d  %-9d\t\n",
+			   i, rec32(r, 4), rec32(r, 8), r[12], r[13], r[14],
+			   r[15], rec32(r, 16), rec32(r, 20), rec32(r, 24));
+	}
+	seq_puts(s, "-------VENC STREAM STATE------------------------------"
+		    "--------------------------------\n");
+	seq_puts(s, "NO. Start  SucCnt  ");
+	if (HX280ENC_VENC_ERRCNT)
+		seq_puts(s, "ErrCnt  ");
+	seq_puts(s, "GetFrErr  BufErr  FreeCnt  BusyCnt  UserGet  UserRls  "
+		    "GetTimes  Interval(us)  FramRate\n");
+	for (i = 0; i < ARRAY_SIZE(VencProc); i++) {
+		const u8 *r = VencProc[i];
+
+		seq_printf(s, "%-2d  %-5s  %-6d  ", i,
+			   rec32(r, 60 + VENC_CNT) ? "Y" : "N", rec32(r, 56));
+		if (HX280ENC_VENC_ERRCNT)
+			seq_printf(s, "%-6d  ", rec32(r, 60));
+		seq_printf(s,
+			   "%-8d  %-6d  %-7d  %-7d  %-7d  %-7d  %-8d  %-8d"
+			   "      %-8d \n",
+			   rec32(r, 64 + VENC_CNT), rec32(r, 68 + VENC_CNT),
+			   rec32(r, 28), rec32(r, 32), rec32(r, 36),
+			   rec32(r, 40), rec32(r, 44), rec32(r, 48),
+			   rec32(r, 52));
+	}
+	mutex_unlock(&proc_lock);
+	return 0;
+}
+
+/* a "not used" flag as the prediction table shows it */
+static const char *used(u32 disabled)
+{
+	return disabled ? "NO" : "YES";
+}
+
+static int h264_show(struct seq_file *s, void *unused)
+{
+	const unsigned int n = ARRAY_SIZE(H264Proc);
+	const unsigned int t = H264PROC_TAIL;
+	const u8 *r;
+	unsigned int i;
+	u32 v;
+
+	mutex_lock(&proc_lock);
+	seq_puts(s, "\n\n[H264] openxiongmai hx280enc\n");
+	seq_puts(s, "----------------------------------CHN ATTR------------"
+		    "------------------------\n");
+	seq_puts(s, "ID  Width  Height  InLBase     InCbBase    InCrBase    "
+		    "MainStr   H264+  \n");
+	for (i = 0; i < n; i++) {
+		r = H264Proc[i];
+		seq_printf(s,
+			   "%-2d  %-5d  %-6d  0x%-8x  0x%-8x  0x%-8x  %-7s  "
+			   "%-7s\n",
+			   rec32(r, H264PROC_CHANNEL_OFFSET), rec32(r, 56),
+			   rec32(r, 60), rec32(r, 1596), rec32(r, 1600),
+			   rec32(r, 1604), i ? "NO" : "YES",
+			   r[1404] ? "enable" : "disable");
+	}
+	seq_puts(s, "-------------------------------PPS INFO --------------"
+		    "--------------------\n");
+	seq_puts(s, "ID  Type   ppsID  spsID  ChrQpOffset  constIntraPred  "
+		    "8x8Mod    CABAC  \n");
+	for (i = 0; i < n; i++) {
+		r = H264Proc[i];
+		v = rec32(r, 328);
+		seq_printf(s,
+			   "%-2d  %-5s  %-5d  %-5d  %-11d  %-14s  %-8s  "
+			   "%-17s \n",
+			   rec32(r, H264PROC_CHANNEL_OFFSET),
+			   rec32(r, 260) == 1 ? "ANNEX" : "PLAIN",
+			   rec32(r, 264), rec32(r, 268), rec32(r, 308),
+			   rec32(r, 316) ? "YES" : "NO",
+			   rec32(r, 324) == 2 ? "enable" :
+			   rec32(r, 324) == 1 ? "adaptive" : "disable",
+			   !v ? "cavlc" : v == 1 ? "cabac" :
+						   "cavlc(I)+cabac(P)");
+	}
+	seq_puts(s, "-------------------------------STREAM BUFFER----------"
+		    "------------------------\n");
+	seq_puts(s, "ID  OutBase     Size      OverFlow  streamType\n");
+	for (i = 0; i < n; i++) {
+		r = H264Proc[i];
+		seq_printf(s, "%-2d  0x%-8x  %-8d  %-6d %-10s\n",
+			   rec32(r, H264PROC_CHANNEL_OFFSET), rec32(r, 1532),
+			   rec32(r, 1536),
+			   rec32(r, H264PROC_CHANNEL_OFFSET + 4),
+			   rec32(r, 260) == 1 ? " ANNEX" : " PLAIN");
+	}
+	seq_puts(s, "-------------------------------ROI INFO --------------"
+		    "------------------------\n");
+	seq_puts(s, "ID  index  QP  Left  Top   Right  Bottom\n");
+	for (i = 0; i < n; i++) {
+		r = H264Proc[i];
+		seq_printf(s, "%-2d  %-5d  %-2d  %-4d  %-4d  %-5d  %-6d\n",
+			   rec32(r, H264PROC_CHANNEL_OFFSET), 1,
+			   rec32(r, 2460 - t), rec32(r, 2432 - t),
+			   rec32(r, 2428 - t), rec32(r, 2440 - t),
+			   rec32(r, 2436 - t));
+		seq_printf(s, "    %-5d  %-2d  %-4d  %-4d  %-5d  %-6d\n", 2,
+			   rec32(r, 2464 - t), rec32(r, 2448 - t),
+			   rec32(r, 2444 - t), rec32(r, 2456 - t),
+			   rec32(r, 2452 - t));
+	}
+	seq_puts(s, "---------------------Inter & Intra prediction INFO----"
+		    "------------------------\n");
+	seq_puts(s, "ID  profile  P16x16  P16x8  P8x16  P8x8  P8x4  P4x8  "
+		    "P4x4  1/4PixelMv\n");
+	for (i = 0; i < n; i++) {
+		r = H264Proc[i];
+		v = rec32(r, 112);
+		seq_printf(s,
+			   "%-2d  %-7s  %-6s  %-5s  %-5s  %-4s  %-4s  %-4s  "
+			   "%-4s  %-s\n",
+			   rec32(r, H264PROC_CHANNEL_OFFSET),
+			   v == 66 ? "BP" : v == 77 ? "MP" : "HP",
+			   used(r[2342 - t]), used(r[2343 - t]),
+			   used(r[2344 - t]), used(r[2345 - t]),
+			   used(r[2340 - t]), used(r[2341 - t]),
+			   used(rec32(r, 2252 - t)), used(rec32(r, 2256 - t)));
+	}
+	seq_puts(s, "-------------------------------RC  INFO --------------"
+		    "---------------------\n");
+	seq_puts(s, "ID  QP  QPMin  QPMax  GOPLen  frameCnt  QpDelta  "
+		    "gopBitCnt  gopAvgBitCnt  rcMod  bitRate  frameRate\n");
+	for (i = 0; i < n; i++) {
+		r = H264Proc[i];
+		seq_printf(s,
+			   "%-2d  %-2d  %-5d  %-5d  %-6d  %-8d  %-7d  %-8d\t"
+			   "%-8d  %-5s  %-8d  %-8d \n",
+			   rec32(r, H264PROC_CHANNEL_OFFSET), rec32(r, 392),
+			   rec32(r, 396), rec32(r, 400), rec32(r, 1376),
+			   rec32(r, 1372), rec32(r, 1392), rec32(r, 1364),
+			   rec32(r, 1368), rec32(r, 640) == 1 ? "CBR" : "VBR",
+			   rec32(r, 588), rec32(r, 420));
+	}
+	v = rec32(JpegProc, 0x4c);
+	seq_puts(s, "\n\n[JPEG] openxiongmai hx280enc\n");
+	seq_puts(s, "-------------------------------JPEG INFO -------------"
+		    "----------------------\n");
+	seq_puts(s, "Width  Height  rotation\tcodingType  CodedSize  \n");
+	seq_printf(s, "%-5d  %-6d  %-8s  %-10s  %-9d               \n",
+		   rec32(JpegProc, 0x38), rec32(JpegProc, 0x3c),
+		   !v ? "Disable" : v == 1 ? "R-90" : "L-90",
+		   rec32(JpegProc, JPEGPROC_CODING_TYPE) == 1 ? "SLICE" :
+								"WHOLE",
+		   rec32(JpegProc, 0xe0));
+	mutex_unlock(&proc_lock);
+	return 0;
+}
+
+static int venc_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, venc_show, NULL);
+}
+
+static int h264_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, h264_show, NULL);
+}
+
+static const struct file_operations venc_proc_fops = {
+	.owner = THIS_MODULE,
+	.open = venc_proc_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+static const struct file_operations h264_proc_fops = {
+	.owner = THIS_MODULE,
+	.open = h264_proc_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+static struct proc_dir_entry *venc_proc, *h264_proc;
+
+/* /proc/umap is the MMZ module's; encoding does not need the tables */
+static void proc_start(void)
+{
+	venc_proc = proc_create("umap/venc", 0444, NULL, &venc_proc_fops);
+	h264_proc = proc_create("umap/h264", 0444, NULL, &h264_proc_fops);
+	if (!venc_proc || !h264_proc)
+		pr_warn("hx280enc: no /proc/umap/venc or h264, "
+			"MMZ not loaded?\n");
+}
+
+static void proc_stop(void)
+{
+	if (venc_proc)
+		remove_proc_entry("umap/venc", NULL);
+	if (h264_proc)
+		remove_proc_entry("umap/h264", NULL);
+}
+#else
+static void proc_start(void)
+{
+}
+
+static void proc_stop(void)
+{
+}
+#endif
+
 static struct miscdevice xm_h264_dev = {
 	0xFF,
 	VIDEO_ENC_CHRDEV_NAME,
@@ -789,23 +1034,6 @@ static struct miscdevice xm_h264_dev = {
 static int __init hx280_video_enc_init(void)
 {
 	int result;
-
-#if 0
-	struct proc_dir_entry *pvenc, *ph264;
-
-	pvenc = create_proc_entry("umap/venc", S_IFDIR | S_IRUGO | S_IXUGO, NULL);
-	if (pvenc == NULL)
-		return -ENOMEM;
-
-	ph264 = create_proc_entry("umap/h264", S_IFDIR | S_IRUGO | S_IXUGO, NULL);
-	if (ph264 == NULL)
-		return -ENOMEM;
-#endif
-
-	/* the ABI of HX280ENC_IOCSJPEGPROC */
-	BUILD_BUG_ON(sizeof(struct JpegProcType) !=
-		     _IOC_SIZE(HX280ENC_IOCSJPEGPROC));
-	BUILD_BUG_ON(offsetof(struct JpegProcType, codingType) != 0x57c);
 
 	hx280enc_data.iosize = 0x1C4;
 	hx280enc_data.async_queue = 0;
@@ -858,6 +1086,7 @@ static int __init hx280_video_enc_init(void)
 		pr_info("IRQ not in use!\n");
 	}
 
+	proc_start();
 	pr_info("Video encoder initialized. Major = %d\n", hx280enc_major);
 
 	return 0;
@@ -866,6 +1095,7 @@ module_init(hx280_video_enc_init);
 
 static void __exit hx280_video_enc_cleanup(void)
 {
+	proc_stop();
 	/* disable HW */
 	writel(0, hx280enc_data.hwregs + X280_REGISTER_DISABLE_ENC);
 	/* clear enc IRQ */
@@ -876,10 +1106,6 @@ static void __exit hx280_video_enc_cleanup(void)
 		free_irq(hx280enc_data.irq, (void *)&hx280enc_data);
 
 	ReleaseIO();
-#if 0
-	remove_proc_entry("umap/venc", 0);
-	remove_proc_entry("umap/h264", 0);
-#endif
 	misc_deregister(&xm_h264_dev);
 	printk("<6>hx280enc: module removed\n");
 }
