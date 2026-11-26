@@ -413,4 +413,5 @@ static void __exit xm530_i2s_exit(void)
 module_init(xm530_i2s_init);
 module_exit(xm530_i2s_exit);
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("XM530/XM550/XM510 audio input and output, compatible with xm_i2s.ko");
+MODULE_DESCRIPTION("XM530/XM550/XM510 audio input and output, "
+		   "compatible with xm_i2s.ko");
