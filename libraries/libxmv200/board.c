@@ -23,6 +23,9 @@
 
 #define SYS 0x20000000
 #define VI 0x30000000
+/* a VB buffer this big (an 8 MP picture, 12 MB; 5 MP is 7 MB) is one of two:
+ * three of each, for the stream and the ISP output, would not fit MMZ */
+#define VB_BIG 0x800000
 
 /* the ISP's PLL, as the mode's program writes it: through /dev/mem with the
  * clock block unlocked and a wait after each control write (0x10), or
@@ -812,16 +815,18 @@ static int layout_start(const struct xmv200_layout *l,
                     popcount(b->stream[s].groups) * 3 / 2;
 
     /* small pictures get two more: equal sizes share buffers (vb.ko takes
-     * the best fit), and a faster sensor's would take them all */
+     * the best fit), and a faster sensor's would take them all; 8 MP ones
+     * two in all, one filled while the other is read */
     pools[np++] = (struct xmv200_vb_pool){
-        size, chip->vb_count + (size < 0x100000 ? 2 : 0)};
+        size, size >= VB_BIG ? 2 : chip->vb_count + (size < 0x100000 ? 2 : 0)};
   }
   /* the BPU's picture: the width rounded up (SC5239AI's 2600 takes 2608) */
-  if (chip->isp_pool)
-    pools[np++] = (struct xmv200_vb_pool){
-        ((b->isp.tuning->width + 15) & ~15u) *
-            ((b->isp.tuning->height + 15) & ~15u) * 3 / 2,
-        3};
+  if (chip->isp_pool) {
+    uint32_t size = ((b->isp.tuning->width + 15) & ~15u) *
+                    ((b->isp.tuning->height + 15) & ~15u) * 3 / 2;
+
+    pools[np++] = (struct xmv200_vb_pool){size, size >= VB_BIG ? 2 : 3};
+  }
   if (!chip->vi_mu && xmv200_vb_init(pools, np))
     return -1;
 

@@ -526,6 +526,16 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   }
   if (chip->comm_ib && t->comm[9] < (uint32_t)n)
     memcpy(comm + 36, &n, 4); /* the BPU's raw buffers, one per channel */
+  /* the memory saver (byte 17 bits 0-1 at 2 or more): isp.ko keeps the
+   * first raw buffer each VICU takes, and never takes another, so raw
+   * buffers past the VICUs in use (the tuning's are its capture's two
+   * sensors') are MMZ nothing uses: an 8 MP sensor's are 13 MB each */
+  if (chip->ib_per_vicu && (comm[17] & 3) >= 2) {
+    uint32_t used = n < 2 ? n : 2;
+
+    if (t->comm[9] > used)
+      memcpy(comm + 36, &used, 4);
+  }
   if (isp_cmd(ISP_COMM_INIT, comm) || isp_cmd(ISP_COMM_INIT_VPSS, comm))
     return -1;
   /* XM232: the sensors' inputs, as captured */

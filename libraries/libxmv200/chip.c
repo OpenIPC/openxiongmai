@@ -22,6 +22,7 @@ static const struct xmv200_chip chips[] = {
         .vicu = 0x40000,
         .vi_ctrl_chn = 1,
         .comm_n = 9,
+        .ib_per_vicu = 1,
     },
     {
         /* XM535D1/D2: the PLL through sys.ko; isp.ko's offline BPU wants
@@ -58,6 +59,7 @@ static const struct xmv200_chip chips[] = {
         .vicu = 0x40000,
         .vi_ctrl_chn = 1,
         .comm_n = 9,
+        .ib_per_vicu = 1,
         .vi_scaler = 1,
         .vi_format = 2,
     },

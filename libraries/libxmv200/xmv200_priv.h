@@ -64,6 +64,8 @@ struct xmv200_chip {
   int vi_ctrl_chn;      /* ... and the channel after it (+0x18) */
   int comm_n;           /* 0x4962: the byte with the ISP count (0: none) */
   int comm_ib;          /* 0x4962 word 9: the BPU's raw buffers */
+  int ib_per_vicu;      /* in the memory saver isp.ko keeps one raw buffer
+                         * per VICU (two) and takes no other */
   /* no VPSS: VI (vi.ko) scales and queues the streams for VENC, in this
    * pixel format; no VENC configuration */
   int vi_scaler;
