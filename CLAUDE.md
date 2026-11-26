@@ -23,7 +23,7 @@ The default `CROSS_COMPILE` differs per Makefile, so pass it explicitly:
 Build outputs:
 - The `libsns_*`, `libispapp_*` and `libisp_*` libraries build stripped `.so` files with `-fPIC`.
 - `libmpi` builds the static `libopenmpi.a`.
-- The kernel modules in `drivers/` are out-of-tree kbuild modules. `KDIR` defaults to `$(HOME)/projects/cameras/sdk/XM510/os/kernel/linux-xm510`, so override it: `make KDIR=/path/to/kernel`.
+- The kernel modules in `drivers/` are out-of-tree kbuild modules. Each Makefile's `KDIR` default is a local SDK path (`linux-xm530` for most, `linux-xm510` for the XM510-only ones), so pass the configured kernel tree: `make KDIR=/path/to/kernel`.
 
 `libraries/Makefile` builds the libraries OpenIPC firmware ships for one SoC family: `make -C libraries CHIPARCH=xm530` builds `libsns_X50_XM530`, `libsns_X123_XM530`, `libispapp_XM530` and `libisp_XM530` (which firmware installs beside the vendor's, for an opt-in), and any other `CHIPARCH` is an error. Firmware's `xiongmai-opensdk` package calls it with `$(TARGET_CONFIGURE_OPTS)`, which puts `CC`, `STRIP` and `CFLAGS` on the command line. That's why the library Makefiles use `override CFLAGS +=`. A plain `CFLAGS =` would be ignored, and the build would lose its include paths and defines. A library change reaches cameras only after the firmware package's pinned commit is bumped.
 
