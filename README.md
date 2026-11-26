@@ -192,7 +192,7 @@ To add a sensor:
 
 | Module | Function | Status |
 |--------|----------|--------|
-| `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder, built as `open_h264.ko`; `H264_CHIP=v200` for the XM533's and XM535s' (0x21100000, IRQ 78, the encoder's clock turned on) | Same `/dev/h264` ABI as the vendor `xm530_h264.ko`; ran majestic on an XM550 in place of it, and on an XM510 in place of `xm510_h264.ko`; with `H264_CHIP=v200` answers as the V200 series' `h264.ko` in qemu-bench |
+| `hx280enc` | Hantro 6280/7280/8270/8290 hardware video encoder, built as `open_h264.ko`; `H264_CHIP=v200` for the XM533's and XM535s' (0x21100000, IRQ 78, the encoder's clock turned on) | Same `/dev/h264` ABI and `/proc/umap/venc` and `h264` as the vendor `xm530_h264.ko`, without its leak on every read of them; ran majestic on an XM550 in place of it, and on an XM510 in place of `xm510_h264.ko`; with `H264_CHIP=v200` answers as the V200 series' `h264.ko` in qemu-bench |
 | `xm_i2c` | Registers `/dev/xm_i2c` and `/dev/xm_i2c1` | Stub: read, write and ioctl are not implemented yet |
 | `xm_hevc` | V200-series H.265 encoder engine: runs the register lists user space builds (`/dev/h265`) | Builds `open_hevc.ko`. Same ioctls and records as the vendor `hevc.ko`, both engines (v3: XM530V200/XM533, v1: XM535); ran libxmv200 on all five V200-series chips in qemu-bench in place of it |
 | `xm_mmz` | XM530/XM550 and V200-series media memory zone: the named, physically contiguous DMA buffers the SDK and video drivers share (`/dev/mmz`) | Builds `open_mmz.ko`. Same parameters, ioctls, exports and `/proc/umap/mmz` as the vendor `mmz.ko`; ran majestic on an XM550 in place of it, and libxmv200 on all five V200-series chips in qemu-bench (`allocator=list`) |
@@ -203,7 +203,7 @@ To add a sensor:
 | `xm_v200_i2s` | V200-series audio input and output through the I2S blocks' FIFOs (`/dev/ai`, `/dev/ao`, `/proc/umap/audio`) | Builds `open_i2s.ko`; same devices, ioctls and clock setup as the vendor `i2s.ko` |
 | `xm_v200_adc` | V200-series ADC (`/dev/adc`) | Builds `open_adc.ko` |
 | `xm_v200_ddr` | V200-series DDR bandwidth monitor (`/proc/umap/ddr`) | Builds `open_ddr.ko` |
-| `xm_v200_log` | V200-series media log FIFO and log levels (`/dev/log`, `/proc/umap/logmpp`) | Builds `open_log.ko` |
+| `xm_v200_log` | V200-series and, with `LOG_CHIP=xm530`, XM530/XM550 media log FIFO and log levels (`/dev/log`, `/proc/umap/logmpp`) | Builds `open_log.ko` |
 | `xm533_mipi_io` | XM533 MIPI lanes 6..9 as GPIOs (`/dev/mipi_io`) | Builds `open_mipi_io.ko` |
 | `xm530v200_jpeg` | XM530V200 JPEG encoder: ownership, register table, wait for the picture (`/dev/jpeg`) | Builds `open_jpeg.ko`; same ioctls as the vendor `jpeg.ko`, answered as it does in qemu-bench |
 | `xm533_venc_mem` | XM533 encoder memory: parts of each VENC channel's MMZ block, with guards (`/dev/venc_mem`, `/proc/umap/venc_mem`) | Builds `open_venc_mem.ko`; same ioctls, allocations and `/proc` as the vendor `venc_mem.ko` in qemu-bench |
