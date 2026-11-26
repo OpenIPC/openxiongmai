@@ -2,7 +2,8 @@
 /*
  * Overlays on the streams: rgn.ko's (or open_rgn's) regions of kind 0,
  * which the OSD engine blends into each picture of the VENC channel they
- * are attached to before venc.ko queues it. A stream is VENC channel n.
+ * are attached to before venc.ko queues it (on the XM232 the encoder draws
+ * them into each picture it encodes: venc.c). A stream is VENC channel n.
  *
  * Every rgn ioctl takes 15 words: the handle, the kind, then the call's.
  */
@@ -14,6 +15,7 @@
 #include <unistd.h>
 
 #include "xmv200.h"
+#include "xmv200_priv.h"
 
 #define RGN_CREATE 0x403c5201
 #define RGN_DESTROY 0x403c5202
@@ -36,11 +38,25 @@ static int rgn(unsigned long cmd, int handle, const uint32_t *w, int n) {
   return ioctl(rgn_fd, cmd, a) < 0 ? -1 : 0;
 }
 
-/* words 2..14 of create and set */
+/* words 2..14 of create and set. The XM232 has no OSD engine: its encoder
+ * draws the bit formats as XM535's encoder OSD (4, 5) and ARGB1555, at x
+ * and y in 16-pixel steps, and no ARGB8888. */
 static int attr(const struct xmv200_osd *o, uint32_t w[13]) {
   if (o->format > XMV200_OSD_ENC_2BIT || o->scale_x > 2 || o->scale_y > 2)
     return -1;
   w[0] = o->format;
+  if (xmv200_venc_xm232()) {
+    if (o->format == XMV200_OSD_ARGB8888)
+      return -1;
+    if (o->format == XMV200_OSD_1BIT)
+      w[0] = XMV200_OSD_ENC_1BIT;
+    else if (o->format == XMV200_OSD_2BIT)
+      w[0] = XMV200_OSD_ENC_2BIT;
+    /* a 1-bit row is copied in whole bytes: the region driver's create
+     * checks it as 2 bits and would take a width of 4 */
+    if (w[0] == XMV200_OSD_ENC_1BIT && (o->width & 7))
+      return -1;
+  }
   w[1] = o->x & ~1u; /* chroma pairs */
   w[2] = o->y & ~1u;
   w[3] = w[5] = o->width;

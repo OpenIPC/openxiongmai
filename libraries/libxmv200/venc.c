@@ -70,6 +70,10 @@ struct venc_rec48 {
 };
 #define VENC_GET_FRAME48 0xc0304902
 #define VENC_RELEASE_FRAME48 0x40304903
+/* XM232: {chn, picture, w, h}: rgn.ko's overlays and covers on that VENC
+ * channel into the encoder's own OSD registers (+0x1a0.., +0x2a4..), as
+ * its vendor encoder asks for before each picture */
+#define VENC_OSD232 0x40104905
 
 static const uint16_t v3_tmpl_off[] = {
     0x008, 0x00c, 0x010, 0x014, 0x018, 0x01c, 0x020, 0x024, 0x03c, 0x048,
@@ -1283,11 +1287,15 @@ static int encode(struct xmv200_venc *v, const struct xmv200_frame *f,
     for (int i = 0; i < N(x232_rd); i++)
       v->eng[0x1000 / 4 + i] = x232_rd[i];
   }
-  /* v1: the stream's encoder OSD, the engine ours */
+  /* v1 and xm232: the stream's encoder OSD, the engine ours */
   if (e->map == MAP_V1 && venc_fd >= 0) {
     uint32_t o[10] = {f->chn, f->y, f->width, f->height};
 
     ioctl(venc_fd, VENC_OSD, o);
+  } else if (e->map == MAP_XM232 && venc_fd >= 0) {
+    uint32_t o[4] = {f->chn, f->y, f->width, f->height};
+
+    ioctl(venc_fd, VENC_OSD232, o);
   }
   if (ioctl(v->fd_hevc, e->job_cmd, job) < 0 ||
       ioctl(v->fd_hevc, e->wait_cmd, job) < 0) {

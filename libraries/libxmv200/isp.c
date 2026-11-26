@@ -379,6 +379,15 @@ static int run_program(const struct xmv200_isp_cfg *cfg,
       /* (XM232: the picture's sizes stay the vendor's; vi_mu.ko scales) */
       if (!chip->vi_mu)
         a[out] = a[out + 1] = c->out_width | c->out_height << 16;
+      /* The XM535's isp.ko reads 76 bytes, word 14 the sensor's frame
+       * period in 100 us and twice it: the window its offline BPU takes a
+       * time-shared pair's frames in (a quarter to one period after the
+       * frame), and how long a frame may take to be done. The vendor daemon
+       * sends 0x3200190 at 25 fps; a tuning captured as 52 bytes has none,
+       * and isp.ko then assumes 25 fps, which drops every frame of an
+       * XM535D2 pair running slower (12 fps: 41.7 ms apart, past 40 ms). */
+      if (t->n_chn_init < 15 && !a[14] && cfg->attr.fps)
+        a[14] = 10000 / cfg->attr.fps | (20000 / cfg->attr.fps) << 16;
       r = isp_cmd(ISP_CHN_INIT, a);
       break;
     }
@@ -517,6 +526,16 @@ int xmv200_isp_start(const struct xmv200_isp_cfg *cfg) {
   }
   if (chip->comm_ib && t->comm[9] < (uint32_t)n)
     memcpy(comm + 36, &n, 4); /* the BPU's raw buffers, one per channel */
+  /* the memory saver (byte 17 bits 0-1 at 2 or more): isp.ko keeps the
+   * first raw buffer each VICU takes, and never takes another, so raw
+   * buffers past the VICUs in use (the tuning's are its capture's two
+   * sensors') are MMZ nothing uses: an 8 MP sensor's are 13 MB each */
+  if (chip->ib_per_vicu && (comm[17] & 3) >= 2) {
+    uint32_t used = n < 2 ? n : 2;
+
+    if (t->comm[9] > used)
+      memcpy(comm + 36, &used, 4);
+  }
   if (isp_cmd(ISP_COMM_INIT, comm) || isp_cmd(ISP_COMM_INIT_VPSS, comm))
     return -1;
   /* XM232: the sensors' inputs, as captured */

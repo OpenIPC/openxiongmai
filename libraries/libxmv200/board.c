@@ -23,6 +23,9 @@
 
 #define SYS 0x20000000
 #define VI 0x30000000
+/* a VB buffer this big (an 8 MP picture, 12 MB; 5 MP is 7 MB) is one of two:
+ * three of each, for the stream and the ISP output, would not fit MMZ */
+#define VB_BIG 0x800000
 
 /* the ISP's PLL, as the mode's program writes it: through /dev/mem with the
  * clock block unlocked and a wait after each control write (0x10), or
@@ -259,7 +262,8 @@ const char *xmv200_chip_name(void) {
     return name;
   f = fopen("/proc/cpuinfo", "r");
   while (f && fgets(line, sizeof(line), f)) {
-    char *m = strstr(line, "xm5");
+    /* "xm530v200", "xm533", "xm535d1"..., "xm232" */
+    char *m = strstr(line, "xm5") ? strstr(line, "xm5") : strstr(line, "xm2");
 
     if (strncmp(line, "Hardware", 8) || !m)
       continue;
@@ -626,6 +630,18 @@ static int layout_board(const struct xmv200_layout *l, struct board *b) {
       if (l->sensor[c].efsync)
         b->isp.attr.sync_cfg = l->sensor[c].efsync > 0 ? 0x11 : 0;
     }
+    /* XM232: the sync setting is the camera count, as its isp daemon takes
+     * it from Isp.json's U8CamNum (the slaves' trigger divides by it), and
+     * the daemon makes the attribute byte 0x11 for two cameras, 0x19 for
+     * three (the frame length follows it) */
+    if (b->isp.attr.sync && b->isp.drv->family &&
+        !strcmp(b->isp.drv->family, "xm232") && l->n_sensors > 0) {
+      b->isp.attr.sync_cfg = (uint32_t)l->n_sensors;
+      if (l->n_sensors == 2)
+        b->isp.attr.vmode = 0x11;
+      else if (l->n_sensors == 3)
+        b->isp.attr.vmode = 0x19;
+    }
     /* synced on two lanes with no master named: the last sensor, as the
      * vendor's X9-WE2Q (SensorSync 0x100) */
     if (b->isp.attr.sync && b->isp.attr.lanes == 2 &&
@@ -806,16 +822,18 @@ static int layout_start(const struct xmv200_layout *l,
                     popcount(b->stream[s].groups) * 3 / 2;
 
     /* small pictures get two more: equal sizes share buffers (vb.ko takes
-     * the best fit), and a faster sensor's would take them all */
+     * the best fit), and a faster sensor's would take them all; 8 MP ones
+     * two in all, one filled while the other is read */
     pools[np++] = (struct xmv200_vb_pool){
-        size, chip->vb_count + (size < 0x100000 ? 2 : 0)};
+        size, size >= VB_BIG ? 2 : chip->vb_count + (size < 0x100000 ? 2 : 0)};
   }
   /* the BPU's picture: the width rounded up (SC5239AI's 2600 takes 2608) */
-  if (chip->isp_pool)
-    pools[np++] = (struct xmv200_vb_pool){
-        ((b->isp.tuning->width + 15) & ~15u) *
-            ((b->isp.tuning->height + 15) & ~15u) * 3 / 2,
-        3};
+  if (chip->isp_pool) {
+    uint32_t size = ((b->isp.tuning->width + 15) & ~15u) *
+                    ((b->isp.tuning->height + 15) & ~15u) * 3 / 2;
+
+    pools[np++] = (struct xmv200_vb_pool){size, size >= VB_BIG ? 2 : 3};
+  }
   if (!chip->vi_mu && xmv200_vb_init(pools, np))
     return -1;
 

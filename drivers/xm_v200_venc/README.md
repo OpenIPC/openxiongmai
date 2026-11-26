@@ -24,7 +24,9 @@ VPSS (or VI) hands the pictures bound to VENC to vb.ko's VENC list. A thread tak
 
 Like `open_vb`, it has to know vb.ko's buffer descriptors: `VENC_LAYOUT=v200` (XM530V200, XM533), `xm535` or `xm232` at build time. It needs `vb_get_buf`/`vb_put_buf` (open_vb or the vendor's) and `rgn.ko`'s `osd_process` (and `comp_osd_process` on the XM535).
 
-Not here yet: the XM535's `venc.ko` also carries the vendor encoder's memory manager (`/dev/venc_mem`), which only the vendor's Sofia uses.
+The XM535's `venc.ko` also carries the encoder memory book-keeping, `/dev/venc_mem` and `/proc/umap/venc_mem`, which only the vendor's Sofia uses. It is the XM533's `venc_mem.ko` code unchanged (only its init differs), so `VENC_LAYOUT=xm535` builds `drivers/xm533_venc_mem` into `open_venc.ko` and starts it first, as the vendor module does.
+
+On the XM232, `/proc/umap/venc` and `/proc/umap/h26x` are the vendor's: both print the channel settings user space hands in (`0x41a04901`), the VB FIFO counters, `fifo_depth` and the 16 bytes of `0x40104904` (the encoder thread's status).
 
 ```sh
 make -C drivers/xm_v200_venc KDIR=... ARCH=arm CROSS_COMPILE=... VENC_LAYOUT=xm535

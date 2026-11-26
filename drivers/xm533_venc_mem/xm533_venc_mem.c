@@ -13,6 +13,9 @@
  *   0xc02c5605  a part: name[32], size; phys and virt back
  *   0x402c5606  that part back (by virt)
  *   0x5600      every channel's book-keeping cleared
+ *
+ * The XM535's venc.ko carries the same code, started from its own init:
+ * xm_v200_venc includes this file with VENC_MEM_EMBEDDED for that.
  */
 
 #include <linux/fs.h>
@@ -26,7 +29,7 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 
-#define N_CHN 32
+#define VM_N_CHN 32
 #define GUARD "MEMORY BARRIERS" /* 16 bytes with its 0 */
 
 #define VM_RESET 0x5600
@@ -53,7 +56,7 @@ static struct {
 	u32 created;
 	struct arg a;
 	struct list_head parts;
-} chns[N_CHN];
+} chns[VM_N_CHN];
 static int cur = -1;
 static DEFINE_MUTEX(vm_lock);
 
@@ -157,7 +160,7 @@ static long venc_mem_ioctl(struct file *file, unsigned int cmd,
 	mutex_lock(&vm_lock);
 	switch (cmd) {
 	case VM_RESET:
-		for (i = 0; i < N_CHN; i++)
+		for (i = 0; i < VM_N_CHN; i++)
 			if (chns[i].created)
 				chn_clear(i);
 		cur = -1;
@@ -165,7 +168,7 @@ static long venc_mem_ioctl(struct file *file, unsigned int cmd,
 	case VM_SET_CHN:
 		if (get_user(c, (u32 __user *)u)) {
 			ret = -EFAULT;
-		} else if (c >= N_CHN) {
+		} else if (c >= VM_N_CHN) {
 			pr_err("invalid chn %d\n", c);
 			ret = -EINVAL;
 		} else if (cur != -1) {
@@ -227,8 +230,11 @@ static long venc_mem_ioctl(struct file *file, unsigned int cmd,
 			ret = part_free(a.virt);
 		else {
 			ret = part_alloc(&a);
-			if (copy_to_user(u, &a, sizeof(a)))
+			/* a part the caller was not told of goes back */
+			if (copy_to_user(u, &a, sizeof(a)) && !ret) {
+				part_free(a.virt);
 				ret = -EFAULT;
+			}
 		}
 		break;
 	default:
@@ -246,7 +252,7 @@ static int venc_mem_show(struct seq_file *s, void *v)
 	seq_puts(s, "[VENC_MEM] openxiongmai xm533_venc_mem\n\n");
 	seq_puts(s, "CHN--START-----------SIZE----------------OVERFLOW----NAME--------------\n");
 	mutex_lock(&vm_lock);
-	for (c = 0; c < N_CHN; c++) {
+	for (c = 0; c < VM_N_CHN; c++) {
 		u32 used = 0;
 
 		if (!chns[c].created)
@@ -300,11 +306,19 @@ static struct miscdevice venc_mem_misc = {
 	.fops = &venc_mem_fops,
 };
 
-static int __init xm533_venc_mem_init(void)
+#ifdef VENC_MEM_EMBEDDED
+#define VM_INIT
+#define VM_EXIT
+#else
+#define VM_INIT __init
+#define VM_EXIT __exit
+#endif
+
+static int VM_INIT xm533_venc_mem_init(void)
 {
 	int c, ret;
 
-	for (c = 0; c < N_CHN; c++)
+	for (c = 0; c < VM_N_CHN; c++)
 		INIT_LIST_HEAD(&chns[c].parts);
 	proc_create("umap/venc_mem", 0444, NULL, &venc_mem_proc_fops);
 	ret = misc_register(&venc_mem_misc);
@@ -313,18 +327,20 @@ static int __init xm533_venc_mem_init(void)
 	return ret;
 }
 
-static void __exit xm533_venc_mem_exit(void)
+static void VM_EXIT xm533_venc_mem_exit(void)
 {
 	int c;
 
 	misc_deregister(&venc_mem_misc);
 	remove_proc_entry("umap/venc_mem", NULL);
-	for (c = 0; c < N_CHN; c++)
+	for (c = 0; c < VM_N_CHN; c++)
 		if (chns[c].created)
 			chn_clear(c);
 }
 
+#ifndef VENC_MEM_EMBEDDED
 module_init(xm533_venc_mem_init);
 module_exit(xm533_venc_mem_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("XM533 encoder memory book-keeping, compatible with venc_mem.ko");
+#endif
