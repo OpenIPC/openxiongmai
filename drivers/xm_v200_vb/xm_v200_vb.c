@@ -44,6 +44,7 @@
 #include <linux/list.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
 #include <linux/seq_file.h>
@@ -126,6 +127,16 @@ static struct list_head lists[N_LISTS];
 static wait_queue_head_t waits[N_LISTS];
 static LIST_HEAD(all_bufs);
 static DEFINE_SPINLOCK(vb_lock);
+#ifdef VB_LAYOUT_XM232
+/* the overrun check maps the buffers' markers: not while VB_FREE gives
+ * their blocks back */
+static DEFINE_MUTEX(blocks_lock);
+#define BLOCKS_LOCK() mutex_lock(&blocks_lock)
+#define BLOCKS_UNLOCK() mutex_unlock(&blocks_lock)
+#else
+#define BLOCKS_LOCK() do { } while (0)
+#define BLOCKS_UNLOCK() do { } while (0)
+#endif
 static const char marker[16] = "MEMORY BARRIERS";
 
 static int pool_of(u32 size)
@@ -391,6 +402,7 @@ static void vb_free_blocks(void)
 	u32 size;
 	int l;
 
+	BLOCKS_LOCK();
 	spin_lock_irqsave(&vb_lock, flags);
 	for (l = 0; l <= 2; l += 2)
 		list_for_each_entry_safe (b, n, &lists[l], node)
@@ -401,6 +413,7 @@ static void vb_free_blocks(void)
 			mmz_free(WORD(b, W_PHYS), &size);
 		list_del_init(&b->node);
 	}
+	BLOCKS_UNLOCK();
 }
 
 /* a descriptor address from user space, if it is one of ours */
@@ -543,10 +556,13 @@ static void show_list(struct seq_file *s, struct list_head *l)
 
 #ifdef VB_LAYOUT_XM232
 /* XM232's vb.ko lists every buffer with OverFlow: 1 when the 16 bytes at
- * Addr - 16 + ALIGN(Size + 0x10 + 0x1f, 32) are not the marker */
+ * Addr - 16 + ALIGN(Size + 0x10 + 0x1f, 32) are not the marker. The empty
+ * buffers (DUMMIES), size 0 and no block, have none: 1, as the vendor's
+ * prints them, without mapping what their address would make of it */
 struct all_row {
 	void *node;
 	u32 w[10];
+	int over;
 };
 
 static void show_all_xm232(struct seq_file *s)
@@ -564,6 +580,7 @@ static void show_all_xm232(struct seq_file *s)
 	rows = kcalloc(max ? max : 1, sizeof(*rows), GFP_KERNEL);
 	if (!rows)
 		return;
+	BLOCKS_LOCK();
 	spin_lock_irqsave(&vb_lock, flags);
 	list_for_each_entry (b, &all_bufs, all) {
 		if (n == max)
@@ -586,18 +603,25 @@ static void show_all_xm232(struct seq_file *s)
 		const u32 *w = rows[i].w;
 		char got[sizeof(marker)];
 		void __iomem *m;
-		int over = 1;
 
+		rows[i].over = 1;
+		if (!w[0] || !w[2])
+			continue;
 		m = ioremap(w[0] - 0x10 + ((w[2] + 0x2f) & ~0x1fu),
 			    sizeof(marker));
 		if (m) {
 			memcpy_fromio(got, m, sizeof(got));
 			iounmap(m);
-			over = memcmp(got, marker, sizeof(marker)) != 0;
+			rows[i].over = memcmp(got, marker, sizeof(marker)) != 0;
 		}
+	}
+	BLOCKS_UNLOCK();
+	for (i = 0; i < n; i++) {
+		const u32 *w = rows[i].w;
+
 		seq_printf(s, "%-8p  %-8x  %-8x  %-8x  %-6d  %-5d  %-6d  %-6d  %-7d  %-7d  %-9d  %-8d\n",
 			   rows[i].node, w[0], w[1], w[2], w[3], w[4], w[5],
-			   w[6], w[7], w[8], w[9], over);
+			   w[6], w[7], w[8], w[9], rows[i].over);
 	}
 	kfree(rows);
 }
