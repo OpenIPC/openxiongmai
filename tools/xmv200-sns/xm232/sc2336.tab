@@ -1,0 +1,6 @@
+# name address pairs what-the-vendor-logs
+# The XM232's libsns runs its SC2336 with the functions it logs as
+# SC2337P_2M. The init writes a table, then the channel's frame-sync writes,
+# 0x302c = 0 and the stream on (sns_sc2336.c's xm232_init).
+xm232_sc2336_mipi_1lane 0x51b06 153 SC2337P_2M (mipi_1lane)
+xm232_sc2336_dvp 0x51d6a 162 SC2337P_2M (dvp)

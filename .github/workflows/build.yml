@@ -43,7 +43,7 @@ jobs:
 
       - name: make check, every chip family
         run: |
-          for f in xm530v200 xm533 xm535 xm535w1; do
+          for f in xm530v200 xm533 xm535 xm535w1 xm232; do
             echo "::group::$f"
             make -C tools/xmv200-sns check FAMILY=$f
             echo "::endgroup::"

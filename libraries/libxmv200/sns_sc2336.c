@@ -921,3 +921,136 @@ const struct xmv200_sns_drv xmv200_sns_sc2337p_xm533 = {
     .set_gain = xm533_p_set_gain,
     .set_flip = xm533_set_flip,
 };
+
+/* ---- XM232 ---- */
+
+/*
+ * The XM232's libsns (isp, Mar 2 2026; X6S-WEQ-H V5.03.C01) runs its SC2336
+ * (0xcb3a) with the functions it logs as SC2337P_2M: one table for MIPI on
+ * one lane and one for DVP. On frame-synced boards (the X6S-WEQ-H's two
+ * sensors) the init then writes every channel but 1 the slaves' FSYNC set
+ * and channel 1 the master's; a MIPI board whose attribute byte is 0x61
+ * also sets 0x3652's low bits to 2; then 0x302c = 0 and the stream on.
+ *
+ * Its frame rate: line length 66000 / fps (5280 at 12 fps), frame length
+ * by the attribute byte (0x11: 2250; 8 and 27: 4500; 25: 2200 x 3375;
+ * otherwise 1125), a slave's one line short, and a slave's trigger at
+ * 0x3230/1 by its place against the sync setting (1129, 2254 or 3379).
+ * Exposure, gain and its steps are the SC2337P's; mirror is 0x06 and flip
+ * 0x60 in 0x3221, no channel turned round.
+ *
+ * The attribute byte, sync and sync setting the X6S-WEQ-H's capture shows:
+ * 0x11, on, 2 (1 would give the same trigger).
+ */
+extern const struct xmv200_sns_reg xm232_sc2336_mipi_1lane[153],
+    xm232_sc2336_dvp[162];
+
+#define XM232_SYNC_MODE(nm, dv, one, t)                                        \
+  {nm, {dv, one, 0, 0, 0x11, 0, 1, 0, 0, 2}, t, N(t)}
+
+static const struct xmv200_sns_mode xm232_sc2336_modes[] = {
+    XM232_SYNC_MODE("1080p mipi 1 lane, frame sync", 0, 1,
+                    xm232_sc2336_mipi_1lane),
+    MODE("1080p mipi 1 lane", 0, 1, 0, xm232_sc2336_mipi_1lane),
+    XM232_SYNC_MODE("1080p dvp, frame sync", 1, 0, xm232_sc2336_dvp),
+    MODE("1080p dvp", 1, 0, 0, xm232_sc2336_dvp),
+};
+
+static void xm232_init(const struct xmv200_sns_dev *d,
+                       const struct xmv200_sns_mode *m,
+                       const struct xmv200_sns_attr *a) {
+  static const struct xmv200_sns_reg fsync[] = {{0x3222, 0x02},
+                                                {0x322e, 0x04},
+                                                {0x322f, 0x61},
+                                                {0x3224, 0x82},
+                                                {0x300a, 0x24}};
+
+  reset_state(d->chn);
+  table(d, m);
+  if (a->sync && d->chn == 1) {
+    w(d, 0x300a, 0x24);
+    w(d, 0x3032, 0xa0);
+  } else if (a->sync) {
+    for (int i = 0; i < N(fsync); i++)
+      w(d, fsync[i].reg, fsync[i].val);
+  }
+  if (!a->dvp && a->vmode == 0x61)
+    w(d, 0x3652, (r(d, 0x3652) & 0xf8) | 0x02);
+  w(d, 0x302c, 0x00);
+  w(d, 0x0100, 0x01);
+  usleep(10000);
+}
+
+static void xm232_ae_default(const struct xmv200_sns_attr *a,
+                             struct xmv200_sns_ae *ae) {
+  ae_limits(ae, 1125, 1119);
+}
+
+static void xm232_set_fps(const struct xmv200_sns_dev *d,
+                          const struct xmv200_sns_attr *a, uint32_t fps,
+                          struct xmv200_sns_ae *ae) {
+  static const uint32_t trigger[] = {1129, 2254, 3379};
+  uint32_t slave = a->sync && d->chn != 1;
+  uint32_t hts = fps == 12 ? 5280 : 66000 / (fps ? fps : 1), vts;
+
+  switch (a->vmode) {
+  case 0x11:
+    vts = 2250;
+    break;
+  case 8:
+  case 27:
+    vts = 4500;
+    break;
+  case 25:
+    hts = 2200, vts = 3375;
+    break;
+  default:
+    vts = 1125;
+  }
+  ae->full_lines = vts;
+  ae->max_lines = a->sync ? 1119 : vts - 6;
+  vts -= slave;
+  if (slave) {
+    uint32_t t = trigger[0];
+
+    for (int k = 0; k < N(trigger); k++)
+      if (a->sync_cfg && d->chn == (2u + k) % a->sync_cfg) {
+        t = trigger[k];
+        break;
+      }
+    w(d, 0x3230, t >> 8);
+    w(d, 0x3231, t & 0xff);
+  }
+  clamp_exposure(d, ae);
+  w(d, 0x320c, hts >> 8);
+  w(d, 0x320d, hts & 0xff);
+  w(d, 0x320e, vts >> 8);
+  w(d, 0x320f, vts & 0xff);
+  if (d->chn < MAX_CHN)
+    st[d->chn].vts = vts;
+}
+
+static void xm232_set_flip(const struct xmv200_sns_dev *d, int mirror,
+                           int flip) {
+  uint32_t v = r(d, 0x3221);
+
+  v = mirror ? v | 0x06 : v & ~0x06u;
+  v = flip ? v | 0x60 : v & ~0x60u;
+  w(d, 0x3221, v);
+}
+
+const struct xmv200_sns_drv xmv200_sns_sc2336_xm232 = {
+    .name = "SC2336",
+    .family = "xm232",
+    .modes = xm232_sc2336_modes,
+    .n_modes = N(xm232_sc2336_modes),
+    .init = xm232_init,
+    .ae_default = xm232_ae_default,
+    .set_fps = xm232_set_fps,
+    .set_vts = set_vts,
+    .set_exposure = set_exposure,
+    .again_calc = again_calc,
+    .dgain_calc = dgain_calc,
+    .set_gain = gain_write,
+    .set_flip = xm232_set_flip,
+};
